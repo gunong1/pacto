@@ -42,3 +42,5 @@ example
 /ios
 /android
 e2e/shots/
+
+.env
