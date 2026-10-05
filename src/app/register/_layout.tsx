@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, Stack } from 'expo-router';
 import { Pressable } from 'react-native';
 
+import { documentStore } from '@/data';
 import { useRegistration } from '@/features/registration/store';
 import { colors, hitSlop, typography } from '@/theme';
 
@@ -12,7 +13,10 @@ function CloseButton() {
       accessibilityLabel="닫기"
       testID="register-close"
       onPress={() => {
-        useRegistration.getState().reset();
+        // 저장하지 않은 업로드는 정리 (계약에 연결되지 않은 원본만 삭제)
+        const { uploaded, reset } = useRegistration.getState();
+        documentStore.discard(uploaded.map((d) => d.id)).catch(() => undefined);
+        reset();
         router.dismissTo('/');
       }}>
       <Ionicons name="close" size={24} color={colors.text} />

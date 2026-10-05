@@ -29,10 +29,18 @@
 ## 구현 현황
 | Step | 상태 | 비고 |
 |---|---|---|
-| 1 프로젝트 셋업 | 완료 | 로컬 `pacto/` (Expo SDK 57, Router, TS strict, ESLint, Jest). Git 원격 미연결 |
-| 2 domain 로직 | 완료 | 단위 테스트 26개 (D-87 / D-57 / D-268, 월환산 114,000원 등 검증) |
-| 3 디자인 시스템 | 완료 | `src/theme`, `src/components/ui`, `src/components/pacto` |
-| 4 Mock 화면 | 완료 | 필수 흐름 10단계 웹 E2E 통과 (`e2e/web-flow.js`). 실기기 UX 검토 대기 |
+| 1~4 | 완료·승인 | mock 기반 화면, domain 로직, 디자인 시스템 |
+| 5 Supabase 기반 | 완료 | P0 6개 테이블, RLS, private `contract-files` 버킷, `save_contract` RPC, 타입 생성. 로컬 스택에서 검증 (클라우드 연결은 `docs/SUPABASE_SETUP.md`) |
+| 6 인증 | 완료 | 이메일(가입·로그인·로그아웃·세션 유지·재설정·탈퇴), Apple/Google OAuth 구조 (공급자 키는 대시보드 설정 필요) |
+| 7 계약 CRUD | 완료 | `SupabaseContractRepository` — 화면 코드는 저장소 교체만으로 동작 |
+| 8 원본 보관 | 완료 | PDF/JPEG/PNG(HEIC→JPEG), Signed URL(120초) 열람, 취소 시 정리, 계약 삭제·탈퇴 시 파일 삭제 |
+| 9 실제 AI | 대기 | 실제 계약서 샘플로 모델별 추출 정확도 비교 후 결정 |
+
+구현 중 결정 사항
+- P0 동안 AI 체크는 `contracts.ai_checks`(jsonb)에 저장 → P1에서 `contract_ai_reviews`로 정규화
+- `analysis_jobs`는 테이블만 두고 mock 단계에서는 기록하지 않음 (Step 9에서 Edge Function이 상태·결과 기록, 그때 RLS의 mock 예외 제거)
+- 저장되지 않은 업로드: 등록 취소 시 앱에서 정리. 앱 강제 종료 등으로 남는 경우를 위한 서버 정리 작업(cron)은 출시 전 추가 필요
+- Edge Function은 외부 패키지 없이 Supabase REST API만 사용 (공급망 의존 최소화)
 
 ## 개정 2 (2026-10-05) — "계약 지갑" 정체성 강화
 | # | 변경 | 반영 위치 |

@@ -17,7 +17,7 @@ import { colors, radius, spacing } from '@/theme';
 /** "AI가 정리한 계약정보를 확인해주세요." — 저장 전 필수 확인/수정 단계. AI 체크는 폼 아래 보조 영역. */
 export default function ReviewScreen() {
   const today = useToday();
-  const { extraction, files, method } = useRegistration();
+  const { extraction, files, method, uploaded } = useRegistration();
   const create = useCreateContract();
   const model = useMemo(() => (extraction ? toReviewModel(extraction) : null), [extraction]);
   // 저장 후 초안을 비울 때 "초안 없음 → 처음으로" 이동이 일어나지 않도록
@@ -87,7 +87,7 @@ export default function ReviewScreen() {
           {
             draft,
             source: 'upload',
-            documents: files.map((f) => ({ fileName: f.name, mimeType: f.mimeType, sizeBytes: f.size, storagePath: null, localUri: f.uri, pageCount: null })),
+            documents: uploaded.map((d) => ({ id: d.id, fileName: d.fileName, mimeType: d.mimeType, sizeBytes: d.sizeBytes, storagePath: d.storagePath, localUri: d.localUri, pageCount: null })),
             aiChecks: extraction.checks.map((c) => ({ ...c, status: 'new' as const })),
           },
           {

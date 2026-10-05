@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useMemo } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { Amount, CategoryIcon, DDay, EVENT_COLOR, SeverityLabel, StatusBadge } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SwitchRow } from '@/components/ui/controls';
 import { Divider, EmptyState, KeyValueRow, Screen, Section, SectionGap } from '@/components/ui/layout';
+import { documentStore } from '@/data';
 import { AI_DISCLAIMER } from '@/domain/aiCopy';
 import { addMonths, formatDateKo } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
@@ -18,7 +20,8 @@ import { contractMonthlyEquivalent } from '@/domain/spending';
 import { currentTerm, deriveStatus } from '@/domain/status';
 import { CATEGORY_PROFILES, isActionable, nextAction } from '@/domain/nextAction';
 import type { AiCheck, ContractPayment, ContractRecord } from '@/domain/types';
-import { useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
+import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
+import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
@@ -29,9 +32,26 @@ function paymentRule(p: ContractPayment) {
   return `${FREQUENCY_LABEL[p.frequency]} ${day}`.trim();
 }
 
-/** 원본 계약서 열기. Step 8: 비공개 저장소 Signed URL로 연결 */
-function openOriginal(_doc: ContractRecord['documents'][number]) {
-  notify('계약서 원본', '원본 열람은 보안 저장소 연결(Step 8) 이후 제공됩니다. 계약서는 본인만 접근 가능한 비공개 저장소에 보관됩니다.');
+/**
+ * 원본 계약서 열기 — 비공개 저장소의 짧은 Signed URL(2분)로만 연다. 공개 URL은 사용하지 않는다.
+ * 웹은 팝업 차단을 피하기 위해 탭을 먼저 연 뒤 주소를 넣는다.
+ */
+async function openOriginal(doc: ContractRecord['documents'][number]) {
+  const tab = Platform.OS === 'web' ? window.open('', '_blank') : null;
+  try {
+    const url = await documentStore.openUrl(doc);
+    if (Platform.OS === 'web') {
+      if (tab) {
+        tab.opener = null;
+        tab.location.href = url;
+      } else window.location.href = url;
+    } else {
+      await WebBrowser.openBrowserAsync(url);
+    }
+  } catch (e) {
+    tab?.close();
+    notify('계약서 원본', e instanceof Error ? e.message : '원본을 열지 못했어요.');
+  }
 }
 
 export default function ContractDetailScreen() {
@@ -40,6 +60,11 @@ export default function ContractDetailScreen() {
   const { data: record, isLoading } = useContract(id);
   const actions = useContractActions(id);
   const remove = useRemoveContract();
+  const attach = useAttachOriginal(id);
+  const attachOriginal = async (kind: 'pdf' | 'photo') => {
+    const files = kind === 'pdf' ? await pickPdf() : await pickPhotos();
+    if (files) attach.mutate(files, { onError: (e) => notify('원본 추가', e instanceof Error ? e.message : '원본을 보관하지 못했어요.') });
+  };
 
   const view = useMemo(() => {
     if (!record) return null;
@@ -276,14 +301,17 @@ export default function ContractDetailScreen() {
         <Section title="원본 계약서">
           {record.documents.length === 0 ? (
             <AppText variant="body2" color="textTertiary">
-              보관된 원본이 없어요. (직접 입력한 계약)
+              보관된 원본이 없어요. 계약서를 추가해두면 언제든 다시 꺼내볼 수 있어요.
             </AppText>
+          ) : null}
+          {record.documents.length === 0 ? (
+            <View style={styles.attachRow}>
+              <Button label="PDF 추가" size="sm" variant="secondary" loading={attach.isPending} onPress={() => attachOriginal('pdf')} testID="attach-pdf" />
+              <Button label="사진 추가" size="sm" variant="secondary" loading={attach.isPending} onPress={() => attachOriginal('photo')} testID="attach-photo" />
+            </View>
           ) : (
             record.documents.map((d) => (
-              <Pressable
-                key={d.id}
-                style={styles.doc}
-                onPress={() => openOriginal(d)}>
+              <Pressable key={d.id} style={styles.doc} onPress={() => openOriginal(d)} accessibilityRole="button" testID={`document-${d.id}`}>
                 <Ionicons name={d.mimeType === 'application/pdf' ? 'document-outline' : 'image-outline'} size={22} color={colors.textSecondary} />
                 <View style={{ flex: 1 }}>
                   <AppText variant="body2Strong" numberOfLines={1}>
@@ -418,6 +446,7 @@ const styles = StyleSheet.create({
   eventRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   done: { textDecorationLine: 'line-through', color: colors.textTertiary },
+  attachRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   doc: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10 },
   check: { paddingVertical: spacing.md },
   checkHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

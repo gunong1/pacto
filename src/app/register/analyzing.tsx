@@ -6,7 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { aiProvider } from '@/data';
+import { aiProvider, documentStore } from '@/data';
+import { DocumentError } from '@/data/documents';
 import { useRegistration } from '@/features/registration/store';
 import { useToday } from '@/features/contracts/queries';
 import { colors, spacing } from '@/theme';
@@ -19,8 +20,10 @@ export default function AnalyzingScreen() {
   const today = useToday();
   const files = useRegistration((s) => s.files);
   const setExtraction = useRegistration((s) => s.setExtraction);
+  const setUploaded = useRegistration((s) => s.setUploaded);
+  const [phase, setPhase] = useState<'upload' | 'analyze'>('upload');
   const [step, setStep] = useState(0);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<null | { title: string; message: string; uploadFailed: boolean }>(null);
   const [attempt, setAttempt] = useState(0);
   // 분석이 끝난 뒤(저장 후 초안 초기화 등) 다시 실행되지 않도록
   const done = useRef(false);
@@ -32,45 +35,68 @@ export default function AnalyzingScreen() {
       return;
     }
     const controller = new AbortController();
-    const timer = setInterval(() => setStep((s) => Math.min(s + 1, FIELDS.length)), 330);
-    aiProvider
-      .extractContract({ files, today }, controller.signal)
-      .then((result) => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    (async () => {
+      // ① 원본 보관: 비공개 저장소에 먼저 올린다 (분석이 실패해도 원본은 남는다)
+      let docs = useRegistration.getState().uploaded;
+      if (docs.length < files.length) {
+        try {
+          docs = [];
+          for (let i = 0; i < files.length; i++) docs.push(await documentStore.upload(files[i], { sortOrder: i }));
+          setUploaded(docs);
+        } catch (e) {
+          if (docs.length > 0) documentStore.discard(docs.map((d) => d.id)).catch(() => undefined);
+          if (!controller.signal.aborted) {
+            setFailed({ title: '계약서를 보관하지 못했어요', message: e instanceof DocumentError ? e.message : '네트워크를 확인하고 다시 시도해주세요.', uploadFailed: true });
+          }
+          return;
+        }
+      }
+      if (controller.signal.aborted) return;
+      // ② 계약정보 정리 (Step 9 전까지 mock)
+      setPhase('analyze');
+      timer = setInterval(() => setStep((v) => Math.min(v + 1, FIELDS.length)), 330);
+      try {
+        const result = await aiProvider.extractContract({ files, today }, controller.signal);
         done.current = true;
         setExtraction(result);
         router.replace('/register/review');
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setFailed(true);
-      })
-      .finally(() => clearInterval(timer));
+      } catch {
+        if (!controller.signal.aborted) {
+          setFailed({ title: '계약서를 읽지 못했어요', message: '원본은 보관되었어요. 계약정보는 직접 입력해서 저장할 수 있어요.', uploadFailed: false });
+        }
+      } finally {
+        clearInterval(timer);
+      }
+    })();
     return () => {
       controller.abort();
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
-  }, [files, today, setExtraction, attempt]);
+  }, [files, today, setExtraction, setUploaded, attempt]);
 
   if (failed) {
     return (
       <SafeAreaView style={styles.safe} edges={['bottom']}>
         <View style={styles.center}>
           <AppText variant="title2" align="center">
-            계약서를 읽지 못했어요
+            {failed.title}
           </AppText>
           <AppText variant="body2" color="textSecondary" align="center" style={{ marginTop: spacing.sm }}>
-            사진이 흐리거나 지원하지 않는 형식일 수 있어요.
+            {failed.message}
           </AppText>
         </View>
         <View style={styles.actions}>
           <Button
             label="다시 시도"
             onPress={() => {
-              setFailed(false);
+              setFailed(null);
               setStep(0);
+              setPhase('upload');
               setAttempt((a) => a + 1);
             }}
           />
-          <Button label="직접 입력으로 계속하기" variant="secondary" onPress={() => router.replace('/register/manual')} />
+          {!failed.uploadFailed ? <Button label="직접 입력으로 계속하기" variant="secondary" onPress={() => router.replace('/register/manual')} /> : null}
         </View>
       </SafeAreaView>
     );
@@ -81,10 +107,12 @@ export default function AnalyzingScreen() {
       <View style={styles.body}>
         <ActivityIndicator size="large" color={colors.primary} style={{ alignSelf: 'flex-start' }} />
         <AppText variant="title2" style={{ marginTop: spacing.xl }}>
-          계약서를 확인하고 있어요.
+          {phase === 'upload' ? '계약서를 안전하게 보관하고 있어요.' : '계약서를 확인하고 있어요.'}
         </AppText>
         <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
-          아래 정보를 정리하고 있습니다. 정리가 끝나면 저장 전에 직접 확인할 수 있어요.
+          {phase === 'upload'
+            ? '원본은 본인만 열람할 수 있는 비공개 저장소에 보관됩니다.'
+            : '아래 정보를 정리하고 있습니다. 정리가 끝나면 저장 전에 직접 확인할 수 있어요.'}
         </AppText>
         <View style={styles.fields} testID="analyzing-fields">
           {FIELDS.map((f, i) => {

@@ -4,9 +4,12 @@ import { todayInSeoul } from '@/domain/dates';
 import type { AIProvider } from './ai/provider';
 import { MockAIProvider } from './ai/MockAIProvider';
 import { MockContractRepository } from './mock/MockContractRepository';
+import { MockDocumentStore, type DocumentStore } from './documents';
 import type { ContractRepository } from './repository';
 import { supabase } from './supabase/client';
 import { SupabaseContractRepository } from './supabase/SupabaseContractRepository';
+import { SupabaseDocumentStore } from './supabase/SupabaseDocumentStore';
+import { prepareFile } from './supabase/prepareFile';
 
 /**
  * 구현체 선택 지점.
@@ -16,6 +19,8 @@ import { SupabaseContractRepository } from './supabase/SupabaseContractRepositor
  */
 export const contractRepository: ContractRepository =
   isSupabaseConfigured && supabase ? new SupabaseContractRepository(supabase, () => todayInSeoul()) : new MockContractRepository();
+export const documentStore: DocumentStore =
+  isSupabaseConfigured && supabase ? new SupabaseDocumentStore(supabase, prepareFile) : new MockDocumentStore();
 export const aiProvider: AIProvider = new MockAIProvider();
 
-export type { AIProvider, ContractRepository };
+export type { AIProvider, ContractRepository, DocumentStore };

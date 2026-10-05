@@ -14,6 +14,8 @@ export interface PickedFile {
   uri: string;
   mimeType: string;
   size: number | null;
+  /** 이미지 가로 픽셀 (큰 사진 축소 판단용) */
+  width?: number | null;
 }
 
 export interface ExtractInput {

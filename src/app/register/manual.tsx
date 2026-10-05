@@ -6,12 +6,14 @@ import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm } from '@/features/contracts/form';
 import { useCreateContract, useToday } from '@/features/contracts/queries';
 import { finishRegistration } from '@/features/registration/finish';
+import { useRegistration } from '@/features/registration/store';
 import { spacing } from '@/theme';
 
 /** 직접 입력 — 확인 화면과 같은 폼을 빈 값으로 사용. */
 export default function ManualEntryScreen() {
   const today = useToday();
   const create = useCreateContract();
+  const uploaded = useRegistration((s) => s.uploaded);
 
   return (
     <ContractForm
@@ -29,7 +31,13 @@ export default function ManualEntryScreen() {
       submitting={create.isPending}
       onSubmit={(draft) =>
         create.mutate(
-          { draft, source: 'manual', documents: [], aiChecks: [] },
+          {
+            draft,
+            // 분석 실패 후 직접 입력으로 넘어온 경우, 이미 보관한 원본을 함께 연결
+            source: uploaded.length > 0 ? 'upload' : 'manual',
+            documents: uploaded.map((d) => ({ id: d.id, fileName: d.fileName, mimeType: d.mimeType, sizeBytes: d.sizeBytes, storagePath: d.storagePath, localUri: d.localUri, pageCount: null })),
+            aiChecks: [],
+          },
           {
             onSuccess: (record) => {
               finishRegistration(record.contract.id);

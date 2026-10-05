@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-import { contractRepository } from '@/data';
+import { contractRepository, documentStore } from '@/data';
+import type { PickedFile } from '@/data/ai/provider';
 import type { ContractDraft, CreateContractInput, NewEventInput } from '@/data/repository';
 import { todayInSeoul } from '@/domain/dates';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
@@ -78,5 +79,16 @@ export function useRemoveContract() {
       qc.removeQueries({ queryKey: contractKeys.detail(id) });
       return qc.invalidateQueries({ queryKey: contractKeys.all });
     },
+  });
+}
+
+/** 이미 저장된 계약에 원본 계약서 추가 (직접 입력한 계약 등) */
+export function useAttachOriginal(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (files: PickedFile[]) => {
+      for (let i = 0; i < files.length; i++) await documentStore.upload(files[i], { contractId, sortOrder: i });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: contractKeys.all }),
   });
 }
