@@ -1,0 +1,53 @@
+import type {
+  ContractCategory,
+  ContractEventType,
+  ContractStatus,
+  PaymentFrequency,
+  ReviewSeverity,
+} from './types';
+
+export const CATEGORY_LABEL: Record<ContractCategory, string> = {
+  real_estate: '부동산',
+  vehicle: '자동차',
+  insurance: '보험',
+  telecom: '통신',
+  rental: '렌탈',
+  finance: '금융',
+  employment: '근로',
+  business: '사업',
+  membership: '회원권',
+  subscription: '구독',
+  other: '기타',
+};
+
+export const STATUS_LABEL: Record<ContractStatus, string> = {
+  active: '진행중',
+  ending_soon: '종료 임박',
+  renewal_due: '갱신 예정',
+  ended: '종료',
+  cancelled: '해지',
+};
+
+export const FREQUENCY_LABEL: Record<PaymentFrequency, string> = {
+  monthly: '매월',
+  bimonthly: '2개월마다',
+  quarterly: '분기마다',
+  semiannual: '6개월마다',
+  yearly: '매년',
+  one_time: '일시불',
+};
+
+export const SEVERITY_LABEL: Record<ReviewSeverity, string> = {
+  info: '일반',
+  check: '확인 필요',
+  caution: '주의 필요',
+};
+
+export const EVENT_TYPE_LABEL: Record<ContractEventType, string> = {
+  payment: '결제',
+  contract_start: '계약 시작',
+  contract_end: '계약 종료',
+  renewal: '자동갱신',
+  termination_notice: '해지 통보기한',
+  custom: '일정',
+};

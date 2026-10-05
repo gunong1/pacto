@@ -1,56 +1,43 @@
-# Welcome to your Expo app 👋
+# PACTO (팩토)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+> 내 모든 계약이 모이는 곳.
+> "계약서를 넣어두세요. 중요한 순간은 PACTO가 기억합니다."
 
-## Get started
+개인용 계약 지갑 앱 — 계약서 보관, 계약정보 자동정리, 일정·지출·종료/갱신/해지 통보기한 관리.
+설계 문서: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
-1. Install dependencies
+## 현재 상태: Step 1~4 (Mock Data)
 
-   ```bash
-   npm install
-   ```
+- Expo SDK 57 · Expo Router · TypeScript(strict) · TanStack Query · Zustand · React Hook Form + Zod
+- 데이터는 **인메모리 mock 저장소** (앱을 다시 시작하면 초기 mock으로 돌아감)
+- AI는 **MockAIProvider** (어떤 파일을 넣어도 "공기청정기 렌탈" 계약을 추출한 것처럼 응답)
+- 로그인은 mock (Apple/Google/이메일 버튼 모두 바로 진입)
+- **미연결**: Supabase, 실제 AI, 파일 업로드(Storage), Push Notification → Step 5 이후
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## 실행
 
 ```bash
-npm run reset-project
+npm install
+npx expo start          # Expo Go 앱으로 QR 스캔 (iOS/Android)
+npm run web             # 웹 미리보기 (http://localhost:8081)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 검증
 
-### Other setup steps
+```bash
+npm run check           # typecheck + lint + unit tests
+node e2e/web-flow.js    # 웹 미리보기 실행 중일 때, Step 4 필수 흐름 10단계 E2E
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+E2E가 확인하는 흐름: 앱 실행 → 홈 → 계약 목록 → 계약 상세 → 계약 등록(PDF) → AI mock 결과 확인/수정 → 저장 → 홈/목록 반영 → 캘린더 반영 → 월 지출 반영
 
-## Learn more
+## 구조
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```
+src/app/          라우트 (Expo Router) — 홈/계약/(+)/캘린더/MY 탭, 계약 상세, 등록 모달
+src/domain/       순수 TS 계산 로직 (D-Day, 상태, 해지 통보기한, 결제 전개, 지출, 알림 규칙)
+src/data/         저장소/AI 인터페이스 + mock 구현 (src/data/index.ts에서 구현체 교체)
+src/features/     화면용 훅, 폼 스키마, 등록 위저드 상태
+src/components/   디자인 시스템 (ui/) + PACTO 컴포넌트 (pacto/)
+src/theme/        디자인 토큰
+```

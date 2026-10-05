@@ -1,0 +1,115 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Pressable, StyleSheet, View } from 'react-native';
+
+import { AppText, type AppTextProps } from '@/components/ui/AppText';
+import { Badge } from '@/components/ui/controls';
+import { formatDDay } from '@/domain/dday';
+import { CATEGORY_LABEL, SEVERITY_LABEL, STATUS_LABEL } from '@/domain/labels';
+import { formatKRW, formatWon } from '@/domain/money';
+import type { ContractCategory, ContractEventType, ContractStatus, ReviewSeverity } from '@/domain/types';
+import { colors, radius, spacing } from '@/theme';
+
+/** D-Day: 7일 이내는 주의 색, 30일 이내는 강조 색. */
+export function DDay({ days, variant = 'title3', muted }: { days: number; variant?: AppTextProps['variant']; muted?: boolean }) {
+  const color = muted ? 'textTertiary' : days <= 7 ? 'caution' : days <= 30 ? 'primary' : 'text';
+  return (
+    <AppText variant={variant} color={color} tabular>
+      {formatDDay(days)}
+    </AppText>
+  );
+}
+
+export function Amount({ value, variant = 'body2Strong', won, color }: { value: number; variant?: AppTextProps['variant']; won?: boolean; color?: AppTextProps['color'] }) {
+  return (
+    <AppText variant={variant} tabular color={color}>
+      {won ? formatWon(value) : formatKRW(value)}
+    </AppText>
+  );
+}
+
+export function StatusBadge({ status }: { status: ContractStatus }) {
+  const tone = status === 'ending_soon' ? 'caution' : status === 'renewal_due' ? 'check' : status === 'active' ? 'primary' : 'neutral';
+  return <Badge label={STATUS_LABEL[status]} tone={tone} />;
+}
+
+export function SeverityLabel({ severity }: { severity: ReviewSeverity }) {
+  const tone = severity === 'caution' ? 'caution' : severity === 'check' ? 'check' : 'neutral';
+  return <Badge label={SEVERITY_LABEL[severity]} tone={tone} />;
+}
+
+const CATEGORY_ICON: Record<ContractCategory, keyof typeof Ionicons.glyphMap> = {
+  real_estate: 'home-outline',
+  vehicle: 'car-outline',
+  insurance: 'shield-checkmark-outline',
+  telecom: 'wifi-outline',
+  rental: 'cube-outline',
+  finance: 'card-outline',
+  employment: 'briefcase-outline',
+  business: 'business-outline',
+  membership: 'id-card-outline',
+  subscription: 'repeat-outline',
+  other: 'document-text-outline',
+};
+
+export function CategoryIcon({ category, size = 40 }: { category: ContractCategory; size?: number }) {
+  return (
+    <View
+      style={[styles.icon, { width: size, height: size, borderRadius: size / 2 }]}
+      accessibilityLabel={CATEGORY_LABEL[category]}>
+      <Ionicons name={CATEGORY_ICON[category]} size={size * 0.48} color={colors.textSecondary} />
+    </View>
+  );
+}
+
+export const EVENT_COLOR: Record<ContractEventType, string> = {
+  termination_notice: colors.caution,
+  contract_end: colors.check,
+  renewal: colors.check,
+  payment: colors.primary,
+  contract_start: colors.textTertiary,
+  custom: colors.accent,
+};
+
+/** 계약/일정 목록 한 줄: 아이콘 · 이름/보조 · 오른쪽 값 */
+export function ContractLine({
+  category,
+  title,
+  subtitle,
+  right,
+  onPress,
+  testID,
+}: {
+  category: ContractCategory;
+  title: string;
+  subtitle?: string;
+  right?: React.ReactNode;
+  onPress?: () => void;
+  testID?: string;
+}) {
+  return (
+    <Pressable testID={testID} onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} style={({ pressed }) => [styles.line, pressed && { opacity: 0.6 }]}>
+      <CategoryIcon category={category} />
+      <View style={{ flex: 1 }}>
+        <AppText variant="body2Strong" numberOfLines={1}>
+          {title}
+        </AppText>
+        {subtitle ? (
+          <AppText variant="caption" color="textTertiary" numberOfLines={1} style={{ marginTop: 2 }}>
+            {subtitle}
+          </AppText>
+        ) : null}
+      </View>
+      {right ? <View style={styles.right}>{right}</View> : null}
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  icon: { backgroundColor: colors.bgSubtle, alignItems: 'center', justifyContent: 'center' },
+  line: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10, minHeight: 60 },
+  right: { alignItems: 'flex-end' },
+});
+
+export const pactoStyles = StyleSheet.create({
+  panel: { backgroundColor: colors.bgSubtle, borderRadius: radius.lg, padding: spacing.lg },
+});
