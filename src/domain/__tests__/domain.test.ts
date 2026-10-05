@@ -1,9 +1,10 @@
 import { createMockRecords } from '@/data/mock/mockContracts';
 
-import { actionItems, statusSummary, upcomingEnds } from '../actions';
+import { statusSummary, upcomingEnds } from '../actions';
 import { findBannedPhrases } from '../aiCopy';
 import { addMonths, dateInMonth, diffDays, isValidISODate, todayInSeoul } from '../dates';
 import { dDayLabel, formatDDay } from '../dday';
+import { attentionItems, nextAction } from '../nextAction';
 import { formatKRW, formatWon, formatWonCompact, parseAmount } from '../money';
 import { upcomingReminders } from '../reminders';
 import { contractSchedule, expandPayment, nextPayment } from '../schedule';
@@ -168,10 +169,10 @@ describe('월 환산액', () => {
 describe('홈: 처리할 계약 / 곧 종료 / 상태 요약', () => {
   const records = createMockRecords();
 
-  test('30일 이내 행동 항목', () => {
-    const items = actionItems(records, TODAY);
-    expect(items.map((i) => `${i.contractId}:${i.kind}:${i.days}`)).toEqual(['c-jeonse:custom:25']);
-    const later = actionItems(records, '2026-11-25');
+  test('지금 확인이 필요한 계약 (60일 이내, 계약당 1건)', () => {
+    const items = attentionItems(records, TODAY);
+    expect(items.map((i) => `${i.contractId}:${i.kind}:${i.days}`)).toEqual(['c-jeonse:custom:25', 'c-gym:termination_notice:57']);
+    const later = attentionItems(records, '2026-11-25');
     expect(later[0]).toMatchObject({ contractId: 'c-gym', kind: 'termination_notice', days: 6 });
   });
 
@@ -188,6 +189,42 @@ describe('홈: 처리할 계약 / 곧 종료 / 상태 요약', () => {
   test('상태 요약', () => {
     expect(statusSummary(records, TODAY)).toEqual({ live: 8, endingSoon: 0, renewalDue: 0, closed: 0 });
     expect(statusSummary(records, '2026-12-15')).toMatchObject({ endingSoon: 1, renewalDue: 1 });
+  });
+});
+
+describe('다음 행동', () => {
+  test('계약 종류·조건별 다음 행동', () => {
+    const gym = nextAction(rec('c-gym'), TODAY)!;
+    expect(gym).toMatchObject({ kind: 'termination_notice', date: '2026-12-01', days: 57, headline: '해지 통보기한이 57일 남았습니다.' });
+    expect(gym.guidance).toContain('12월 1일까지 해지 의사를 전달해야');
+
+    expect(nextAction(rec('c-car-insurance'), TODAY)).toMatchObject({ kind: 'contract_end', label: '보험 만료', days: 87 });
+    expect(nextAction(rec('c-internet'), TODAY)).toMatchObject({ kind: 'renewal', label: '자동갱신 예정', days: 268 });
+    expect(nextAction(rec('c-mobile'), TODAY)).toMatchObject({ label: '약정 종료', days: 146 });
+    expect(nextAction(rec('c-water-purifier'), TODAY)).toMatchObject({ label: '렌탈 계약 종료' });
+    // 종료일 없는 구독 → 다음 결제
+    expect(nextAction(rec('c-ott'), TODAY)).toMatchObject({ kind: 'payment', date: '2026-10-12' });
+  });
+
+  test('전세: 사용자 일정 → 갱신 여부 확인 시점(만기 60일 전) → 만기', () => {
+    const r = rec('c-jeonse');
+    expect(nextAction(r, TODAY)).toMatchObject({ kind: 'custom', days: 25 });
+    r.events[0].completedAt = '2026-10-06T00:00:00Z';
+    expect(nextAction(r, TODAY)).toMatchObject({ kind: 'prepare', label: '갱신 여부 확인', date: '2026-12-01' });
+    expect(nextAction(r, '2026-12-02')).toMatchObject({ kind: 'contract_end', label: '계약 만기' });
+  });
+
+  test('해지/종료된 계약은 다음 행동 없음', () => {
+    const r = rec('c-gym');
+    r.contract.lifecycle = 'cancelled';
+    expect(nextAction(r, TODAY)).toBeNull();
+  });
+
+  test('다음 행동 문구에 금지 표현 없음', () => {
+    for (const r of createMockRecords()) {
+      const a = nextAction(r, TODAY);
+      if (a) expect(findBannedPhrases(a.headline + a.guidance)).toEqual([]);
+    }
   });
 });
 

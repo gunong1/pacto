@@ -28,6 +28,8 @@ export interface ContractFormProps {
   /** 필드별 원문 근거 */
   evidence?: Partial<Record<string, string>>;
   header?: React.ReactNode;
+  /** 폼과 일정 미리보기 아래에 붙는 보조 영역 (예: AI 체크 요약) */
+  trailing?: React.ReactNode;
   footerNote?: string;
   submitLabel: string;
   submitting?: boolean;
@@ -42,7 +44,7 @@ const FREQUENCY_OPTIONS = [
 ];
 
 /** 계약 확인/수정 폼 — AI 등록 확인, 직접 입력, 수정에서 공용. 모든 주요 필드를 수정할 수 있다. */
-export function ContractForm({ defaultValues, flagged, evidence, header, footerNote, submitLabel, submitting, today, onSubmit }: ContractFormProps) {
+export function ContractForm({ defaultValues, flagged, evidence, header, trailing, footerNote, submitLabel, submitting, today, onSubmit }: ContractFormProps) {
   const { control, handleSubmit } = useForm<ContractFormValues>({
     resolver: zodResolver(contractFormSchema),
     defaultValues,
@@ -130,6 +132,7 @@ export function ContractForm({ defaultValues, flagged, evidence, header, footerN
 
       <SectionGap />
       <SchedulePreview values={values} today={today} />
+      {trailing}
     </Screen>
   );
 }

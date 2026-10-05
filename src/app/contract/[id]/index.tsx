@@ -15,7 +15,8 @@ import { CATEGORY_LABEL, EVENT_TYPE_LABEL, FREQUENCY_LABEL } from '@/domain/labe
 import { formatWon, formatWonCompact } from '@/domain/money';
 import { contractSchedule, nextPayment } from '@/domain/schedule';
 import { contractMonthlyEquivalent } from '@/domain/spending';
-import { currentTerm, deriveStatus, terminationNoticeDeadline } from '@/domain/status';
+import { currentTerm, deriveStatus } from '@/domain/status';
+import { CATEGORY_PROFILES, nextAction } from '@/domain/nextAction';
 import type { AiCheck, ContractPayment, ContractRecord } from '@/domain/types';
 import { useContract, useContractActions, useToday } from '@/features/contracts/queries';
 import { confirm, notify } from '@/lib/dialog';
@@ -41,7 +42,7 @@ export default function ContractDetailScreen() {
     return {
       status: deriveStatus(c, today),
       term,
-      notice: terminationNoticeDeadline(c, today),
+      action: nextAction(record, today),
       next: nextPayment(record, today),
       monthly: contractMonthlyEquivalent(record),
       schedule: contractSchedule(record, { start: today, end: addMonths(today, 12) }, today)
@@ -95,13 +96,53 @@ export default function ContractDetailScreen() {
             <StatusBadge status={view.status} />
           </View>
 
+          {/* 다음 행동 — 계약을 열었을 때 가장 먼저 보이는 영역 */}
+          {live && view.action ? (
+            <View style={styles.action} testID="detail-next-action">
+              <AppText variant="captionStrong" color="primary">
+                다음 행동
+              </AppText>
+              <AppText variant="title3" style={{ marginTop: 6 }} testID="detail-next-headline">
+                {view.action.headline}
+              </AppText>
+              <AppText variant="body2" color="textSecondary" style={{ marginTop: 4 }}>
+                {view.action.guidance}
+              </AppText>
+              <View style={styles.actionFoot}>
+                <AppText variant="caption" color="textTertiary" style={{ flex: 1 }}>
+                  {view.action.label} · {formatDateKo(view.action.date, true)}
+                </AppText>
+                <Button
+                  label="캘린더 보기"
+                  size="sm"
+                  variant="secondary"
+                  style={styles.actionButton}
+                  onPress={() => router.dismissTo({ pathname: '/calendar', params: { date: view.action!.date, t: String(Date.now()) } })}
+                  testID="detail-open-calendar"
+                />
+              </View>
+            </View>
+          ) : !live ? (
+            <View style={styles.action}>
+              <AppText variant="body2" color="textSecondary">
+                {c.lifecycle === 'cancelled' ? '해지된 계약이에요' : '종료된 계약이에요'}
+                {c.lifecycleChangedOn ? ` · ${formatDateKo(c.lifecycleChangedOn)}` : ''}. 기록으로 계속 보관됩니다.
+              </AppText>
+            </View>
+          ) : null}
+
+          {/* D-Day (현재 회차 종료) */}
           {view.term && live ? (
             <View style={styles.ddayBlock}>
               <DDay days={daysUntil(view.term.termEnd, today)} variant="display" />
-              <AppText variant="body2" color="textSecondary">
-                {c.autoRenewal ? '자동갱신 예정 ' : '계약 만료 '}
-                {formatDateKo(view.term.termEnd)}
-              </AppText>
+              <View>
+                <AppText variant="body2Strong" color="textSecondary">
+                  {c.autoRenewal ? '자동갱신 예정' : CATEGORY_PROFILES[c.category].endLabel}
+                </AppText>
+                <AppText variant="body2" color="textTertiary">
+                  {formatDateKo(view.term.termEnd)}
+                </AppText>
+              </View>
             </View>
           ) : !view.term && live ? (
             <AppText variant="body2" color="textTertiary" style={{ marginTop: spacing.lg }}>
@@ -117,42 +158,23 @@ export default function ContractDetailScreen() {
               </AppText>
             </View>
           ) : null}
-
-          {/* 다음 할 일 */}
-          {live && (view.notice || view.next) ? (
-            <View style={styles.todo} testID="detail-next">
-              {view.notice ? (
-                <View style={styles.todoRow}>
-                  <View style={[styles.bar, { backgroundColor: EVENT_COLOR.termination_notice }]} />
-                  <View style={{ flex: 1 }}>
-                    <AppText variant="caption" color="textTertiary">
-                      해지 통보기한 {view.notice.passed ? '(이번 회차 지남)' : ''}
-                    </AppText>
-                    <AppText variant="body2Strong">{formatDateKo(view.notice.date, true)}</AppText>
-                  </View>
-                  {!view.notice.passed ? <DDay days={daysUntil(view.notice.date, today)} variant="title3" /> : null}
-                </View>
-              ) : null}
-              {view.next ? (
-                <View style={styles.todoRow}>
-                  <View style={[styles.bar, { backgroundColor: EVENT_COLOR.payment }]} />
-                  <View style={{ flex: 1 }}>
-                    <AppText variant="caption" color="textTertiary">
-                      다음 결제 · {view.next.label}
-                    </AppText>
-                    <AppText variant="body2Strong">{formatDateKo(view.next.date, true)}</AppText>
-                  </View>
-                  <Amount value={view.next.amount} won variant="title3" />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
         </View>
 
         <SectionGap />
 
         {/* 금액 · 결제 */}
-        <Section title="금액 · 결제">
+        <Section title="금액 · 다음 결제">
+          {live && view.next ? (
+            <View style={styles.nextPay} testID="detail-next-payment">
+              <View style={{ flex: 1 }}>
+                <AppText variant="caption" color="textTertiary">
+                  다음 결제 · {view.next.label}
+                </AppText>
+                <AppText variant="body2Strong">{formatDateKo(view.next.date, true)}</AppText>
+              </View>
+              <Amount value={view.next.amount} won variant="title3" />
+            </View>
+          ) : null}
           {record.payments.map((p) => (
             <KeyValueRow key={p.id} label={`${p.label} (${paymentRule(p)})`} value={`${formatWon(p.amount)}${p.isVariable ? ' 내외' : ''}`} emphasis />
           ))}
@@ -350,11 +372,12 @@ function AiSection({ record, onApply, onAck }: { record: ContractRecord; onApply
 const styles = StyleSheet.create({
   head: { paddingHorizontal: spacing.gutter, paddingTop: spacing.sm, paddingBottom: spacing.xl },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  ddayBlock: { marginTop: spacing.xl, gap: 2 },
+  ddayBlock: { marginTop: spacing.xl, flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   notice: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.checkSoft },
-  todo: { marginTop: spacing.xl, backgroundColor: colors.bgSubtle, borderRadius: radius.lg, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  todoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
-  bar: { width: 3, alignSelf: 'stretch', borderRadius: 2 },
+  action: { marginTop: spacing.xl, backgroundColor: colors.primarySoft, borderRadius: radius.xl, padding: spacing.lg },
+  actionFoot: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
+  actionButton: { backgroundColor: colors.bg },
+  nextPay: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
   eventRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   done: { textDecorationLine: 'line-through', color: colors.textTertiary },

@@ -11,6 +11,17 @@ import { EVENT_COLOR } from './index';
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const DOT_ORDER: ContractEventType[] = ['termination_notice', 'contract_end', 'renewal', 'payment', 'custom', 'contract_start'];
 
+/** 같은 색(종료·갱신, 일정)은 점 하나로 */
+function dotColors(types: Set<ContractEventType>): string[] {
+  const out: string[] = [];
+  for (const t of DOT_ORDER) {
+    if (!types.has(t)) continue;
+    const c = EVENT_COLOR[t];
+    if (!out.includes(c)) out.push(c);
+  }
+  return out.slice(0, 3);
+}
+
 export interface MonthGridProps {
   yearMonth: YearMonth;
   today: ISODate;
@@ -58,7 +69,7 @@ export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onCha
           const isSelected = date === selected;
           const isToday = date === today;
           const types = markers.get(date);
-          const dots = types ? DOT_ORDER.filter((t) => types.has(t)).slice(0, 3) : [];
+          const dots = types ? dotColors(types) : [];
           return (
             <Pressable
               key={date}
@@ -73,8 +84,8 @@ export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onCha
                 </AppText>
               </View>
               <View style={styles.dots}>
-                {dots.map((t) => (
-                  <View key={t} style={[styles.dot, { backgroundColor: EVENT_COLOR[t] }]} />
+                {dots.map((c) => (
+                  <View key={c} style={[styles.dot, { backgroundColor: c }]} />
                 ))}
               </View>
             </Pressable>

@@ -61,14 +61,25 @@ export function CategoryIcon({ category, size = 40 }: { category: ContractCatego
   );
 }
 
+/**
+ * 캘린더 이벤트 색상 체계 (고정). 색만으로 구분하지 않고 항상 범례/라벨 텍스트를 함께 표시한다.
+ * 결제 = 네이비 · 해지 통보기한 = 레드 · 종료·갱신 = 앰버 · 일정(시작일/내 일정) = 라이트 블루
+ */
 export const EVENT_COLOR: Record<ContractEventType, string> = {
-  termination_notice: colors.caution,
-  contract_end: colors.check,
-  renewal: colors.check,
   payment: colors.primary,
-  contract_start: colors.textTertiary,
-  custom: colors.accent,
+  termination_notice: colors.caution,
+  contract_end: colors.amber,
+  renewal: colors.amber,
+  contract_start: colors.brandSky,
+  custom: colors.brandSky,
 };
+
+export const EVENT_LEGEND: { label: string; color: string }[] = [
+  { label: '결제', color: EVENT_COLOR.payment },
+  { label: '해지 통보기한', color: EVENT_COLOR.termination_notice },
+  { label: '종료·갱신', color: EVENT_COLOR.contract_end },
+  { label: '일정', color: EVENT_COLOR.custom },
+];
 
 /** 계약/일정 목록 한 줄: 아이콘 · 이름/보조 · 오른쪽 값 */
 export function ContractLine({

@@ -8,17 +8,19 @@ import { Amount, ContractLine, DDay } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { EmptyState, Screen, Section, SectionGap } from '@/components/ui/layout';
-import { actionItems, statusSummary, upcomingEnds } from '@/domain/actions';
+import { statusSummary, upcomingEnds } from '@/domain/actions';
 import { formatMonthDayKo, yearMonthOf } from '@/domain/dates';
 import { CATEGORY_LABEL } from '@/domain/labels';
 import { formatKRW } from '@/domain/money';
+import { ATTENTION_WINDOW_DAYS, attentionItems } from '@/domain/nextAction';
 import { annualForecast, monthlyAverage, monthSpending } from '@/domain/spending';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
 /**
- * 홈 — "지금 알아야 할 계약 정보" 우선.
- * 순서: 이번 달 실제 지출 → 지금 처리할 계약 → 곧 종료/갱신 → 상태 요약 → 최근 등록 → (보조) 확인이 필요한 조항
+ * 홈 — "내가 지금 확인하거나 처리해야 할 계약이 무엇인지 바로 알 수 있다."
+ * 순서: 관리 중인 계약 수 → 지금 확인이 필요한 계약(강조) → 이번 달 실제 지출 → 곧 종료/갱신
+ *       → 상태 요약 → 최근 등록 → (보조) 확인이 필요한 조항
  */
 export default function HomeScreen() {
   const today = useToday();
@@ -28,9 +30,8 @@ export default function HomeScreen() {
     if (!records) return null;
     const ym = yearMonthOf(today);
     const spending = monthSpending(records, ym);
-    const actions = actionItems(records, today);
-    const endingIds = new Set(actions.filter((a) => a.kind === 'contract_end' || a.kind === 'renewal').map((a) => a.contractId));
-    const ends = upcomingEnds(records, today, endingIds).slice(0, 4);
+    const attention = attentionItems(records, today);
+    const ends = upcomingEnds(records, today, new Set(attention.map((a) => a.contractId))).slice(0, 4);
     const recent = [...records].sort((a, b) => b.contract.createdAt.localeCompare(a.contract.createdAt)).slice(0, 3);
     const openChecks = records.flatMap((r) => r.aiChecks.filter((c) => c.status === 'new' && c.severity !== 'info').map((c) => ({ c, r })));
     return {
@@ -38,8 +39,7 @@ export default function HomeScreen() {
       spending,
       annual: annualForecast(records, today),
       average: monthlyAverage(records, today),
-      actions: actions.slice(0, 5),
-      actionContracts: new Set(actions.map((a) => a.contractId)).size,
+      attention,
       ends,
       summary: statusSummary(records, today),
       recent,
@@ -64,7 +64,51 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      {/* 1. 이번 달 실제 계약 지출 */}
+      {/* 0. 계약 지갑 정체성 */}
+      <Pressable style={styles.wallet} onPress={() => router.push('/contracts')} accessibilityRole="button" testID="home-managed">
+        <AppText variant="body2" color="textSecondary">
+          내 계약 <AppText variant="body2Strong" color="primary" tabular>{view.summary.live}개</AppText>를 PACTO가 관리하고 있어요
+        </AppText>
+        <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
+      </Pressable>
+
+      {/* 1. 지금 확인이 필요한 계약 — 홈의 최우선 영역 */}
+      <View style={styles.attention} testID="home-actions">
+        <View style={styles.attentionHead}>
+          <Ionicons name="alarm-outline" size={18} color={colors.primary} />
+          <AppText variant="title3" color="primary" style={{ flex: 1 }}>
+            {view.attention.length > 0 ? `지금 확인이 필요한 계약 ${view.attention.length}건` : '지금 확인이 필요한 계약'}
+          </AppText>
+        </View>
+        {view.attention.length === 0 ? (
+          <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
+            {ATTENTION_WINDOW_DAYS}일 안에 챙길 계약 일정이 없어요. PACTO가 계속 지켜볼게요.
+          </AppText>
+        ) : (
+          <View style={styles.attentionList}>
+            {view.attention.slice(0, 4).map((a, i) => (
+              <Pressable
+                key={`${a.contractId}:${a.key}`}
+                onPress={() => router.push(`/contract/${a.contractId}`)}
+                accessibilityRole="button"
+                testID={`attention-${a.contractId}`}
+                style={({ pressed }) => [styles.attentionRow, i > 0 && styles.attentionDivider, pressed && { opacity: 0.6 }]}>
+                <View style={{ flex: 1 }}>
+                  <AppText variant="bodyStrong" numberOfLines={1}>
+                    {a.contractTitle}
+                  </AppText>
+                  <AppText variant="caption" color="textSecondary" numberOfLines={1} style={{ marginTop: 2 }}>
+                    {a.label} · {formatMonthDayKo(a.date)}
+                  </AppText>
+                </View>
+                <DDay days={a.days} variant="title2" />
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* 2. 이번 달 실제 계약 지출 */}
       <View style={styles.hero} testID="home-spending">
         <AppText variant="body2" color="textSecondary">
           {view.ym.month}월 계약 지출
@@ -107,31 +151,6 @@ export default function HomeScreen() {
           </View>
         </View>
       </View>
-
-      <SectionGap />
-
-      {/* 2. 지금 처리해야 할 계약 */}
-      <Section
-        title={view.actionContracts > 0 ? `확인할 계약 ${view.actionContracts}건` : '지금 처리할 계약'}
-        caption="30일 이내 해지 통보기한 · 만료 · 갱신 · 내 일정"
-        testID="home-actions">
-        {view.actions.length === 0 ? (
-          <AppText variant="body2" color="textTertiary">
-            30일 안에 처리할 계약이 없어요.
-          </AppText>
-        ) : (
-          view.actions.map((a) => (
-            <ContractLine
-              key={a.key}
-              category={a.category}
-              title={a.contractTitle}
-              subtitle={`${a.label} · ${formatMonthDayKo(a.date)}`}
-              right={<DDay days={a.days} />}
-              onPress={() => router.push(`/contract/${a.contractId}`)}
-            />
-          ))
-        )}
-      </Section>
 
       <SectionGap />
 
@@ -224,7 +243,13 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.gutter, paddingTop: spacing.sm, paddingBottom: spacing.xs, height: 48 },
-  hero: { paddingHorizontal: spacing.gutter, paddingTop: spacing.lg, paddingBottom: spacing.xxl },
+  wallet: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.gutter, paddingTop: spacing.sm },
+  attention: { marginHorizontal: spacing.gutter, marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.primarySoft },
+  attentionHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  attentionList: { marginTop: spacing.sm },
+  attentionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
+  attentionDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#D5DDEA' },
+  hero: { paddingHorizontal: spacing.gutter, paddingTop: spacing.xxl, paddingBottom: spacing.xxl },
   breakdown: { marginTop: spacing.xl, gap: 6 },
   breakdownRow: { flexDirection: 'row', justifyContent: 'space-between' },
   subMetrics: { flexDirection: 'row', marginTop: spacing.xl, backgroundColor: colors.bgSubtle, borderRadius: radius.lg, paddingVertical: spacing.md },

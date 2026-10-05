@@ -1,8 +1,8 @@
 import { MockAIProvider } from '@/data/ai/MockAIProvider';
 import { EMPTY_DRAFT } from '@/data/draft';
 import { MockContractRepository } from '@/data/mock/MockContractRepository';
-import { actionItems } from '@/domain/actions';
 import { findBannedPhrases } from '@/domain/aiCopy';
+import { actionCandidates } from '@/domain/nextAction';
 import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
 import { contractFormSchema, draftToForm, formToDraft } from '@/features/contracts/form';
@@ -85,7 +85,7 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
     const applied = await repo.applyAiSuggestion(created.contract.id, created.aiChecks[0].id);
     expect(applied.contract.terminationNoticeDays).toBe(14);
     expect(applied.aiChecks[0].status).toBe('acknowledged');
-    const items = actionItems([applied], TODAY);
+    const items = actionCandidates(applied, TODAY);
     expect(items.map((i) => i.kind)).toEqual(['termination_notice', 'renewal']);
     expect(items[0].date).toBe('2026-10-17');
 

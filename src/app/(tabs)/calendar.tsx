@@ -1,30 +1,38 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { Amount, ContractLine, EVENT_COLOR } from '@/components/pacto';
+import { ContractLine, EVENT_COLOR, EVENT_LEGEND } from '@/components/pacto';
 import { MonthGrid } from '@/components/pacto/MonthGrid';
 import { AppText } from '@/components/ui/AppText';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
-import { formatDateKo, monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from '@/domain/dates';
+import { formatDateKo, isValidISODate, monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from '@/domain/dates';
 import { EVENT_TYPE_LABEL } from '@/domain/labels';
-import { formatWon } from '@/domain/money';
+import { formatKRW, formatWon } from '@/domain/money';
 import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
 import type { ContractEventType, ISODate } from '@/domain/types';
 import { useContracts, useToday } from '@/features/contracts/queries';
-import { colors, spacing } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
-const LEGEND: ContractEventType[] = ['payment', 'termination_notice', 'contract_end', 'custom'];
-
-/** 계약 전용 캘린더: 결제일, 시작/종료, 자동갱신, 해지 통보기한, 내 일정 */
+/** 계약 전용 캘린더: 결제일, 시작/종료, 자동갱신, 해지 통보기한, 내 일정 + 월 계약 지출 예정 */
 export default function CalendarScreen() {
   const today = useToday();
   const { data: records } = useContracts();
+  // 계약 상세 "캘린더 보기": ?date=YYYY-MM-DD&t=<nonce>
+  const params = useLocalSearchParams<{ date?: string; t?: string }>();
   const [ym, setYm] = useState<YearMonth>(() => yearMonthOf(today));
   const [selected, setSelected] = useState<ISODate | null>(today);
+  const [appliedNonce, setAppliedNonce] = useState<string | undefined>(undefined);
+  if (params.t !== appliedNonce) {
+    setAppliedNonce(params.t);
+    if (params.date && isValidISODate(params.date)) {
+      setYm(yearMonthOf(params.date));
+      setSelected(params.date);
+    }
+  }
 
-  const { items, markers, spending } = useMemo(() => {
+  const { items, markers, spending, payingContracts } = useMemo(() => {
     const list = records ?? [];
     const items = scheduleForRange(list, monthRange(ym), today);
     const markers = new Map<ISODate, Set<ContractEventType>>();
@@ -32,17 +40,34 @@ export default function CalendarScreen() {
       if (!markers.has(i.date)) markers.set(i.date, new Set());
       markers.get(i.date)!.add(i.type);
     }
-    return { items, markers, spending: monthSpending(list, ym) };
+    const spending = monthSpending(list, ym);
+    return { items, markers, spending, payingContracts: new Set(spending.items.map((i) => i.contractId)).size };
   }, [records, ym, today]);
 
   const dayItems = selected ? items.filter((i) => i.date === selected) : [];
-  const upcoming = items.filter((i) => i.date >= today).slice(0, 8);
+  const isThisMonth = ym.year === yearMonthOf(today).year && ym.month === yearMonthOf(today).month;
+  const monthItems = isThisMonth ? items.filter((i) => i.date >= today).slice(0, 8) : items.slice(0, 8);
 
   return (
     <Screen>
       <View style={styles.header}>
         <AppText variant="title1">캘린더</AppText>
       </View>
+
+      {/* 월 계약 지출 예정 — 달을 넘기면 함께 바뀐다 */}
+      <View style={styles.spending} testID="calendar-month-total">
+        <AppText variant="body2" color="textSecondary">
+          {ym.month}월 계약 지출 예정
+        </AppText>
+        <AppText variant="title1" tabular style={{ marginTop: 2 }}>
+          {formatKRW(spending.total)}
+        </AppText>
+        <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
+          {payingContracts > 0 ? `${payingContracts}개 계약에서 결제 예정` : '결제 예정인 계약이 없어요'}
+          {spending.hasEstimated ? ' · 변동 금액은 예상치' : ''}
+        </AppText>
+      </View>
+
       <View style={styles.calendar}>
         <MonthGrid
           yearMonth={ym}
@@ -51,26 +76,19 @@ export default function CalendarScreen() {
           markers={markers}
           onSelect={setSelected}
           onChangeMonth={(d) => {
-            const next = shiftYearMonth(ym, d);
-            setYm(next);
+            setYm(shiftYearMonth(ym, d));
             setSelected(null);
           }}
         />
-        <View style={styles.legend}>
-          {LEGEND.map((t) => (
-            <View key={t} style={styles.legendItem}>
-              <View style={[styles.dot, { backgroundColor: EVENT_COLOR[t] }]} />
-              <AppText variant="small" color="textTertiary">
-                {t === 'contract_end' ? '종료·갱신' : EVENT_TYPE_LABEL[t]}
+        <View style={styles.legend} testID="calendar-legend">
+          {EVENT_LEGEND.map((l) => (
+            <View key={l.label} style={styles.legendItem}>
+              <View style={[styles.dot, { backgroundColor: l.color }]} />
+              <AppText variant="small" color="textSecondary">
+                {l.label}
               </AppText>
             </View>
           ))}
-        </View>
-        <View style={styles.monthTotal} testID="calendar-month-total">
-          <AppText variant="body2" color="textSecondary">
-            {ym.month}월 결제 예정
-          </AppText>
-          <Amount value={spending.total} variant="title3" />
         </View>
       </View>
 
@@ -97,7 +115,7 @@ export default function CalendarScreen() {
         </Section>
       ) : (
         <Section title={`${ym.month}월 일정`}>
-          {(ym.year === yearMonthOf(today).year && ym.month === yearMonthOf(today).month ? upcoming : items.slice(0, 8)).map((i) => (
+          {monthItems.map((i) => (
             <ContractLine
               key={i.key}
               category={i.category}
@@ -120,17 +138,21 @@ export default function CalendarScreen() {
 
 function TypeTag({ type }: { type: ContractEventType }) {
   return (
-    <AppText variant="captionStrong" style={{ color: EVENT_COLOR[type] }}>
-      {EVENT_TYPE_LABEL[type]}
-    </AppText>
+    <View style={styles.tag}>
+      <View style={[styles.dot, { backgroundColor: EVENT_COLOR[type] }]} />
+      <AppText variant="captionStrong" color="textSecondary">
+        {EVENT_TYPE_LABEL[type]}
+      </AppText>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.md },
-  calendar: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.lg },
-  legend: { flexDirection: 'row', justifyContent: 'center', gap: spacing.lg, marginTop: spacing.sm },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  monthTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.lg, marginHorizontal: spacing.sm, paddingTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  spending: { marginHorizontal: spacing.gutter, marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.bgSubtle },
+  calendar: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.lg },
+  legend: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', columnGap: spacing.lg, rowGap: 4, marginTop: spacing.sm },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  dot: { width: 7, height: 7, borderRadius: 4 },
+  tag: { flexDirection: 'row', alignItems: 'center', gap: 5 },
 });

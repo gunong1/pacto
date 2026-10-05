@@ -26,6 +26,9 @@ export const colors = {
   brandSky: '#7894BC',
   accent: '#4C6C9C',
 
+  /** 계약 종료·갱신 (앰버) */
+  amber: '#C27A0E',
+
   caution: '#D6393A',
   cautionSoft: '#FDEFEF',
   check: '#B4690E',

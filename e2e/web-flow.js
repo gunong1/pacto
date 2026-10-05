@@ -33,7 +33,9 @@ const log = (...a) => console.log('✔', ...a);
   await page.waitForSelector(tid('home-spending-total'));
   const before = await total();
   await shot('02-home');
-  log('2 홈 확인, 이번 달 지출 =', before);
+  const attention = await page.locator(tid('home-actions')).innerText();
+  if (!attention.includes('지금 확인이 필요한 계약')) throw new Error('홈 확인 필요 영역 없음');
+  log('2 홈 확인, 이번 달 지출 =', before, '/', attention.split('\n').find((l) => l.includes('확인이 필요한')));
 
   // 3. 계약 목록
   await page.click(tid('tab-contracts'));
@@ -46,8 +48,18 @@ const log = (...a) => console.log('✔', ...a);
   await page.waitForSelector(tid('detail-title'));
   await page.waitForTimeout(400);
   await shot('04-detail-gym');
-  log('4 계약 상세:', await page.locator(tid('detail-title')).innerText());
-  await page.goBack();
+  const headline = await page.locator(tid('detail-next-headline')).innerText();
+  if (headline !== '해지 통보기한이 57일 남았습니다.') throw new Error('다음 행동 불일치: ' + headline);
+  log('4 계약 상세:', await page.locator(tid('detail-title')).innerText(), '/ 다음 행동:', headline);
+  await page.click(tid('detail-open-calendar'));
+  await page.waitForSelector(tid('calendar-day-list'));
+  await page.waitForTimeout(300);
+  const dayTitle = await page.locator(tid('calendar-day-list')).innerText();
+  if (!dayTitle.includes('2026. 12. 1.') || !dayTitle.includes('해지 통보기한')) throw new Error('캘린더 보기 이동 실패: ' + dayTitle.slice(0, 80));
+  await shot('04b-calendar-from-detail');
+  log('4 다음 행동 → 캘린더 보기: 12/1 해지 통보기한 표시');
+  await page.click(tid('tab-contracts'));
+  await page.waitForSelector(tid('contracts-list'));
 
   // 5. 계약 등록
   await page.click(tid('tab-add'));
@@ -55,7 +67,7 @@ const log = (...a) => console.log('✔', ...a);
   await shot('05-register');
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click(tid('method-pdf'))]);
   await chooser.setFiles({ name: 'sample-contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%mock\n') });
-  await page.waitForSelector('text=계약서를 확인하고 있습니다.');
+  await page.waitForSelector('text=계약서를 확인하고 있어요.');
   await shot('06-analyzing');
   log('5 계약 등록 → 분석 화면');
 
@@ -85,7 +97,7 @@ const log = (...a) => console.log('✔', ...a);
   await page.waitForTimeout(400);
   const after = await total();
   await shot('09-home-after');
-  const n = (s) => Number((s.split('₩')[1] ?? s).replace(/[^\d]/g, ''));
+  const n = (s) => Number((/₩([\d,]+)/.exec(s)?.[1] ?? s).replace(/[^\d]/g, ''));
   if (n(after) - n(before) !== 29900) throw new Error(`지출 반영 실패 ${before} → ${after}`);
   if (!(await page.locator(tid('home-recent')).innerText()).includes('공기청정기 렌탈')) throw new Error('최근 등록 미반영');
   log('8 홈 반영: 지출', before, '→', after, '/ 최근 등록에 표시');
@@ -97,6 +109,7 @@ const log = (...a) => console.log('✔', ...a);
   // 9. 캘린더 반영
   await page.click(tid('tab-calendar'));
   await page.waitForSelector(tid('calendar-title'));
+  for (let i = 0; i < 12 && !(await page.locator(tid('calendar-title')).innerText()).includes('10월'); i++) await page.click(tid('calendar-prev'));
   await page.click(tid('day-2026-10-12'));
   await page.waitForTimeout(300);
   const dayList = await page.locator(tid('calendar-day-list')).innerText();
