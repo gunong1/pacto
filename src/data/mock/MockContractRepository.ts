@@ -64,7 +64,7 @@ export class MockContractRepository implements ContractRepository {
       contract,
       payments: payment ? [payment] : [],
       events: [],
-      documents: input.documents.map((d) => ({ ...d, id: newId('d'), contractId: id })),
+      documents: input.documents.map((d) => ({ ...d, id: d.id ?? newId('d'), contractId: id })),
       aiChecks: input.aiChecks.map((c) => ({ ...c, id: newId('ai'), contractId: id })),
     };
     this.records.unshift(record);
@@ -110,6 +110,21 @@ export class MockContractRepository implements ContractRepository {
       notificationEnabled: true,
       completedAt: null,
     });
+    return this.touch(r);
+  }
+
+  async updateEvent(id: string, eventId: string, input: NewEventInput) {
+    await this.delay();
+    const r = this.find(id);
+    const e = r.events.find((x) => x.id === eventId);
+    if (e) Object.assign(e, { title: input.title.trim(), eventDate: input.eventDate, eventType: input.eventType });
+    return this.touch(r);
+  }
+
+  async removeEvent(id: string, eventId: string) {
+    await this.delay();
+    const r = this.find(id);
+    r.events = r.events.filter((x) => x.id !== eventId);
     return this.touch(r);
   }
 

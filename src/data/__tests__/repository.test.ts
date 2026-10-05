@@ -35,7 +35,7 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
     const saved = await repo.create({
       draft,
       source: 'upload',
-      documents: [{ fileName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 1, localUri: 'file://a.pdf', pageCount: null }],
+      documents: [{ fileName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 1, storagePath: null, localUri: 'file://a.pdf', pageCount: null }],
       aiChecks: result.checks.map((c) => ({ ...c, status: 'new' as const })),
     });
     const after = await repo.list();

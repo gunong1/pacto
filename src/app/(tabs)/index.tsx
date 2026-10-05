@@ -55,6 +55,8 @@ export default function HomeScreen() {
     );
   }
 
+  if (records && records.length === 0) return <FirstRunHome />;
+
   return (
     <Screen>
       <View style={styles.topBar}>
@@ -241,7 +243,45 @@ export default function HomeScreen() {
   );
 }
 
+/** 계약이 하나도 없을 때: 숫자 0 대신 PACTO가 무엇을 기억해주는지 보여주고 첫 등록으로 안내 */
+function FirstRunHome() {
+  return (
+    <Screen>
+      <View style={styles.topBar}>
+        <LogoHorizontal height={24} />
+      </View>
+      <View style={styles.firstRun} testID="home-first-run">
+        <AppText variant="title1">첫 계약서를{'\n'}넣어보세요</AppText>
+        <AppText variant="body" color="textSecondary" style={{ marginTop: spacing.sm }}>
+          계약서를 넣어두면 중요한 순간은 PACTO가 기억합니다.
+        </AppText>
+        <View style={styles.remembers}>
+          {[
+            ['calendar-outline', '매달 결제일과 이번 달 계약 지출'],
+            ['alarm-outline', '해지 통보기한·만료·자동갱신'],
+            ['document-text-outline', '언제든 다시 꺼내볼 수 있는 계약서 원본'],
+          ].map(([icon, text]) => (
+            <View key={text} style={styles.remember}>
+              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={colors.primary} />
+              <AppText variant="body2" color="textSecondary">
+                {text}
+              </AppText>
+            </View>
+          ))}
+        </View>
+        <Button label="계약 등록하기" onPress={() => router.push('/register')} testID="first-run-register" />
+        <AppText variant="caption" color="textTertiary" align="center" style={{ marginTop: spacing.md }}>
+          PDF·사진으로 올리거나 직접 입력할 수 있어요
+        </AppText>
+      </View>
+    </Screen>
+  );
+}
+
 const styles = StyleSheet.create({
+  firstRun: { margin: spacing.gutter, marginTop: spacing.xl, padding: spacing.xl, borderRadius: radius.xl, backgroundColor: colors.primarySoft },
+  remembers: { gap: spacing.md, marginVertical: spacing.xl },
+  remember: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.gutter, paddingTop: spacing.sm, paddingBottom: spacing.xs, height: 48 },
   wallet: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.gutter, paddingTop: spacing.sm },
   attention: { marginHorizontal: spacing.gutter, marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.primarySoft },

@@ -32,11 +32,15 @@ export interface ContractDraft {
   memo: string | null;
 }
 
+/** 계약에 연결할 원본 문서. id가 있으면 이미 업로드된 문서(contract_documents)를 연결한다. */
+export type ContractDocumentInput = Omit<ContractDocument, 'id' | 'contractId'> & { id?: string };
+
 export interface CreateContractInput {
   draft: ContractDraft;
   source: 'upload' | 'manual';
-  documents: Omit<ContractDocument, 'id' | 'contractId'>[];
+  documents: ContractDocumentInput[];
   aiChecks: Omit<AiCheck, 'id' | 'contractId'>[];
+  analysisJobId?: string | null;
 }
 
 export interface NewEventInput {
@@ -58,6 +62,8 @@ export interface ContractRepository {
   setLifecycle(id: string, lifecycle: ContractLifecycle, on: ISODate | null): Promise<ContractRecord>;
   setNotificationsEnabled(id: string, enabled: boolean): Promise<ContractRecord>;
   addEvent(id: string, input: NewEventInput): Promise<ContractRecord>;
+  updateEvent(id: string, eventId: string, input: NewEventInput): Promise<ContractRecord>;
+  removeEvent(id: string, eventId: string): Promise<ContractRecord>;
   setEventCompleted(id: string, eventId: string, completed: boolean): Promise<ContractRecord>;
   /** AI 체크의 일정 연결 제안을 계약 정보에 반영. */
   applyAiSuggestion(id: string, checkId: string): Promise<ContractRecord>;

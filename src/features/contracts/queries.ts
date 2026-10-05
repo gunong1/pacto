@@ -62,6 +62,8 @@ export function useContractActions(id: string) {
     setLifecycle: useAction((lifecycle: ContractLifecycle, on: ISODate | null) => contractRepository.setLifecycle(id, lifecycle, on)),
     setNotifications: useAction((enabled: boolean) => contractRepository.setNotificationsEnabled(id, enabled)),
     addEvent: useAction((input: NewEventInput) => contractRepository.addEvent(id, input)),
+    updateEvent: useAction((eventId: string, input: NewEventInput) => contractRepository.updateEvent(id, eventId, input)),
+    removeEvent: useAction((eventId: string) => contractRepository.removeEvent(id, eventId)),
     setEventCompleted: useAction((eventId: string, done: boolean) => contractRepository.setEventCompleted(id, eventId, done)),
     applyAiSuggestion: useAction((checkId: string) => contractRepository.applyAiSuggestion(id, checkId)),
     setAiCheckStatus: useAction((checkId: string, status: AiCheck['status']) => contractRepository.setAiCheckStatus(id, checkId, status)),

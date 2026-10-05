@@ -18,7 +18,7 @@ import { contractMonthlyEquivalent } from '@/domain/spending';
 import { currentTerm, deriveStatus } from '@/domain/status';
 import { CATEGORY_PROFILES, isActionable, nextAction } from '@/domain/nextAction';
 import type { AiCheck, ContractPayment, ContractRecord } from '@/domain/types';
-import { useContract, useContractActions, useToday } from '@/features/contracts/queries';
+import { useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
@@ -39,6 +39,7 @@ export default function ContractDetailScreen() {
   const today = useToday();
   const { data: record, isLoading } = useContract(id);
   const actions = useContractActions(id);
+  const remove = useRemoveContract();
 
   const view = useMemo(() => {
     if (!record) return null;
@@ -61,6 +62,11 @@ export default function ContractDetailScreen() {
 
   const c = record.contract;
   const live = c.lifecycle === 'active';
+
+  const removeContract = async () => {
+    const ok = await confirm('계약 삭제', `'${c.title}' 계약과 원본 계약서, 일정이 모두 삭제됩니다. 삭제할까요?\n(계약이 끝났다면 삭제 대신 '해지 처리'로 기록을 남길 수 있어요)`, '삭제');
+    if (ok) remove.mutate(c.id, { onSuccess: () => router.back(), onError: (e) => notify('계약 삭제', e instanceof Error ? e.message : '삭제하지 못했어요.') });
+  };
 
   const changeLifecycle = async () => {
     if (live) {
@@ -237,7 +243,12 @@ export default function ContractDetailScreen() {
               return (
                 <View key={i.key} style={styles.eventRow}>
                   <View style={[styles.dot, { backgroundColor: EVENT_COLOR[i.type] }]} />
-                  <View style={{ flex: 1 }}>
+                  <Pressable
+                    style={{ flex: 1 }}
+                    disabled={!ev}
+                    onPress={() => ev && router.push({ pathname: '/contract/[id]/event', params: { id, eventId: ev.id } })}
+                    accessibilityRole={ev ? 'button' : undefined}
+                    testID={ev ? `event-${ev.id}` : undefined}>
                     <AppText variant="body2Strong" style={ev?.completedAt ? styles.done : undefined}>
                       {i.title}
                     </AppText>
@@ -245,7 +256,7 @@ export default function ContractDetailScreen() {
                       {formatDateKo(i.date, true)} · {EVENT_TYPE_LABEL[i.type]}
                       {i.estimated ? ' (추정)' : ''}
                     </AppText>
-                  </View>
+                  </Pressable>
                   {ev ? (
                     <Pressable onPress={() => actions.setEventCompleted.mutate([ev.id, !ev.completedAt])} accessibilityRole="checkbox" accessibilityState={{ checked: !!ev.completedAt }}>
                       <Ionicons name={ev.completedAt ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={ev.completedAt ? colors.primary : colors.textDisabled} />
@@ -317,6 +328,7 @@ export default function ContractDetailScreen() {
 
         <View style={styles.footerActions}>
           <Button label={live ? '해지 처리' : '진행중으로 되돌리기'} variant={live ? 'danger' : 'secondary'} size="md" onPress={changeLifecycle} testID="lifecycle-button" />
+          <Button label="계약 삭제" variant="ghost" size="md" onPress={removeContract} loading={remove.isPending} testID="delete-contract" />
         </View>
       </Screen>
     </>
@@ -413,5 +425,5 @@ const styles = StyleSheet.create({
   checkActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
   applied: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   ask: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.lg, padding: spacing.md, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  footerActions: { paddingHorizontal: spacing.gutter, paddingTop: spacing.xxl, alignItems: 'flex-start' },
+  footerActions: { paddingHorizontal: spacing.gutter, paddingTop: spacing.xxl, flexDirection: 'row', gap: spacing.sm },
 });

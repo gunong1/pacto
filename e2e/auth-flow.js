@@ -31,13 +31,13 @@ const log = (...a) => console.log('✔', ...a);
   await page.click(tid('consent-terms'));
   await page.click(tid('consent-privacy'));
   await page.click(tid('sign-up-submit'));
-  await page.waitForSelector(tid('home-actions'), { timeout: 15000 });
+  await page.waitForSelector(tid('home-first-run'), { timeout: 15000 });
   await page.screenshot({ path: path.join(SHOTS, 'auth-01-home-after-signup.png') });
   log('가입 → 홈');
 
   // 새로고침해도 로그인 유지 (세션 복원)
   await page.reload({ waitUntil: 'networkidle' });
-  await page.waitForSelector(tid('home-actions'), { timeout: 15000 });
+  await page.waitForSelector(tid('home-first-run'), { timeout: 15000 });
   log('새로고침 후 세션 유지');
 
   await page.click(tid('tab-my'));
@@ -54,7 +54,7 @@ const log = (...a) => console.log('✔', ...a);
   log('잘못된 비밀번호 안내');
   await page.fill(`input${tid('sign-in-password')}`, password);
   await page.click(tid('sign-in-submit'));
-  await page.waitForSelector(tid('home-actions'), { timeout: 15000 });
+  await page.waitForSelector(tid('home-first-run'), { timeout: 15000 });
   log('로그인 → 홈');
 
   await page.click(tid('tab-my'));

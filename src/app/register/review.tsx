@@ -87,7 +87,7 @@ export default function ReviewScreen() {
           {
             draft,
             source: 'upload',
-            documents: files.map((f) => ({ fileName: f.name, mimeType: f.mimeType, sizeBytes: f.size, localUri: f.uri, pageCount: null })),
+            documents: files.map((f) => ({ fileName: f.name, mimeType: f.mimeType, sizeBytes: f.size, storagePath: null, localUri: f.uri, pageCount: null })),
             aiChecks: extraction.checks.map((c) => ({ ...c, status: 'new' as const })),
           },
           {

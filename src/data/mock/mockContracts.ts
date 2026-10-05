@@ -54,7 +54,7 @@ export function createMockRecords(): ContractRecord[] {
         payment({ id: 'p-car-insurance', contractId: 'c-car-insurance', label: '연간 보험료', amount: 1_368_000, frequency: 'yearly', dayOfMonth: 1, monthOfYear: 1, startsOn: '2026-01-01' }),
       ],
       events: [],
-      documents: [{ id: 'd-car-insurance', contractId: 'c-car-insurance', fileName: '자동차보험_증권.pdf', mimeType: 'application/pdf', sizeBytes: 482_113, localUri: null, pageCount: 6 }],
+      documents: [{ id: 'd-car-insurance', contractId: 'c-car-insurance', fileName: '자동차보험_증권.pdf', mimeType: 'application/pdf', sizeBytes: 482_113, storagePath: null, localUri: null, pageCount: 6 }],
       aiChecks: [],
     },
     {
@@ -74,7 +74,7 @@ export function createMockRecords(): ContractRecord[] {
         payment({ id: 'p-water-purifier', contractId: 'c-water-purifier', label: '월 렌탈료', amount: 39_900, frequency: 'monthly', dayOfMonth: 25, startsOn: '2026-10-01' }),
       ],
       events: [],
-      documents: [{ id: 'd-water-purifier', contractId: 'c-water-purifier', fileName: '정수기_렌탈계약서.pdf', mimeType: 'application/pdf', sizeBytes: 311_904, localUri: null, pageCount: 4 }],
+      documents: [{ id: 'd-water-purifier', contractId: 'c-water-purifier', fileName: '정수기_렌탈계약서.pdf', mimeType: 'application/pdf', sizeBytes: 311_904, storagePath: null, localUri: null, pageCount: 4 }],
       aiChecks: [
         {
           id: 'ai-water-penalty',
@@ -126,7 +126,7 @@ export function createMockRecords(): ContractRecord[] {
         payment({ id: 'p-gym', contractId: 'c-gym', label: '월 회비', amount: 55_000, frequency: 'monthly', dayOfMonth: 5, startsOn: '2026-01-01' }),
       ],
       events: [],
-      documents: [{ id: 'd-gym', contractId: 'c-gym', fileName: '헬스장_회원약관.jpg', mimeType: 'image/jpeg', sizeBytes: 1_204_551, localUri: null, pageCount: 2 }],
+      documents: [{ id: 'd-gym', contractId: 'c-gym', fileName: '헬스장_회원약관.jpg', mimeType: 'image/jpeg', sizeBytes: 1_204_551, storagePath: null, localUri: null, pageCount: 2 }],
       aiChecks: [
         {
           id: 'ai-gym-renewal',
@@ -193,7 +193,7 @@ export function createMockRecords(): ContractRecord[] {
       events: [
         { id: 'e-jeonse-check', contractId: 'c-jeonse', eventType: 'custom', title: '집주인에게 재계약 여부 확인', eventDate: '2026-10-30', amount: null, source: 'user', notificationEnabled: true, completedAt: null },
       ],
-      documents: [{ id: 'd-jeonse', contractId: 'c-jeonse', fileName: '전세계약서.pdf', mimeType: 'application/pdf', sizeBytes: 902_331, localUri: null, pageCount: 5 }],
+      documents: [{ id: 'd-jeonse', contractId: 'c-jeonse', fileName: '전세계약서.pdf', mimeType: 'application/pdf', sizeBytes: 902_331, storagePath: null, localUri: null, pageCount: 5 }],
       aiChecks: [],
     },
     {

@@ -112,7 +112,9 @@ export interface ContractDocument {
   fileName: string;
   mimeType: string;
   sizeBytes: number | null;
-  /** V1(Step 1~4)에서는 기기 로컬 URI만 보관. 업로드는 Step 8. */
+  /** private Storage 경로 '{user_id}/{document_id}.{ext}' (mock/미업로드는 null). 열람은 Signed URL로만. */
+  storagePath: string | null;
+  /** 기기 로컬 URI (mock 미리보기 전용) */
   localUri: string | null;
   pageCount: number | null;
 }
