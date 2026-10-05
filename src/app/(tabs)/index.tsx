@@ -12,7 +12,7 @@ import { statusSummary, upcomingEnds } from '@/domain/actions';
 import { formatMonthDayKo, yearMonthOf } from '@/domain/dates';
 import { CATEGORY_LABEL } from '@/domain/labels';
 import { formatKRW } from '@/domain/money';
-import { ATTENTION_WINDOW_DAYS, attentionItems } from '@/domain/nextAction';
+import { attentionItems } from '@/domain/nextAction';
 import { annualForecast, monthlyAverage, monthSpending } from '@/domain/spending';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { colors, hitSlop, radius, spacing } from '@/theme';
@@ -82,7 +82,7 @@ export default function HomeScreen() {
         </View>
         {view.attention.length === 0 ? (
           <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
-            {ATTENTION_WINDOW_DAYS}일 안에 챙길 계약 일정이 없어요. PACTO가 계속 지켜볼게요.
+            30일 안에 챙길 계약 일정이 없어요. PACTO가 계속 지켜볼게요.
           </AppText>
         ) : (
           <View style={styles.attentionList}>
@@ -155,7 +155,7 @@ export default function HomeScreen() {
       <SectionGap />
 
       {/* 3. 곧 종료/갱신되는 계약 */}
-      <Section title="곧 종료·갱신되는 계약" caption="180일 이내" testID="home-ends">
+      <Section title="곧 종료·갱신되는 계약" caption="180일 이내 · 해지 통보기한 포함" testID="home-ends">
         {view.ends.length === 0 ? (
           <AppText variant="body2" color="textTertiary">
             곧 끝나는 계약이 없어요.
@@ -166,7 +166,7 @@ export default function HomeScreen() {
               key={e.contractId}
               category={e.category}
               title={e.contractTitle}
-              subtitle={`${e.autoRenewal ? '자동갱신' : '만료'} · ${formatMonthDayKo(e.date)}`}
+              subtitle={`${e.autoRenewal ? '자동갱신' : '만료'} ${formatMonthDayKo(e.date)}${e.noticeDate ? ` · 해지 통보 ${formatMonthDayKo(e.noticeDate)}까지` : ''}`}
               right={<DDay days={e.days} variant="body2Strong" />}
               onPress={() => router.push(`/contract/${e.contractId}`)}
             />

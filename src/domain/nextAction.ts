@@ -162,13 +162,32 @@ export function nextAction(record: ContractRecord, today: ISODate): NextAction |
   };
 }
 
-/** 홈 "지금 확인이 필요한 계약"으로 보는 기간 (일). */
-export const ATTENTION_WINDOW_DAYS = 60;
+/**
+ * 홈 "지금 확인이 필요한 계약"으로 보는 기간 (일) — 행동 종류별.
+ * 기본은 모두 30일. 해지 통보기한처럼 미리 준비가 필요한 일정은 추후 설정에서 늘릴 수 있도록 종류별로 둔다.
+ * 31일 이후 일정은 홈의 "곧 종료·갱신되는 계약"과 캘린더에서 보여준다.
+ */
+export const ATTENTION_WINDOW_DAYS: Record<Exclude<NextActionKind, 'payment'>, number> = {
+  termination_notice: 30,
+  custom: 30,
+  prepare: 30,
+  renewal: 30,
+  contract_end: 30,
+};
 
-/** 홈: 계약별 다음 행동 중 기간 안에 있는 것 (계약당 1건, 결제 제외, 가까운 순). */
-export function attentionItems(records: ContractRecord[], today: ISODate, windowDays = ATTENTION_WINDOW_DAYS): NextAction[] {
+/** 결제가 아닌 "행동해야 할 일"인지 (UI 제목 구분: 다음 행동 vs 다음 결제) */
+export function isActionable(action: NextAction): boolean {
+  return action.kind !== 'payment';
+}
+
+/** 홈: 계약별 가장 가까운 행동 중 종류별 기간 안에 있는 것 (계약당 1건, 결제 제외, 가까운 순). */
+export function attentionItems(
+  records: ContractRecord[],
+  today: ISODate,
+  windows: Record<Exclude<NextActionKind, 'payment'>, number> = ATTENTION_WINDOW_DAYS,
+): NextAction[] {
   return records
-    .map((r) => actionCandidates(r, today)[0])
-    .filter((a): a is NextAction => !!a && a.days <= windowDays)
+    .map((r) => actionCandidates(r, today).find((a) => a.kind !== 'payment' && a.days <= windows[a.kind]))
+    .filter((a): a is NextAction => !!a)
     .sort((a, b) => a.days - b.days || KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
 }

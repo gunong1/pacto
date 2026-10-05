@@ -60,6 +60,14 @@ const log = (...a) => console.log('✔', ...a);
   log('4 다음 행동 → 캘린더 보기: 12/1 해지 통보기한 표시');
   await page.click(tid('tab-contracts'));
   await page.waitForSelector(tid('contracts-list'));
+  // 결제만 있는 계약(구독)은 "다음 행동"이 아니라 "다음 결제"
+  await page.click(tid('contract-row-c-ott'));
+  await page.waitForSelector(tid('detail-next-title'));
+  const ottTitle = await page.locator(tid('detail-next-title')).innerText();
+  if (ottTitle !== '다음 결제') throw new Error('결제 카드 제목 불일치: ' + ottTitle);
+  log('4 구독 계약 상세: "다음 결제"로 표시');
+  await page.goBack();
+  await page.waitForSelector(tid('contracts-list'));
 
   // 5. 계약 등록
   await page.click(tid('tab-add'));

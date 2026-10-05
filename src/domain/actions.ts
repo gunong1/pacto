@@ -1,5 +1,5 @@
 import { daysUntil } from './dday';
-import { currentTerm, deriveStatus, isLive } from './status';
+import { currentTerm, deriveStatus, isLive, terminationNoticeDeadline } from './status';
 import type { ContractCategory, ContractRecord, ContractStatus, ISODate } from './types';
 
 /** "곧 종료/갱신되는 계약"으로 보는 기간 (일). */
@@ -12,6 +12,8 @@ export interface UpcomingEnd {
   date: ISODate;
   days: number;
   autoRenewal: boolean;
+  /** 아직 지나지 않은 해지 통보기한 (자동갱신 계약) */
+  noticeDate: ISODate | null;
 }
 
 /** 곧 종료/갱신되는 계약 (종료일 순). excludeIds: 이미 "처리할 계약"에 나온 계약. */
@@ -35,6 +37,10 @@ export function upcomingEnds(
       date: term.termEnd,
       days,
       autoRenewal: contract.autoRenewal,
+      noticeDate: (() => {
+        const n = terminationNoticeDeadline(contract, today);
+        return n && !n.passed ? n.date : null;
+      })(),
     });
   }
   return out.sort((a, b) => a.days - b.days);

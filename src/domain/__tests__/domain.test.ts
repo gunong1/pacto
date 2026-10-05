@@ -169,9 +169,12 @@ describe('월 환산액', () => {
 describe('홈: 처리할 계약 / 곧 종료 / 상태 요약', () => {
   const records = createMockRecords();
 
-  test('지금 확인이 필요한 계약 (60일 이내, 계약당 1건)', () => {
+  test('지금 확인이 필요한 계약 (기본 30일, 계약당 1건)', () => {
     const items = attentionItems(records, TODAY);
-    expect(items.map((i) => `${i.contractId}:${i.kind}:${i.days}`)).toEqual(['c-jeonse:custom:25', 'c-gym:termination_notice:57']);
+    expect(items.map((i) => `${i.contractId}:${i.kind}:${i.days}`)).toEqual(['c-jeonse:custom:25']);
+    // 종류별 기간 설정: 해지 통보기한만 60일로 늘리면 헬스장 포함
+    const wide = attentionItems(records, TODAY, { termination_notice: 60, custom: 30, prepare: 30, renewal: 30, contract_end: 30 });
+    expect(wide.map((i) => i.contractId)).toEqual(['c-jeonse', 'c-gym']);
     const later = attentionItems(records, '2026-11-25');
     expect(later[0]).toMatchObject({ contractId: 'c-gym', kind: 'termination_notice', days: 6 });
   });

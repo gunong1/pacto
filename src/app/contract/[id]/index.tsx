@@ -16,7 +16,7 @@ import { formatWon, formatWonCompact } from '@/domain/money';
 import { contractSchedule, nextPayment } from '@/domain/schedule';
 import { contractMonthlyEquivalent } from '@/domain/spending';
 import { currentTerm, deriveStatus } from '@/domain/status';
-import { CATEGORY_PROFILES, nextAction } from '@/domain/nextAction';
+import { CATEGORY_PROFILES, isActionable, nextAction } from '@/domain/nextAction';
 import type { AiCheck, ContractPayment, ContractRecord } from '@/domain/types';
 import { useContract, useContractActions, useToday } from '@/features/contracts/queries';
 import { confirm, notify } from '@/lib/dialog';
@@ -27,6 +27,11 @@ function paymentRule(p: ContractPayment) {
   const day = p.dayOfMonth ? `${p.dayOfMonth}일` : '';
   if (p.frequency === 'yearly' && p.monthOfYear) return `매년 ${p.monthOfYear}월 ${day}`;
   return `${FREQUENCY_LABEL[p.frequency]} ${day}`.trim();
+}
+
+/** 원본 계약서 열기. Step 8: 비공개 저장소 Signed URL로 연결 */
+function openOriginal(_doc: ContractRecord['documents'][number]) {
+  notify('계약서 원본', '원본 열람은 보안 저장소 연결(Step 8) 이후 제공됩니다. 계약서는 본인만 접근 가능한 비공개 저장소에 보관됩니다.');
 }
 
 export default function ContractDetailScreen() {
@@ -96,11 +101,11 @@ export default function ContractDetailScreen() {
             <StatusBadge status={view.status} />
           </View>
 
-          {/* 다음 행동 — 계약을 열었을 때 가장 먼저 보이는 영역 */}
+          {/* 다음 행동 — 계약을 열었을 때 가장 먼저 보이는 영역. 단순 결제는 "다음 결제"로 구분 */}
           {live && view.action ? (
-            <View style={styles.action} testID="detail-next-action">
-              <AppText variant="captionStrong" color="primary">
-                다음 행동
+            <View style={isActionable(view.action) ? styles.action : styles.actionNeutral} testID="detail-next-action">
+              <AppText variant="captionStrong" color={isActionable(view.action) ? 'primary' : 'textSecondary'} testID="detail-next-title">
+                {isActionable(view.action) ? '다음 행동' : '다음 결제'}
               </AppText>
               <AppText variant="title3" style={{ marginTop: 6 }} testID="detail-next-headline">
                 {view.action.headline}
@@ -148,6 +153,24 @@ export default function ContractDetailScreen() {
             <AppText variant="body2" color="textTertiary" style={{ marginTop: spacing.lg }}>
               종료일이 없는 계약이에요
             </AppText>
+          ) : null}
+
+          {/* 계약서 원본 — 계약 지갑의 핵심. Step 8에서 Signed URL 열람으로 연결 */}
+          {record.documents.length > 0 ? (
+            <Pressable
+              onPress={() => openOriginal(record.documents[0])}
+              accessibilityRole="button"
+              testID="detail-open-original"
+              style={({ pressed }) => [styles.original, pressed && { backgroundColor: colors.bgSubtle }]}>
+              <Ionicons name="document-text-outline" size={20} color={colors.primary} />
+              <AppText variant="body2Strong" color="primary" style={{ flex: 1 }}>
+                계약서 원본 보기
+              </AppText>
+              <AppText variant="caption" color="textTertiary">
+                {record.documents.length > 1 ? `파일 ${record.documents.length}개` : (record.documents[0].pageCount ? `${record.documents[0].pageCount}쪽` : '')}
+              </AppText>
+              <Ionicons name="chevron-forward" size={16} color={colors.textDisabled} />
+            </Pressable>
           ) : null}
 
           {view.term?.isEstimatedRenewal ? (
@@ -249,7 +272,7 @@ export default function ContractDetailScreen() {
               <Pressable
                 key={d.id}
                 style={styles.doc}
-                onPress={() => notify('원본 보기', '원본 열람은 보안 저장소 연결(Step 8) 이후 제공됩니다. 계약서는 본인만 접근 가능한 비공개 저장소에 보관됩니다.')}>
+                onPress={() => openOriginal(d)}>
                 <Ionicons name={d.mimeType === 'application/pdf' ? 'document-outline' : 'image-outline'} size={22} color={colors.textSecondary} />
                 <View style={{ flex: 1 }}>
                   <AppText variant="body2Strong" numberOfLines={1}>
@@ -375,6 +398,8 @@ const styles = StyleSheet.create({
   ddayBlock: { marginTop: spacing.xl, flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   notice: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.checkSoft },
   action: { marginTop: spacing.xl, backgroundColor: colors.primarySoft, borderRadius: radius.xl, padding: spacing.lg },
+  actionNeutral: { marginTop: spacing.xl, backgroundColor: colors.bgSubtle, borderRadius: radius.xl, padding: spacing.lg },
+  original: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.lg, paddingHorizontal: spacing.lg, height: 52, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border },
   actionFoot: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
   actionButton: { backgroundColor: colors.bg },
   nextPay: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
