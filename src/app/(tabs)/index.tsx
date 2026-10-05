@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
+import { LogoHorizontal } from '@/components/brand/Logo';
 import { Amount, ContractLine, DDay } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
@@ -57,9 +58,7 @@ export default function HomeScreen() {
   return (
     <Screen>
       <View style={styles.topBar}>
-        <AppText variant="title3" color="primary" style={styles.wordmark}>
-          PACTO
-        </AppText>
+        <LogoHorizontal height={24} />
         <Pressable onPress={() => router.push('/notifications')} hitSlop={hitSlop} accessibilityLabel="알림" testID="open-notifications">
           <Ionicons name="notifications-outline" size={24} color={colors.text} />
         </Pressable>
@@ -225,7 +224,6 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.gutter, paddingTop: spacing.sm, paddingBottom: spacing.xs, height: 48 },
-  wordmark: { letterSpacing: 1.5, fontWeight: '800' },
   hero: { paddingHorizontal: spacing.gutter, paddingTop: spacing.lg, paddingBottom: spacing.xxl },
   breakdown: { marginTop: spacing.xl, gap: 6 },
   breakdownRow: { flexDirection: 'row', justifyContent: 'space-between' },

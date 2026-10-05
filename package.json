@@ -30,6 +30,7 @@
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.1",
     "zod": "^4.6.5",
@@ -53,7 +54,8 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "check": "npm run typecheck && npm run lint && npm test -- --silent"
+    "check": "npm run typecheck && npm run lint && npm test -- --silent",
+    "brand:assets": "node --experimental-strip-types --no-warnings scripts/generate-brand-assets.ts"
   },
   "private": true,
   "jest": {

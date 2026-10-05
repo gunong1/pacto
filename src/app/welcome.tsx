@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LogoHorizontal } from '@/components/brand/Logo';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { useSession } from '@/features/session/store';
-import { colors, radius, spacing } from '@/theme';
+import { colors, spacing } from '@/theme';
 
 /** 시작 화면. Step 1~4는 mock 로그인 (모든 버튼이 바로 홈으로). 실제 인증은 Step 6. */
 export default function WelcomeScreen() {
@@ -14,11 +15,7 @@ export default function WelcomeScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.hero}>
-        <View style={styles.logo}>
-          <AppText variant="title2" color="textInverse">
-            P
-          </AppText>
-        </View>
+        <LogoHorizontal height={44} />
         <AppText variant="title1" style={{ marginTop: spacing.xxl }}>
           내 모든 계약이{'\n'}모이는 곳
         </AppText>
@@ -57,7 +54,6 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   hero: { flex: 1, paddingHorizontal: spacing.gutter + 4, justifyContent: 'center' },
-  logo: { width: 52, height: 52, borderRadius: radius.lg, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   points: { marginTop: spacing.xxxl, gap: spacing.md },
   point: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   actions: { paddingHorizontal: spacing.gutter, paddingBottom: spacing.lg, gap: spacing.sm },

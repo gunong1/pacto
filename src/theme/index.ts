@@ -2,8 +2,8 @@ import type { TextStyle } from 'react-native';
 
 /**
  * PACTO 디자인 토큰 — 금융/자산관리 앱 톤.
- * 화이트 중심 + 딥 네이비 1색. 보라색/그라데이션/네온 사용 금지.
- * 강조는 D-Day와 금액에만.
+ * 화이트 중심 + 브랜드 네이비(로고 색) 1색 + 보조 스카이블루. 보라색/그라데이션/네온 사용 금지.
+ * 강조는 D-Day와 금액에만. 브랜드 원색은 src/components/brand/geometry.ts의 BRAND_COLORS.
  */
 export const colors = {
   bg: '#FFFFFF',
@@ -18,10 +18,13 @@ export const colors = {
   textDisabled: '#B0B8C1',
   textInverse: '#FFFFFF',
 
-  primary: '#14306B',
-  primaryPressed: '#0E2350',
-  primarySoft: '#EBF0F9',
-  accent: '#2457C5',
+  /** 브랜드 네이비 (로고) */
+  primary: '#142C4C',
+  primaryPressed: '#0C1E36',
+  primarySoft: '#EDF1F7',
+  /** 브랜드 보조색 (로고 뒤 카드) — 장식/보조 표시용, 본문 텍스트에는 쓰지 않음 */
+  brandSky: '#7894BC',
+  accent: '#4C6C9C',
 
   caution: '#D6393A',
   cautionSoft: '#FDEFEF',
