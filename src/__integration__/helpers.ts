@@ -24,7 +24,8 @@ export function localEnv(): LocalEnv {
 
 export function anonClient() {
   const e = localEnv();
-  return createClient<Database>(e.API_URL, e.ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: testFetch } });
+  // 앱과 같은 PKCE 흐름 (메일 링크 → code 교환)
+  return createClient<Database>(e.API_URL, e.ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, flowType: 'pkce' }, global: { fetch: testFetch } });
 }
 
 export function adminClient() {
@@ -40,4 +41,18 @@ export async function newUser(prefix = 'user') {
   const { data, error } = await client.auth.signUp({ email, password });
   if (error || !data.user) throw error ?? new Error('signUp failed');
   return { client, user: data.user, email, password };
+}
+
+/** 로컬 메일 서버(Mailpit)에서 해당 주소로 온 마지막 메일의 링크 */
+export async function latestMailLink(to: string): Promise<string> {
+  for (let i = 0; i < 20; i++) {
+    const list = (await (await testFetch(`http://127.0.0.1:54324/api/v1/search?query=${encodeURIComponent(`to:"${to}"`)}`)).json()) as { messages: { ID: string }[] };
+    if (list.messages.length > 0) {
+      const msg = (await (await testFetch(`http://127.0.0.1:54324/api/v1/message/${list.messages[0].ID}`)).json()) as { HTML: string; Text: string };
+      const m = /href="([^"]+)"/.exec(msg.HTML) ?? /(https?:\/\/\S+)/.exec(msg.Text);
+      if (m) return m[1].replace(/&amp;/g, '&');
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error('mail not found');
 }

@@ -19,7 +19,8 @@ function create(): PactoSupabase | null {
       storage: isWeb ? undefined : new LargeSecureStore(),
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: isWeb,
+      detectSessionInUrl: false, // 콜백 화면에서 code를 직접 교환 (PKCE)
+      flowType: 'pkce',
     },
   });
   if (!isWeb) {

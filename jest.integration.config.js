@@ -5,6 +5,7 @@
 module.exports = {
   preset: 'jest-expo',
   testEnvironment: 'node',
+  setupFiles: ['<rootDir>/src/__integration__/setup.ts'],
   testMatch: ['<rootDir>/src/**/__integration__/**/*.test.ts'],
   moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
 };

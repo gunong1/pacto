@@ -1,16 +1,29 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
+import { useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LogoHorizontal } from '@/components/brand/Logo';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { useSession } from '@/features/session/store';
+import { authErrorMessage, authService, type OAuthProvider } from '@/features/auth/authService';
+import { notify } from '@/lib/dialog';
 import { colors, spacing } from '@/theme';
 
-/** 시작 화면. Step 1~4는 mock 로그인 (모든 버튼이 바로 홈으로). 실제 인증은 Step 6. */
+/** 시작 화면. 이메일 / Apple / Google (Kakao는 P1 이후). Supabase 미설정 시 미리보기(mock) 로그인. */
 export default function WelcomeScreen() {
-  const signIn = useSession((s) => s.signIn);
+  const [busy, setBusy] = useState<OAuthProvider | null>(null);
+  const oauth = async (p: OAuthProvider) => {
+    setBusy(p);
+    try {
+      await authService.signInWithProvider(p);
+    } catch (e) {
+      notify('로그인', authErrorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -40,12 +53,16 @@ export default function WelcomeScreen() {
       </View>
 
       <View style={styles.actions}>
-        <Button label="Apple로 계속하기" onPress={() => signIn('apple')} left={<Ionicons name="logo-apple" size={18} color={colors.textInverse} />} testID="signin-apple" />
-        <Button label="Google로 계속하기" variant="secondary" onPress={() => signIn('google')} left={<Ionicons name="logo-google" size={16} color={colors.text} />} testID="signin-google" />
-        <Button label="이메일로 계속하기" variant="ghost" onPress={() => signIn('email')} testID="signin-email" />
-        <AppText variant="small" color="textTertiary" align="center" style={{ marginTop: spacing.xs }}>
-          개발용 미리보기 — 로그인 없이 예시 데이터로 시작합니다
-        </AppText>
+        {Platform.OS !== 'android' ? (
+          <Button label="Apple로 계속하기" loading={busy === 'apple'} onPress={() => oauth('apple')} left={<Ionicons name="logo-apple" size={18} color={colors.textInverse} />} testID="signin-apple" />
+        ) : null}
+        <Button label="Google로 계속하기" variant="secondary" loading={busy === 'google'} onPress={() => oauth('google')} left={<Ionicons name="logo-google" size={16} color={colors.text} />} testID="signin-google" />
+        <Button label="이메일로 계속하기" variant="ghost" onPress={() => router.push('/sign-in')} testID="signin-email" />
+        {authService.mode === 'mock' ? (
+          <AppText variant="small" color="textTertiary" align="center" style={{ marginTop: spacing.xs }}>
+            미리보기 모드 — 서버 없이 예시 데이터로 동작합니다
+          </AppText>
+        ) : null}
       </View>
     </SafeAreaView>
   );

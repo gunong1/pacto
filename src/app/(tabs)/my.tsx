@@ -6,12 +6,15 @@ import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
 import { Divider, ListRow, Screen, Section, SectionGap } from '@/components/ui/layout';
 import { useContracts } from '@/features/contracts/queries';
+import { authErrorMessage, authService } from '@/features/auth/authService';
 import { useSession } from '@/features/session/store';
 import { notify as notice } from '@/lib/dialog';
 import { colors, spacing } from '@/theme';
 
 export default function MyScreen() {
-  const { displayName, provider, signOut } = useSession();
+  const user = useSession((s) => s.user);
+  const signOut = () => authService.signOut().catch((e) => notice('로그아웃', authErrorMessage(e)));
+  const providerLabel = user?.provider === 'apple' ? 'Apple' : user?.provider === 'google' ? 'Google' : '이메일';
   const { data } = useContracts();
   const docs = data?.reduce((n, r) => n + r.documents.length, 0) ?? 0;
 
@@ -25,9 +28,11 @@ export default function MyScreen() {
           <Ionicons name="person" size={26} color={colors.textTertiary} />
         </View>
         <View style={{ flex: 1 }}>
-          <AppText variant="title3">{displayName ?? '팩토 사용자'}</AppText>
+          <AppText variant="title3" numberOfLines={1}>
+            {user?.email ?? '팩토 사용자'}
+          </AppText>
           <AppText variant="caption" color="textTertiary">
-            {provider === 'apple' ? 'Apple' : provider === 'google' ? 'Google' : '이메일'} 계정 · 미리보기 모드
+            {providerLabel} 계정{authService.mode === 'mock' ? ' · 미리보기 모드' : ''}
           </AppText>
         </View>
       </View>
@@ -54,7 +59,13 @@ export default function MyScreen() {
       <Section>
         <ListRow title="로그아웃" onPress={signOut} testID="sign-out" />
         <Divider />
-        <ListRow title="회원 탈퇴" subtitle="계약서 원본과 모든 데이터가 삭제됩니다 (Step 6에서 연결)" right={<Badge label="준비중" />} />
+        {user?.provider === 'email' ? (
+          <>
+            <ListRow title="비밀번호 변경" chevron onPress={() => router.push('/reset-password')} />
+            <Divider />
+          </>
+        ) : null}
+        <ListRow title="회원 탈퇴" subtitle="계약서 원본과 모든 데이터가 삭제됩니다" chevron onPress={() => router.push('/settings/delete-account')} testID="open-delete-account" />
       </Section>
     </Screen>
   );

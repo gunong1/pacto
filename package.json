@@ -64,7 +64,7 @@
     "test": "jest",
     "check": "npm run typecheck && npm run lint && npm test -- --silent",
     "brand:assets": "node --experimental-strip-types --no-warnings scripts/generate-brand-assets.ts",
-    "db:start": "supabase start -x studio,imgproxy,realtime,logflare,vector,supavisor,mailpit,edge-runtime,postgres-meta",
+    "db:start": "supabase start -x studio,imgproxy,realtime,logflare,vector,supavisor,postgres-meta",
     "db:reset": "supabase db reset",
     "db:test": "supabase test db",
     "db:types": "supabase gen types typescript --local --schema public > src/types/database.ts",
