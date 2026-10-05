@@ -36,6 +36,17 @@ export default function ReviewScreen() {
         자동으로 정리한 내용은 틀릴 수 있습니다.{'\n'}특히 <AppText variant="body2Strong" color="check">확인 필요</AppText> 항목은 계약서와 비교해주세요. 모든 항목을 저장 전에 수정할 수 있어요.
       </AppText>
 
+      {extraction.provider === 'mock' ? (
+        <View style={styles.mockBanner} testID="review-mock-banner">
+          <AppText variant="captionStrong" color="check">
+            미리보기 모드 — 예시 결과예요
+          </AppText>
+          <AppText variant="caption" color="textSecondary">
+            지금은 계약서를 실제로 읽지 않습니다. 모든 항목을 계약서와 비교해 직접 입력해주세요.
+          </AppText>
+        </View>
+      ) : null}
+
       <View style={styles.files}>
         {files.map((f) => (
           <View key={f.uri} style={styles.file}>
@@ -76,7 +87,7 @@ export default function ReviewScreen() {
       trailing={trailing}
       defaultValues={draftToForm(model.draft)}
       flagged={model.flagged}
-      evidence={model.evidence}
+      evidence={extraction.provider === 'mock' ? undefined : model.evidence}
       header={header}
       today={today}
       submitLabel="계약 저장"
@@ -89,6 +100,7 @@ export default function ReviewScreen() {
             source: 'upload',
             documents: uploaded.map((d) => ({ id: d.id, fileName: d.fileName, mimeType: d.mimeType, sizeBytes: d.sizeBytes, storagePath: d.storagePath, localUri: d.localUri, pageCount: null })),
             aiChecks: extraction.checks.map((c) => ({ ...c, status: 'new' as const })),
+            analysisJobId: extraction.jobId ?? null,
           },
           {
             onSuccess: (record) => {
@@ -105,6 +117,7 @@ export default function ReviewScreen() {
 const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.lg, paddingBottom: spacing.md },
   files: { marginTop: spacing.lg, gap: 6 },
+  mockBanner: { marginTop: spacing.lg, padding: spacing.md, gap: 2, borderRadius: radius.md, backgroundColor: colors.checkSoft },
   file: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   trailing: { paddingHorizontal: spacing.gutter },
   checks: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.bgSubtle },

@@ -7,9 +7,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { aiProvider, documentStore } from '@/data';
+import { AIConsentRequiredError, AIExtractionError } from '@/data/ai/provider';
 import { DocumentError } from '@/data/documents';
+import { SupabaseAIProvider } from '@/data/supabase/SupabaseAIProvider';
 import { useRegistration } from '@/features/registration/store';
 import { useToday } from '@/features/contracts/queries';
+import { confirm } from '@/lib/dialog';
 import { colors, spacing } from '@/theme';
 
 /** 분석 중 정리하는 항목 — 기다리는 동안 PACTO가 무엇을 해주는지 보여준다. */
@@ -56,14 +59,37 @@ export default function AnalyzingScreen() {
       // ② 계약정보 정리 (Step 9 전까지 mock)
       setPhase('analyze');
       timer = setInterval(() => setStep((v) => Math.min(v + 1, FIELDS.length)), 330);
+      const extract = () => aiProvider.extractContract({ files, documentIds: docs.map((d) => d.id), today }, controller.signal);
       try {
-        const result = await aiProvider.extractContract({ files, today }, controller.signal);
+        let result;
+        try {
+          result = await extract();
+        } catch (e) {
+          if (!(e instanceof AIConsentRequiredError)) throw e;
+          // 개인정보 보호: 계약서를 외부 AI로 보내기 전에 동의를 받는다
+          const ok = await confirm(
+            '계약서 자동 정리 동의',
+            '계약서 내용을 자동으로 정리하기 위해 원본을 외부 AI 서비스(OpenAI)로 전송해 처리합니다. 처리 결과는 저장 전에 직접 확인할 수 있어요. 동의하시겠어요?',
+            '동의',
+          );
+          if (!ok) {
+            if (!controller.signal.aborted) router.replace('/register/manual');
+            return;
+          }
+          if (aiProvider instanceof SupabaseAIProvider) await aiProvider.grantConsent();
+          result = await extract();
+        }
+        if (controller.signal.aborted) return;
         done.current = true;
         setExtraction(result);
         router.replace('/register/review');
-      } catch {
+      } catch (e) {
         if (!controller.signal.aborted) {
-          setFailed({ title: '계약서를 읽지 못했어요', message: '원본은 보관되었어요. 계약정보는 직접 입력해서 저장할 수 있어요.', uploadFailed: false });
+          setFailed({
+            title: '계약서를 자동으로 정리하지 못했어요',
+            message: e instanceof AIExtractionError ? e.message : '원본은 보관되었어요. 계약정보는 직접 입력해서 저장할 수 있어요.',
+            uploadFailed: false,
+          });
         }
       } finally {
         clearInterval(timer);

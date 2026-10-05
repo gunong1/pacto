@@ -3,6 +3,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
 import { supabase, type PactoSupabase } from '@/data/supabase/client';
+import { env } from '@/lib/env';
 
 export interface AuthUser {
   id: string;
@@ -107,7 +108,22 @@ export class SupabaseAuthService implements AuthService {
     return { needsEmailConfirmation: !data.session };
   }
 
+  /** 대시보드에서 해당 로그인 공급자를 켰는지 확인 (꺼져 있으면 오류 페이지 대신 안내) */
+  private async isProviderEnabled(provider: OAuthProvider): Promise<boolean> {
+    try {
+      const res = await fetch(`${env.supabaseUrl}/auth/v1/settings`, { headers: { apikey: env.supabaseAnonKey } });
+      if (!res.ok) return true; // 확인 실패 시 기존 흐름대로 진행
+      const settings = (await res.json()) as { external?: Record<string, boolean> };
+      return settings.external?.[provider] !== false;
+    } catch {
+      return true;
+    }
+  }
+
   async signInWithProvider(provider: OAuthProvider) {
+    if (!(await this.isProviderEnabled(provider))) {
+      throw new AuthFailure(`${provider === 'apple' ? 'Apple' : 'Google'} 로그인은 아직 준비 중이에요. 이메일로 계속해주세요.`);
+    }
     const redirectTo = redirect('auth/callback');
     const { data, error } = await this.sb.auth.signInWithOAuth({ provider, options: { redirectTo, skipBrowserRedirect: true } });
     if (error) fail(error);

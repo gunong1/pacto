@@ -15,11 +15,18 @@ const log = (...a) => console.log('✔', ...a);
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('dialog', (d) => d.accept());
+  page.on('dialog', (d) => d.accept().catch(() => undefined));
   const email = `ui-${Date.now()}@pacto.test`;
   const password = 'pacto-ui-password-1';
 
   await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  // 공급자 미설정 시 오류 페이지 대신 안내
+  const dialog = page.waitForEvent('dialog');
+  await page.click(tid('signin-google'));
+  const msg = (await dialog).message();
+  if (!msg.includes('Google 로그인은 아직 준비 중')) throw new Error('공급자 미설정 안내 없음: ' + msg);
+  if (!page.url().startsWith(BASE)) throw new Error('외부 오류 페이지로 이동함');
+  log('Google 미설정 → 안내 메시지 (오류 페이지로 이동하지 않음)');
   await page.click(tid('signin-email'));
   await page.click(tid('go-sign-up'));
   await page.fill(`input${tid('sign-up-email')}`, email);

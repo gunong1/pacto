@@ -18,7 +18,11 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('dialog', (d) => d.accept());
+  const dialogs = [];
+  page.on('dialog', (d) => {
+    dialogs.push(d.message());
+    d.accept().catch(() => undefined);
+  });
   const shot = (n) => page.screenshot({ path: path.join(SHOTS, `wallet-${n}.png`) });
 
   // 1. 회원가입
@@ -39,9 +43,12 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click(tid('method-pdf'))]);
   await chooser.setFiles({ name: '공기청정기_렌탈계약서.pdf', mimeType: 'application/pdf', buffer: PDF });
   await page.waitForSelector('text=계약서를 안전하게 보관하고 있어요.', { timeout: 10000 }).catch(() => undefined);
-  await page.waitForSelector(tid('submit-contract'), { timeout: 20000 });
+  await page.waitForSelector(tid('submit-contract'), { timeout: 30000 });
   await shot('01-review');
-  log('2 PDF 업로드 → 원본 보관 → 자동 정리 결과 확인 화면');
+  log('2 PDF 업로드 → 원본 보관 → (AI 처리 동의) → 서버 자동 정리 → 확인 화면');
+
+  if (!dialogs.some((m) => m.includes('계약서 자동 정리 동의'))) throw new Error('AI 처리 동의를 묻지 않음');
+  log('2 외부 AI 전송 전 동의 확인');
 
   // 3. DB 저장
   await page.click(tid('submit-contract'));

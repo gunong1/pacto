@@ -44,3 +44,4 @@ example
 e2e/shots/
 
 .env
+supabase/functions/.env

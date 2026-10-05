@@ -20,6 +20,8 @@ export interface PickedFile {
 
 export interface ExtractInput {
   files: PickedFile[];
+  /** 비공개 저장소에 보관된 원본 id — 서버 분석은 이 문서를 읽는다 */
+  documentIds: string[];
   today: string;
 }
 
@@ -38,7 +40,15 @@ export interface ExtractionResult {
   checks: ExtractedCheck[];
   provider: string;
   promptVersion: string;
+  /** 서버 분석 작업 id (analysis_jobs) */
+  jobId?: string;
 }
+
+/** AI 처리(외부 전송) 동의가 필요함 */
+export class AIConsentRequiredError extends Error {}
+
+/** AI 분석 실패 — message는 사용자에게 보여줄 문구 */
+export class AIExtractionError extends Error {}
 
 export interface AIProvider {
   readonly name: string;

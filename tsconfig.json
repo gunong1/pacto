@@ -12,7 +12,8 @@
     },
     "types": [
       "jest"
-    ]
+    ],
+    "allowImportingTsExtensions": true
   },
   "include": [
     "**/*.ts",

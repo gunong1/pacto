@@ -8,6 +8,7 @@ import { MockDocumentStore, type DocumentStore } from './documents';
 import type { ContractRepository } from './repository';
 import { supabase } from './supabase/client';
 import { SupabaseContractRepository } from './supabase/SupabaseContractRepository';
+import { SupabaseAIProvider } from './supabase/SupabaseAIProvider';
 import { SupabaseDocumentStore } from './supabase/SupabaseDocumentStore';
 import { prepareFile } from './supabase/prepareFile';
 
@@ -15,12 +16,12 @@ import { prepareFile } from './supabase/prepareFile';
  * 구현체 선택 지점.
  * - Supabase 설정됨: 실제 DB (RLS로 본인 계약만)
  * - 미설정: 인메모리 mock (미리보기·UI 개발)
- * AI는 Step 9 전까지 항상 MockAIProvider.
+ * AI: Supabase 모드는 서버 함수(analyze-contract), 미리보기는 MockAIProvider(예시 결과).
  */
 export const contractRepository: ContractRepository =
   isSupabaseConfigured && supabase ? new SupabaseContractRepository(supabase, () => todayInSeoul()) : new MockContractRepository();
 export const documentStore: DocumentStore =
   isSupabaseConfigured && supabase ? new SupabaseDocumentStore(supabase, prepareFile) : new MockDocumentStore();
-export const aiProvider: AIProvider = new MockAIProvider();
+export const aiProvider: AIProvider = isSupabaseConfigured && supabase ? new SupabaseAIProvider(supabase) : new MockAIProvider();
 
 export type { AIProvider, ContractRepository, DocumentStore };

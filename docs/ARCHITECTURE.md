@@ -34,11 +34,11 @@
 | 6 인증 | 완료 | 이메일(가입·로그인·로그아웃·세션 유지·재설정·탈퇴), Apple/Google OAuth 구조 (공급자 키는 대시보드 설정 필요) |
 | 7 계약 CRUD | 완료 | `SupabaseContractRepository` — 화면 코드는 저장소 교체만으로 동작 |
 | 8 원본 보관 | 완료 | PDF/JPEG/PNG(HEIC→JPEG), Signed URL(120초) 열람, 취소 시 정리, 계약 삭제·탈퇴 시 파일 삭제 |
-| 9 실제 AI | 대기 | 실제 계약서 샘플로 모델별 추출 정확도 비교 후 결정 |
+| 9 실제 AI | 1차 연결 | OpenAI(Responses API, PDF·사진 직접 입력, strict JSON schema, store:false) — 서버 함수 `analyze-contract`. 동의 확인·본인 문서 검증·결과 검증·금지 표현 대체. 실제 정확도는 샘플 계약서로 측정 예정, Gemini/Claude는 같은 인터페이스로 추가 |
 
 구현 중 결정 사항
 - P0 동안 AI 체크는 `contracts.ai_checks`(jsonb)에 저장 → P1에서 `contract_ai_reviews`로 정규화
-- `analysis_jobs`는 테이블만 두고 mock 단계에서는 기록하지 않음 (Step 9에서 Edge Function이 상태·결과 기록, 그때 RLS의 mock 예외 제거)
+- `analysis_jobs`는 서버(Edge Function)만 기록 — 사용자 직접 기록 정책 제거 (migration 0004)
 - 저장되지 않은 업로드: 등록 취소 시 앱에서 정리. 앱 강제 종료 등으로 남는 경우를 위한 서버 정리 작업(cron)은 출시 전 추가 필요
 - Edge Function은 외부 패키지 없이 Supabase REST API만 사용 (공급망 의존 최소화)
 
