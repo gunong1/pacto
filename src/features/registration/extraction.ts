@@ -52,6 +52,13 @@ const KEY_DATE_KIND: Partial<Record<Meaning, ContractDateKind>> = {
 /** 시작·종료로 쓰이지 않으면 '기타 날짜'로 남길 의미 (계약서의 날짜를 버리지 않는다) */
 const KEEP_AS_OTHER: ReadonlySet<Meaning> = new Set(['service_start', 'contract_start', 'loan_execution', 'coverage_start', 'maturity', 'contract_end', 'completion', 'other']);
 
+/** '월 이용료' → '월 이용료와', '관리비 청구금' → '관리비 청구금과' */
+function withWa(word: string): string {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  const hasFinal = code >= 0 && code <= 11171 && code % 28 !== 0;
+  return `${word}${hasFinal ? '과' : '와'}`;
+}
+
 export const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
 
 export interface TypeSuggestion {
@@ -154,9 +161,19 @@ export function toReviewModel(result: ExtractionResult): ReviewModel {
         ? '계약서에 결제일이 없어 계약 시작일로 계산했어요. 다른 날이면 입력해주세요.'
         : '계약서에 결제일이 없어요. 결제일을 입력해주세요.';
     }
-    if (p.frequency !== 'one_time' && p.dayOfMonth == null && !startsOn) {
+    let dayOfMonth = p.dayOfMonth;
+    if (p.frequency !== 'one_time' && dayOfMonth == null && !startsOn) {
+      // 같은 주기의 다른 결제에 결제일이 있으면 함께 청구되는 것으로 보고 그 날짜를 쓴다 (예: 락커 이용료 → 월 이용료 결제일)
+      const sibling = result.payments.find((x) => x !== p && x.frequency === p.frequency && x.dayOfMonth != null);
+      dayOfMonth = sibling?.dayOfMonth ?? null;
       flagged.add(`${path}.dayOfMonth`);
-      notes[`${path}.dayOfMonth`] = '계약서에 결제일이 없어요. 시작일 기준으로 계산되니 실제 결제일을 확인해주세요.';
+      notes[`${path}.dayOfMonth`] = sibling
+        ? `결제일이 따로 없어 ${withWa(sibling.label)} 같은 ${sibling.dayOfMonth}일로 넣었어요. 확인해주세요.`
+        : '계약서에 결제일이 없어요. 시작일 기준으로 계산되니 실제 결제일을 확인해주세요.';
+    }
+    if (p.optional) {
+      flagged.add(`${path}.amount`);
+      notes[`${path}.amount`] = '선택 항목이에요. 신청하지 않았다면 이 결제를 삭제해주세요.';
     }
     uncertain(`${path}.amount`, p.confidence);
     quote(`${path}.amount`, p.evidence);
@@ -165,7 +182,7 @@ export function toReviewModel(result: ExtractionResult): ReviewModel {
       label: p.label,
       amount: p.amount,
       frequency: p.frequency,
-      dayOfMonth: p.dayOfMonth,
+      dayOfMonth,
       monthOfYear: null,
       startsOn,
       endsOn: p.endDate,

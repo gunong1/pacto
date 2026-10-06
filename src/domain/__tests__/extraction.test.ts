@@ -21,7 +21,7 @@ import { toReviewModel } from '@/features/registration/extraction';
 const ev = (quote: string | null = null, page: number | null = null) => ({ evidence_quote: quote, evidence_page: page });
 const f = (value: unknown, confidence = 'high', quote: string | null = null) => ({ value, confidence, ...ev(quote, quote ? 1 : null) });
 const date = (d: string, meaning: string, label: string, confidence = 'high') => ({ date: d, meaning, label, confidence, ...ev() });
-const pay = (p: Record<string, unknown>) => ({ day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, confidence: 'high', ...ev(), ...p });
+const pay = (p: Record<string, unknown>) => ({ day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, optional: false, confidence: 'high', ...ev(), ...p });
 
 function output(o: { type?: unknown; fields?: Record<string, unknown>; dates?: unknown[]; payments?: unknown[]; details?: Record<string, unknown>; checks?: unknown[] }) {
   const fields: Record<string, unknown> = {};
@@ -254,5 +254,36 @@ describe('추출 v3 → 확인 화면 (toReviewModel)', () => {
     const m = toReviewModel(toAppResult(o, 'openai'));
     expect(m.draft.terminationNoticeDays).toBe(30);
     expect(m.flagged.has('terminationNoticeDays')).toBe(true);
+  });
+});
+
+describe('헬스장 샘플 계약서: 락커 이용료(선택, 결제일 없음 · 월 이용료와 함께 청구)', () => {
+  const gym = (lockerTwice = false) =>
+    output({
+      type: { value: 'recurring', confidence: 'high', alternatives: [], reason: '', ...ev() },
+      fields: { title: f('헬스장 회원권 이용 계약서'), category: f('membership'), counterparty: f('바디핏 피트니스 둔산점'), autoRenewal: f(true), renewalPeriodMonths: f(1), terminationNoticeDays: f(7) },
+      dates: [date('2026-11-01', 'contract_signed', '계약 체결일'), date('2026-11-03', 'service_start', '이용 시작일'), date('2027-11-02', 'contract_end', '이용 종료일')],
+      payments: [
+        pay({ kind: 'recurring_fee', label: '월 이용료', amount: 55_000, frequency: 'monthly', day_of_month: 5 }),
+        pay({ kind: 'recurring_fee', label: '락커 이용료', amount: 5_000, frequency: 'monthly', optional: true }),
+        ...(lockerTwice ? [pay({ kind: 'recurring_fee', label: '락커 이용료 (제2조)', amount: 5_000, frequency: 'monthly', optional: true })] : []),
+      ],
+    });
+
+  test('락커 이용료는 월 이용료와 같은 5일, 선택 항목은 확인 필요', () => {
+    const m = toReviewModel(toAppResult(gym(), 'openai'));
+    expect(m.draft.payments.map((p) => [p.label, p.dayOfMonth])).toEqual([['월 이용료', 5], ['락커 이용료', 5]]);
+    expect(m.flagged.has('payments.1.amount')).toBe(true);
+    expect(m.notes['payments.1.amount']).toContain('선택 항목');
+    expect(m.notes['payments.1.dayOfMonth']).toContain('월 이용료와 같은 5일');
+    const r = draftToRecord(m.draft, 'g', '2026-10-06');
+    expect(scheduleForRange([r], { start: '2026-11-03', end: '2026-11-03' }, '2026-10-06').map((i) => i.title)).toEqual(['이용 시작']);
+    expect(scheduleForRange([r], { start: '2026-11-05', end: '2026-11-05' }, '2026-10-06').map((i) => i.title)).toEqual(['월 이용료', '락커 이용료']);
+    expect(monthSpending([r], { year: 2026, month: 11 }).total).toBe(60_000);
+  });
+
+  test('같은 결제가 두 번 나와도 한 번만', () => {
+    const r = toAppResult(gym(true), 'openai');
+    expect(r.payments.map((p) => p.label)).toEqual(['월 이용료', '락커 이용료']);
   });
 });

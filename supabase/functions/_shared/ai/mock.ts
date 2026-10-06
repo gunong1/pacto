@@ -28,8 +28,8 @@ export class MockExtractionProvider implements ExtractionProvider {
           { date: '2029-10-11', meaning: 'contract_end', label: '계약 기간 종료', confidence: 'high', ...ev('계약 기간 2026.10.12 ~ 2029.10.11') },
         ],
         payments: [
-          { kind: 'recurring_fee', label: '월 렌탈료', amount: 29900, frequency: 'monthly', day_of_month: 12, date: null, end_date: null, installment_count: null, is_variable: false, confidence: 'high', ...ev('월 렌탈료 29,900원') },
-          { kind: 'setup_fee', label: '초기 설치비', amount: 20000, frequency: 'one_time', day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, confidence: 'high', ...ev('초기 설치비 20,000원 (1회)') },
+          { kind: 'recurring_fee', label: '월 렌탈료', amount: 29900, frequency: 'monthly', day_of_month: 12, date: null, end_date: null, installment_count: null, is_variable: false, optional: false, confidence: 'high', ...ev('월 렌탈료 29,900원') },
+          { kind: 'setup_fee', label: '초기 설치비', amount: 20000, frequency: 'one_time', day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, optional: false, confidence: 'high', ...ev('초기 설치비 20,000원 (1회)') },
         ],
         details: { commitment_months: 36, ownership_transfer_terms: '계약 종료 후 전액 납부 완료 시 이전' },
         checks: [{ severity: 'caution', topic: 'auto_renewal', title: '자동갱신', description: '자동갱신 조건이 포함되어 있습니다. 해지 통보기한을 확인해주세요.', evidence_quote: null, evidence_page: null }],

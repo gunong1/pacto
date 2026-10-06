@@ -133,6 +133,7 @@ export function extractionJsonSchema() {
         end_date: { type: ['string', 'null'], description: '정기 결제의 마지막 결제일 또는 납입기간 종료일. 명시된 경우만' },
         installment_count: { type: ['integer', 'null'], description: '총 납입 회차 (할부·대출). 명시된 경우만' },
         is_variable: { type: 'boolean', description: '사용량 등으로 매번 금액이 달라지는지' },
+        optional: { type: 'boolean', description: '"(선택)", "신청 시"처럼 신청한 경우에만 청구되는 항목이면 true' },
         confidence: { type: 'string', enum: [...CONFIDENCE] },
         ...evidenceProps,
       }),
@@ -175,6 +176,9 @@ export function extractionInstructions(today: string): string {
     '   - 일회성 계약의 계약금/중도금/잔금은 down_payment/interim_payment/balance_payment, 각 날짜를 date에.',
     '   - 연납 보험료는 frequency=yearly, 금액은 1회 납입액 그대로.',
     '   - 결제일·첫 결제일이 계약서에 적혀 있지 않으면 시작일 등에서 추측하지 말고 date·day_of_month를 null로 둡니다.',
+    '   - 다른 결제와 "함께 청구"된다고 적혀 있으면 그 결제와 같은 day_of_month를 넣습니다.',
+    '   - 같은 돈을 두 번 넣지 않습니다. 표와 조항에 같은 항목이 다시 나와도 한 번만 넣습니다.',
+    '   - "(선택)", "신청 시"처럼 신청해야 청구되는 항목은 optional=true로 넣습니다.',
     '4) details — 해당 유형의 속성만 채우고 나머지는 null.',
     '5) checks — 사용자가 확인하면 좋은 조항만: 자동갱신·해지(종료) 통보기한, 중도해지·위약금, 보증금 반환, 결제 조건. 없으면 빈 배열.',
     '   severity: 놓치면 계약이 연장되는 조항은 caution, 위약금·중도해지는 check, 단순 안내는 info.',
@@ -225,6 +229,8 @@ export interface ExtractedPayment {
   endDate: string | null;
   installmentCount: number | null;
   isVariable: boolean;
+  /** 신청한 경우에만 청구되는 선택 항목 (예: 락커 이용료) — 앱이 "확인 필요"로 표시 */
+  optional: boolean;
   confidence: Confidence;
   evidence?: Evidence[];
 }
@@ -387,8 +393,11 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
     const frequency = oneOf(FREQUENCIES, p.frequency);
     if (amount === null || frequency === null) continue;
     const oneTime = frequency === 'one_time';
+    const kind = oneOf(PAYMENT_KINDS, p.kind) ?? 'other';
+    // 같은 돈이 두 번 나오면(표 + 조항 등) 한 번만
+    if (payments.some((x) => x.kind === kind && x.amount === amount && x.frequency === frequency && (x.date ?? null) === (validDate(p.date) ? p.date.trim() : null))) continue;
     payments.push({
-      kind: oneOf(PAYMENT_KINDS, p.kind) ?? 'other',
+      kind,
       label: text(p.label, 40) ?? '결제',
       amount,
       frequency,
@@ -397,6 +406,7 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
       endDate: !oneTime && validDate(p.end_date) ? p.end_date.trim() : null,
       installmentCount: oneTime ? null : toInt(p.installment_count, 1, 600),
       isVariable: p.is_variable === true,
+      optional: p.optional === true,
       confidence: confidenceOf(p.confidence),
       ...evidenceOf(p),
     });
