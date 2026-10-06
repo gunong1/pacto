@@ -61,7 +61,7 @@ const CONTRACTS = [
   },
   {
     name: '자동차 할부',
-    type: 'auto_installment',
+    type: 'installment',
     category: 'vehicle',
     title: '자동차 할부',
     start: '261020',
@@ -133,6 +133,69 @@ const CONTRACTS = [
       { date: '2026-12-20', has: ['잔금', '계약 완료'], total: '₩2,000,000' },
     ],
   },
+  {
+    name: '근로계약',
+    type: 'employment',
+    category: 'employment',
+    title: '근로계약서',
+    start: '261102',
+    end: '271101',
+    signed: '261020',
+    details: [['chip', 'detail-employmentKind-fixed_term'], ['text', 'detail-probationMonths', '3'], ['text', 'detail-workHours', '09:00~18:00']],
+    payments: [{ kind: 'salary', label: '월 급여', amount: '3500000', freq: 'monthly', day: '25' }],
+    dates: [{ kind: 'hire', label: '입사일', date: '261102' }],
+    core: ['고용 형태', '계약직', '월 급여', '+3,500,000원 · 매월 25일', '근로 기간', '수습기간', '3개월', '근무시간'],
+    checks: [
+      { date: '2026-11-02', has: ['근로 시작', '입사일'], total: '₩0' },
+      { date: '2026-11-25', has: ['월 급여', '+3,500,000원', '수입'], total: '₩0', totalHas: '들어올 돈 +₩3,500,000' },
+      { date: '2027-11-01', has: ['근로계약 종료'] },
+      { date: '2026-10-20', none: true },
+    ],
+  },
+  {
+    name: '용역(프리랜서)',
+    type: 'service',
+    category: 'service',
+    title: '앱 디자인 용역',
+    start: '261015',
+    end: '261231',
+    details: [['chip', 'detail-userRole-provider'], ['text', 'detail-workScope', '앱 화면 디자인 20장']],
+    payments: [
+      { kind: 'down_payment', label: '착수금', amount: '3000000', freq: 'one_time', date: '261015', dir: 'income' },
+      { kind: 'balance_payment', label: '잔금', amount: '7000000', freq: 'one_time', date: '261231', dir: 'income' },
+    ],
+    dates: [{ kind: 'delivery', label: '납기일', date: '261215' }, { kind: 'inspection', label: '검수일', date: '261222' }],
+    core: ['나의 역할', '수행자', '업무 내용', '착수금', '+3,000,000원', '납기일', '검수일'],
+    checks: [
+      { date: '2026-10-15', has: ['업무 시작', '착수금'], total: '₩0', totalHas: '들어올 돈 +₩3,000,000' },
+      { date: '2026-12-15', has: ['납기일'] },
+      { date: '2026-12-31', has: ['업무 종료', '잔금'], totalHas: '들어올 돈 +₩7,000,000' },
+    ],
+  },
+  {
+    name: '매매',
+    type: 'sale',
+    category: 'sale',
+    title: '아파트 매매계약',
+    start: '',
+    end: '270205',
+    signed: '261010',
+    total: '200000000',
+    details: [['chip', 'detail-userRole-buyer'], ['text', 'detail-subject', '아파트 101동 1203호']],
+    payments: [
+      { kind: 'down_payment', label: '계약금', amount: '20000000', freq: 'one_time', date: '261010' },
+      { kind: 'interim_payment', label: '중도금', amount: '50000000', freq: 'one_time', date: '261130' },
+      { kind: 'balance_payment', label: '잔금', amount: '130000000', freq: 'one_time', date: '270131' },
+    ],
+    dates: [{ kind: 'handover', label: '인도일', date: '270131' }, { kind: 'ownership_transfer', label: '소유권 이전일', date: '270205' }],
+    core: ['매수인', '매매 대상', '총 매매금액', '2억원', '계약금', '중도금', '잔금', '인도일', '소유권 이전일'],
+    checks: [
+      { date: '2026-10-10', has: ['계약금'], not: ['계약 체결'], total: '₩20,000,000' },
+      { date: '2026-11-30', has: ['중도금'], total: '₩50,000,000' },
+      { date: '2027-01-31', has: ['잔금', '인도일'], total: '₩130,000,000' },
+      { date: '2027-02-05', has: ['소유권 이전일', '매매 완료'] },
+    ],
+  },
 ];
 
 (async () => {
@@ -162,10 +225,11 @@ const CONTRACTS = [
     await page.click(tid(`type-${k.type}`));
     await input('field-title').fill(k.title);
     await page.click(tid(`category-${k.category}`));
-    await input('field-startDate').fill(k.start);
+    if (k.start) await input('field-startDate').fill(k.start);
     await input('field-endDate').fill(k.end);
     if (k.signed) await input('field-contractDate').fill(k.signed);
     if (k.deposit) await input('field-depositAmount').fill(k.deposit);
+    if (k.total) await input('field-totalAmount').fill(k.total);
     for (const [kind, id, value] of k.details) {
       if (kind === 'chip') await page.click(tid(id));
       else await input(id).fill(value);
@@ -180,6 +244,7 @@ const CONTRACTS = [
       if (p.first) await input(`payment-${i}-startsOn`).fill(p.first);
       if (p.day) await input(`payment-${i}-dayOfMonth`).fill(p.day);
       if (p.count) await input(`payment-${i}-installmentCount`).fill(p.count);
+      if (p.dir) await page.click(tid(`payment-${i}-direction-${p.dir}`));
     }
     for (const [i, d] of (k.dates ?? []).entries()) {
       await page.click(tid('add-date'));

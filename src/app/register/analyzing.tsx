@@ -15,8 +15,20 @@ import { useToday } from '@/features/contracts/queries';
 import { confirm } from '@/lib/dialog';
 import { colors, spacing } from '@/theme';
 
-/** 분석 중 정리하는 항목 — 기다리는 동안 PACTO가 무엇을 해주는지 보여준다. */
-const FIELDS = ['계약명', '계약 기간', '결제일', '종료일', '자동갱신 여부', '해지 통보기한'];
+/**
+ * 분석 단계 — 계약 유형이 정해지기 전이라 특정 계약에만 있는 항목(결제일·해지 통보기한 등)은 고정 표시하지 않는다.
+ * 서버 분석은 한 번의 요청이라 실제 진행률을 알 수 없어, 단계는 시간에 따라 넘기고 마지막 단계에서 응답을 기다린다.
+ */
+const STAGES = [
+  { label: '계약 유형 확인', message: '어떤 계약인지 확인하고 있어요.' },
+  { label: '중요한 날짜 확인', message: '중요한 날짜를 찾고 있어요.' },
+  { label: '금액 및 납입 구조 확인', message: '금액과 납입 구조를 정리하고 있어요.' },
+  { label: '계약 기간 및 주요 일정 확인', message: '계약 기간과 종료 조건을 확인하고 있어요.' },
+  { label: '종료·갱신·만기 조건 확인', message: '주의해서 볼 조건이 있는지 확인하고 있어요.' },
+  { label: '중요한 조건 확인', message: '저장 전에 확인할 내용을 정리하고 있어요.' },
+] as const;
+/** 단계 전환 간격 (ms) — 실제 분석은 보통 수 초~수십 초 */
+const STAGE_MS = 2600;
 
 /** "계약서를 확인하고 있습니다." — 분석 진행 화면. 완료 후 바로 저장하지 않고 확인 화면으로. */
 export default function AnalyzingScreen() {
@@ -24,7 +36,7 @@ export default function AnalyzingScreen() {
   const files = useRegistration((s) => s.files);
   const setExtraction = useRegistration((s) => s.setExtraction);
   const setUploaded = useRegistration((s) => s.setUploaded);
-  const [phase, setPhase] = useState<'upload' | 'analyze'>('upload');
+  const [phase, setPhase] = useState<'upload' | 'analyze' | 'done'>('upload');
   const [step, setStep] = useState(0);
   const [failed, setFailed] = useState<null | { title: string; message: string; uploadFailed: boolean }>(null);
   const [attempt, setAttempt] = useState(0);
@@ -58,7 +70,8 @@ export default function AnalyzingScreen() {
       if (controller.signal.aborted) return;
       // ② 계약정보 정리 (Step 9 전까지 mock)
       setPhase('analyze');
-      timer = setInterval(() => setStep((v) => Math.min(v + 1, FIELDS.length)), 330);
+      setStep(0);
+      timer = setInterval(() => setStep((v) => Math.min(v + 1, STAGES.length - 1)), STAGE_MS);
       const extract = () => aiProvider.extractContract({ files, documentIds: docs.map((d) => d.id), today }, controller.signal);
       try {
         let result;
@@ -81,8 +94,13 @@ export default function AnalyzingScreen() {
         }
         if (controller.signal.aborted) return;
         done.current = true;
+        clearInterval(timer);
+        setStep(STAGES.length);
+        setPhase('done');
         setExtraction(result);
-        router.replace('/register/review');
+        // 완료 문구를 잠깐 보여준 뒤 확인 화면으로
+        await new Promise((r) => setTimeout(r, 700));
+        if (!controller.signal.aborted) router.replace('/register/review');
       } catch (e) {
         if (!controller.signal.aborted) {
           setFailed({
@@ -128,31 +146,52 @@ export default function AnalyzingScreen() {
     );
   }
 
+  const title = phase === 'upload' ? '계약서를 안전하게 보관하고 있어요.' : phase === 'done' ? '계약정보 정리가 완료됐어요.' : '계약서를 확인하고 있어요.';
+  const subtitle =
+    phase === 'upload'
+      ? '원본은 본인만 열람할 수 있는 비공개 저장소에 보관됩니다.'
+      : phase === 'done'
+        ? '저장하기 전에 내용을 한 번 확인해주세요.'
+        : '이 계약에서 꼭 관리해야 할 날짜와 금액, 주요 조건을 정리하고 있어요.';
+
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']} testID="analyzing">
       <View style={styles.body}>
-        <ActivityIndicator size="large" color={colors.primary} style={{ alignSelf: 'flex-start' }} />
-        <AppText variant="title2" style={{ marginTop: spacing.xl }}>
-          {phase === 'upload' ? '계약서를 안전하게 보관하고 있어요.' : '계약서를 확인하고 있어요.'}
+        {phase === 'done' ? (
+          <Ionicons name="checkmark-circle" size={40} color={colors.primary} />
+        ) : (
+          <ActivityIndicator size="large" color={colors.primary} style={{ alignSelf: 'flex-start' }} />
+        )}
+        <AppText variant="title2" style={{ marginTop: spacing.xl }} testID="analyzing-title">
+          {title}
         </AppText>
         <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
-          {phase === 'upload'
-            ? '원본은 본인만 열람할 수 있는 비공개 저장소에 보관됩니다.'
-            : '아래 정보를 정리하고 있습니다. 정리가 끝나면 저장 전에 직접 확인할 수 있어요.'}
+          {subtitle}
         </AppText>
-        <View style={styles.fields} testID="analyzing-fields">
-          {FIELDS.map((f, i) => {
-            const done = i < step;
-            return (
-              <View key={f} style={styles.field}>
-                <Ionicons name={done ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={done ? colors.primary : colors.textDisabled} />
-                <AppText variant="body" color={done ? 'text' : 'textTertiary'}>
-                  {f}
-                </AppText>
-              </View>
-            );
-          })}
-        </View>
+        {phase !== 'upload' ? (
+          <View style={styles.fields} testID="analyzing-stages">
+            {STAGES.map((s, i) => {
+              const state = i < step ? 'done' : i === step ? 'active' : 'todo';
+              return (
+                <View key={s.label} style={styles.field}>
+                  {state === 'active' ? (
+                    <ActivityIndicator size="small" color={colors.primary} style={{ width: 20 }} />
+                  ) : (
+                    <Ionicons name={state === 'done' ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={state === 'done' ? colors.primary : colors.textDisabled} />
+                  )}
+                  <AppText variant="body" color={state === 'todo' ? 'textTertiary' : 'text'}>
+                    {s.label}
+                  </AppText>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+        {phase === 'analyze' ? (
+          <AppText variant="body2Strong" color="primary" style={{ marginTop: spacing.lg }} testID="analyzing-stage-message">
+            {STAGES[Math.min(step, STAGES.length - 1)].message}
+          </AppText>
+        ) : null}
         <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.xxl }}>
           {files.length === 1 ? files[0].name : `${files[0]?.name} 외 ${files.length - 1}장`}
         </AppText>

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState, Screen, Section, SectionGap } from '@/components/ui/layout';
 import { statusSummary, upcomingEnds } from '@/domain/actions';
 import { formatMonthDayKo, yearMonthOf } from '@/domain/dates';
-import { CATEGORY_LABEL } from '@/domain/labels';
+import { categoryLabel } from '@/domain/labels';
 import { formatKRW } from '@/domain/money';
 import { attentionItems } from '@/domain/nextAction';
 import { annualForecast, monthlyAverage, monthSpending } from '@/domain/spending';
@@ -129,7 +129,7 @@ export default function HomeScreen() {
             {view.spending.byCategory.map((c) => (
               <View key={c.category} style={styles.breakdownRow}>
                 <AppText variant="body2" color="textSecondary">
-                  {CATEGORY_LABEL[c.category]}
+                  {categoryLabel(c.category)}
                 </AppText>
                 <Amount value={c.amount} variant="body2" />
               </View>
@@ -218,7 +218,7 @@ export default function HomeScreen() {
               key={contract.id}
               category={contract.category}
               title={contract.title}
-              subtitle={[contract.counterparty, CATEGORY_LABEL[contract.category]].filter(Boolean).join(' · ')}
+              subtitle={[contract.counterparty, categoryLabel(contract.category)].filter(Boolean).join(' · ')}
               onPress={() => router.push(`/contract/${contract.id}`)}
               testID={`recent-${contract.id}`}
             />

@@ -1,104 +1,67 @@
 import { z } from 'zod';
 
-/**
- * 계약 유형(contract_type) — 돈과 날짜가 움직이는 방식.
- * 분야(category: 부동산·통신·보험 …)와 별개다. 예: 자동차 분야 = 할부(auto_installment) / 리스·렌트(recurring) / 보험(insurance).
- *
- * 유형은 일정·지출 로직과 화면 구성을 고르는 기준일 뿐, 실제 계약서 내용보다 우선하지 않는다.
- * 일정·지출은 언제나 그 계약에 실제로 저장된 결제 목록(payments)과 날짜(dates)에서 만들어진다.
- *
- * DB: supabase/migrations/20261006000001_contract_types.sql (enum·상세 속성 검사 함수와 목록을 맞춘다)
- */
-
-export const CONTRACT_TYPES = ['recurring', 'lease', 'auto_installment', 'loan', 'insurance', 'one_time', 'other'] as const;
-export type ContractType = (typeof CONTRACT_TYPES)[number];
-
-export const CONTRACT_TYPE_LABEL: Record<ContractType, string> = {
-  recurring: '월 납입형',
-  lease: '임대차',
-  auto_installment: '자동차 할부',
-  loan: '대출',
-  insurance: '보험',
-  one_time: '일회성 계약',
-  other: '기타',
-};
-
-export const CONTRACT_TYPE_EXAMPLES: Record<ContractType, string> = {
-  recurring: '렌탈 · 통신 · 헬스장 · 구독 · 리스 · 렌트',
-  lease: '전세 · 월세 · 반전세 · 상가',
-  auto_installment: '자동차 할부 구매',
-  loan: '신용 · 담보 · 전세자금 대출',
-  insurance: '자동차 · 실손 · 종신 보험',
-  one_time: '계약금 · 중도금 · 잔금이 있는 계약',
-  other: '위에 해당하지 않는 계약',
-};
-
-// ===== 결제 의미 =====
-export const PAYMENT_KINDS = [
-  'recurring_fee',
-  'setup_fee',
-  'rent',
-  'maintenance_fee',
-  'deposit',
-  'installment',
-  'advance_payment',
-  'loan_repayment',
-  'interest',
-  'premium',
-  'down_payment',
-  'interim_payment',
-  'balance_payment',
-  'other',
-] as const;
-export type PaymentKind = (typeof PAYMENT_KINDS)[number];
-
-export const PAYMENT_KIND_LABEL: Record<PaymentKind, string> = {
-  recurring_fee: '정기 이용료',
-  setup_fee: '설치비·가입비',
-  rent: '월세',
-  maintenance_fee: '관리비',
-  deposit: '보증금',
-  installment: '할부금',
-  advance_payment: '선수금',
-  loan_repayment: '원리금 상환',
-  interest: '이자',
-  premium: '보험료',
-  down_payment: '계약금',
-  interim_payment: '중도금',
-  balance_payment: '잔금',
-  other: '기타 결제',
-};
+import {
+  CATEGORY_DEFS,
+  CHECK_TOPIC_DEFS,
+  CONTRACT_TYPE_DEFS,
+  DATE_KIND_DEFS,
+  DETAIL_FIELD_DEFS,
+  PAYMENT_KIND_DEFS,
+  type DetailInput,
+  type Direction,
+} from '../../supabase/functions/_shared/contractRegistry';
 
 /**
- * 지출 합계에서 제외하는 결제 — 보증금(전세금 포함)은 돌려받는 돈이라 소비 지출이 아니다.
- * 캘린더에는 돈이 움직이는 날로 표시한다.
+ * 계약 분야(category)와 계약 유형(contract_type).
+ * - category = 무슨 계약인가 (사용자가 이해하는 분야: 근로·부동산·보험·자동차 …)
+ * - contract_type = 이 계약을 어떤 방식으로 관리할지 (돈·날짜·의무가 움직이는 구조)
+ * 같은 분야라도 유형이 다를 수 있다 (자동차: 할부 / 리스·장기렌트(월 납입형) / 보험 / 매매).
+ *
+ * 목록의 원본은 공용 레지스트리(supabase/functions/_shared/contractRegistry.ts)이고 DB 룩업 테이블과 같다.
+ * 레지스트리에 없는 코드(나중에 DB에 추가된 유형 등)도 앱이 깨지지 않도록 모든 조회는 아래 함수로 하고 '기타'로 대체한다.
+ * 유형은 관리 방식을 고르는 기준일 뿐, 실제 계약서 내용보다 우선하지 않는다 — 일정·지출은 저장된 결제·날짜에서 만든다.
  */
-export const NON_SPENDING_PAYMENT_KINDS: ReadonlySet<PaymentKind> = new Set(['deposit']);
 
-export function countsAsSpending(kind: PaymentKind): boolean {
-  return !NON_SPENDING_PAYMENT_KINDS.has(kind);
+export { DIRECTIONS, type DetailInput, type Direction } from '../../supabase/functions/_shared/contractRegistry';
+
+export type ContractCategory = (typeof CATEGORY_DEFS)[number]['code'];
+export type ContractType = (typeof CONTRACT_TYPE_DEFS)[number]['code'];
+export type PaymentKind = (typeof PAYMENT_KIND_DEFS)[number]['code'];
+export type ContractDateKind = (typeof DATE_KIND_DEFS)[number]['code'];
+
+export const CONTRACT_CATEGORIES = CATEGORY_DEFS.map((d) => d.code) as unknown as readonly [ContractCategory, ...ContractCategory[]];
+export const CONTRACT_TYPES = CONTRACT_TYPE_DEFS.map((d) => d.code) as unknown as readonly [ContractType, ...ContractType[]];
+export const PAYMENT_KINDS = PAYMENT_KIND_DEFS.map((d) => d.code) as unknown as readonly [PaymentKind, ...PaymentKind[]];
+export const CONTRACT_DATE_KINDS = DATE_KIND_DEFS.map((d) => d.code) as unknown as readonly [ContractDateKind, ...ContractDateKind[]];
+
+const byCode = <T extends { code: string }>(defs: readonly T[]) => new Map<string, T>(defs.map((d) => [d.code, d]));
+const CATEGORY_MAP = byCode(CATEGORY_DEFS);
+const TYPE_MAP = byCode(CONTRACT_TYPE_DEFS);
+const PAYMENT_KIND_MAP = byCode(PAYMENT_KIND_DEFS);
+const DATE_KIND_MAP = byCode(DATE_KIND_DEFS);
+const TOPIC_MAP = byCode(CHECK_TOPIC_DEFS);
+
+export const categoryLabel = (c: string) => CATEGORY_MAP.get(c)?.label ?? '기타';
+export const contractTypeLabel = (t: string) => TYPE_MAP.get(t)?.label ?? '기타';
+export const contractTypeExamples = (t: string) => TYPE_MAP.get(t)?.examples ?? '';
+export const paymentKindLabel = (k: string) => PAYMENT_KIND_MAP.get(k)?.label ?? '결제';
+export const dateKindLabel = (k: string) => DATE_KIND_MAP.get(k)?.label ?? '날짜';
+/** 계약 체크 주제 이름 (이전 버전 주제 이름도 지원) */
+export const checkTopicLabel = (t: string) => TOPIC_MAP.get(t)?.label ?? LEGACY_TOPIC_LABEL[t] ?? '확인할 조항';
+const LEGACY_TOPIC_LABEL: Record<string, string> = { termination: '해지', penalty: '중도해지·위약금', deposit: '보증금', payment: '결제 조건' };
+
+/** 결제 의미의 기본 방향 */
+export const defaultDirection = (k: string): Direction => PAYMENT_KIND_MAP.get(k)?.direction ?? 'expense';
+export const DIRECTION_LABEL: Record<Direction, string> = { expense: '지출', income: '수입', neutral: '보증금·중립' };
+
+/** 지출 합계에 넣는 결제 (보증금처럼 돌려받는 돈 = neutral, 수입 = income 은 제외) */
+export function countsAsSpending(direction: Direction): boolean {
+  return direction === 'expense';
 }
 
-// ===== 주요 날짜 의미 (시작일·종료일·체결일은 계약 공통 필드) =====
-export const CONTRACT_DATE_KINDS = ['installation', 'activation', 'move_in', 'balance_due', 'renewal', 'other'] as const;
-export type ContractDateKind = (typeof CONTRACT_DATE_KINDS)[number];
-
-export const CONTRACT_DATE_KIND_LABEL: Record<ContractDateKind, string> = {
-  installation: '설치일',
-  activation: '개통일',
-  move_in: '입주일',
-  balance_due: '잔금일',
-  renewal: '갱신일',
-  other: '기타 날짜',
-};
-
 // ===== 유형별 상세 속성 (contract_details JSONB) =====
-export type DetailInput = 'amount' | 'integer' | 'percent' | 'text' | 'enum' | 'boolean';
-
 export interface DetailFieldSpec {
-  /** 앱 키 (camelCase) */
   key: string;
-  /** DB JSONB 키 (snake_case) — 정식 컬럼으로 승격할 때 이 이름을 쓴다 */
   db: string;
   label: string;
   input: DetailInput;
@@ -106,52 +69,9 @@ export interface DetailFieldSpec {
   options?: readonly { value: string; label: string }[];
 }
 
-export const LEASE_KINDS = [
-  { value: 'jeonse', label: '전세' },
-  { value: 'monthly', label: '월세' },
-  { value: 'semi_jeonse', label: '반전세' },
-  { value: 'commercial', label: '상가' },
-  { value: 'other', label: '기타' },
-] as const;
-
-export const REPAYMENT_METHODS = [
-  { value: 'equal_payment', label: '원리금균등' },
-  { value: 'equal_principal', label: '원금균등' },
-  { value: 'bullet', label: '만기일시' },
-  { value: 'other', label: '기타' },
-] as const;
-
-export const DETAIL_FIELDS: Record<ContractType, readonly DetailFieldSpec[]> = {
-  recurring: [
-    { key: 'commitmentMonths', db: 'commitment_months', label: '의무 사용기간', input: 'integer', suffix: '개월' },
-    { key: 'ownershipTransferTerms', db: 'ownership_transfer_terms', label: '소유권 이전 조건', input: 'text' },
-  ],
-  lease: [
-    { key: 'leaseKind', db: 'lease_kind', label: '임대 형태', input: 'enum', options: LEASE_KINDS },
-    { key: 'renewalTerms', db: 'renewal_terms', label: '갱신 관련 조건', input: 'text' },
-  ],
-  auto_installment: [
-    { key: 'vehicleName', db: 'vehicle_name', label: '차량', input: 'text' },
-    { key: 'vehiclePrice', db: 'vehicle_price', label: '차량가', input: 'amount', suffix: '원' },
-    { key: 'advancePayment', db: 'advance_payment', label: '선수금', input: 'amount', suffix: '원' },
-    { key: 'principal', db: 'principal', label: '할부원금', input: 'amount', suffix: '원' },
-    { key: 'interestRate', db: 'interest_rate', label: '금리', input: 'percent', suffix: '%' },
-    { key: 'totalInstallments', db: 'total_installments', label: '총 할부기간', input: 'integer', suffix: '개월' },
-  ],
-  loan: [
-    { key: 'principal', db: 'principal', label: '대출원금', input: 'amount', suffix: '원' },
-    { key: 'interestRate', db: 'interest_rate', label: '금리', input: 'percent', suffix: '%' },
-    { key: 'repaymentMethod', db: 'repayment_method', label: '상환방식', input: 'enum', options: REPAYMENT_METHODS },
-    { key: 'prepaymentFeeTerms', db: 'prepayment_fee_terms', label: '중도상환수수료', input: 'text' },
-  ],
-  insurance: [
-    { key: 'renewable', db: 'renewable', label: '갱신형', input: 'boolean' },
-    { key: 'renewalCycleYears', db: 'renewal_cycle_years', label: '갱신 주기', input: 'integer', suffix: '년' },
-    { key: 'coverageSummary', db: 'coverage_summary', label: '주요 보장', input: 'text' },
-  ],
-  one_time: [{ key: 'subject', db: 'subject', label: '계약 대상', input: 'text' }],
-  other: [],
-};
+export function detailFields(type: string): readonly DetailFieldSpec[] {
+  return DETAIL_FIELD_DEFS.filter((d) => d.type === type);
+}
 
 export type DetailValue = string | number | boolean | null;
 export type ContractDetails = Record<string, DetailValue>;
@@ -172,18 +92,15 @@ function detailValueSchema(spec: DetailFieldSpec) {
   }
 }
 
-/** 유형별 상세 속성 스키마 — 사용자 입력·AI 결과·저장 모두 같은 스키마로 검증한다. 정의되지 않은 키는 거부. */
-export const DETAIL_SCHEMAS: Record<ContractType, z.ZodType<ContractDetails>> = Object.fromEntries(
-  CONTRACT_TYPES.map((t) => [
-    t,
-    z.strictObject(Object.fromEntries(DETAIL_FIELDS[t].map((f) => [f.key, detailValueSchema(f).optional()]))) as unknown as z.ZodType<ContractDetails>,
-  ]),
-) as Record<ContractType, z.ZodType<ContractDetails>>;
+/** 유형별 상세 속성 스키마 — 사용자 입력·AI 결과·저장이 같은 스키마로 검증된다. 정의되지 않은 키는 거부. */
+export function detailSchema(type: string): z.ZodType<ContractDetails> {
+  return z.strictObject(Object.fromEntries(detailFields(type).map((f) => [f.key, detailValueSchema(f).optional()]))) as unknown as z.ZodType<ContractDetails>;
+}
 
-/** 유형에 없는 키·형식이 틀린 값은 버린다 (AI 결과 정리용). */
-export function cleanDetails(type: ContractType, input: Record<string, unknown> | null | undefined): ContractDetails {
+/** 유형에 없는 키·형식이 틀린 값은 버린다 (AI 결과·유형 변경 시 정리). */
+export function cleanDetails(type: string, input: Record<string, unknown> | null | undefined): ContractDetails {
   const out: ContractDetails = {};
-  for (const spec of DETAIL_FIELDS[type]) {
+  for (const spec of detailFields(type)) {
     const raw = input?.[spec.key];
     if (raw === undefined || raw === null || raw === '') continue;
     const parsed = detailValueSchema(spec).safeParse(raw);
@@ -193,9 +110,9 @@ export function cleanDetails(type: ContractType, input: Record<string, unknown> 
 }
 
 /** 앱 키 → DB JSONB 키 (null 값은 저장하지 않음) */
-export function detailsToDb(type: ContractType, details: ContractDetails): Record<string, DetailValue> {
+export function detailsToDb(type: string, details: ContractDetails): Record<string, DetailValue> {
   const out: Record<string, DetailValue> = {};
-  for (const spec of DETAIL_FIELDS[type]) {
+  for (const spec of detailFields(type)) {
     const v = details[spec.key];
     if (v !== undefined && v !== null) out[spec.db] = v;
   }
@@ -203,125 +120,135 @@ export function detailsToDb(type: ContractType, details: ContractDetails): Recor
 }
 
 /** DB JSONB → 앱 키 */
-export function detailsFromDb(type: ContractType, raw: unknown): ContractDetails {
+export function detailsFromDb(type: string, raw: unknown): ContractDetails {
   const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const mapped: Record<string, unknown> = {};
-  for (const spec of DETAIL_FIELDS[type]) mapped[spec.key] = obj[spec.db];
+  for (const spec of detailFields(type)) mapped[spec.key] = obj[spec.db];
   return cleanDetails(type, mapped);
 }
+
+/** DB 키 → 앱 키 (AI 결과 변환용, 모든 유형) */
+export const DETAIL_DB_TO_KEY: Record<string, string> = Object.fromEntries(DETAIL_FIELD_DEFS.map((d) => [d.db, d.key]));
 
 // ===== 유형별 프로필: 날짜 이름 · 일정 문구 · 결제 기본값 =====
 export interface ContractTypeProfile {
   /** 시작일·종료일 입력/표시 이름 */
   startLabel: string;
   endLabel: string;
+  /** 기간 이름 (상세 화면) */
+  periodLabel: string;
   /** 캘린더 시작 일정 이름 (null = 표시하지 않음) */
   startEvent: string | null;
   /** 캘린더 종료 일정 이름 */
   endEvent: string;
   endGuidance: string;
-  /** 종료 전 미리 확인할 시점 (임대차: 갱신 확인) */
+  /** 종료 전 미리 확인할 시점 (임대차: 갱신 여부 확인) */
   prepare?: { daysBefore: number; label: string; guidance: string };
-  /** 자동갱신·해지 통보 입력을 보여줄지 */
+  /** 자동갱신 입력을 보여줄지 */
   hasRenewal: boolean;
   noticeLabel: string;
   noticeGuidance: (monthDay: string) => string;
-  /** 결제를 새로 추가할 때 기본 의미와 고를 수 있는 의미 (앞쪽이 자주 쓰는 것) */
+  /** 만기가 멀면 "다음 행동" 대신 "다음 결제"를 보여줄지 (할부·대출) */
+  deferEndUntilDays?: number;
+  /** 결제를 새로 추가할 때 고를 수 있는 의미 (앞쪽이 기본) */
   paymentKinds: readonly PaymentKind[];
   dateKinds: readonly ContractDateKind[];
 }
 
 const RENEWAL_NOTICE = (md: string) => `계약서 기준 ${md}까지 해지 의사를 전달해야 자동갱신을 피할 수 있습니다.`;
+const GENERIC_NOTICE = (md: string) => `계약서에 적힌 기한이에요. ${md}까지 필요한 의사를 전달해주세요.`;
 
-export const CONTRACT_TYPE_PROFILES: Record<ContractType, ContractTypeProfile> = {
+const PROFILES: Record<ContractType, ContractTypeProfile> = {
   recurring: {
-    startLabel: '이용 시작일',
-    endLabel: '이용 종료일',
-    startEvent: '이용 시작',
-    endEvent: '이용 종료',
+    startLabel: '이용 시작일', endLabel: '이용 종료일', periodLabel: '이용 기간',
+    startEvent: '이용 시작', endEvent: '이용 종료',
     endGuidance: '종료 후 반납·소유권 이전·재약정 조건을 계약서에서 확인해주세요.',
-    hasRenewal: true,
-    noticeLabel: '해지 통보기한',
-    noticeGuidance: RENEWAL_NOTICE,
+    hasRenewal: true, noticeLabel: '해지 통보기한', noticeGuidance: RENEWAL_NOTICE,
     paymentKinds: ['recurring_fee', 'setup_fee', 'deposit', 'other'],
     dateKinds: ['installation', 'activation', 'other'],
   },
   lease: {
-    startLabel: '임대차 시작일',
-    endLabel: '임대차 종료일',
-    startEvent: '임대차 시작',
-    endEvent: '계약 만기',
+    startLabel: '임대차 시작일', endLabel: '임대차 종료일', periodLabel: '임대차 기간',
+    startEvent: '임대차 시작', endEvent: '계약 만기',
     endGuidance: '만기일의 보증금 반환·이사 일정을 확인해주세요.',
     prepare: { daysBefore: 60, label: '갱신 여부 확인', guidance: '만기 전에 재계약 또는 이사 여부를 정하고 상대방과 미리 확인해두세요.' },
-    hasRenewal: true,
-    noticeLabel: '종료 통보기한',
+    hasRenewal: true, noticeLabel: '종료 통보기한',
     noticeGuidance: (md) => `계약서에 적힌 통보기한이에요. 종료 또는 갱신 여부를 ${md}까지 상대방에게 알려주세요.`,
-    paymentKinds: ['rent', 'maintenance_fee', 'deposit', 'down_payment', 'balance_payment', 'other'],
+    paymentKinds: ['rent', 'maintenance_fee', 'deposit', 'other'],
     dateKinds: ['move_in', 'balance_due', 'other'],
   },
-  auto_installment: {
-    startLabel: '할부 실행일',
-    endLabel: '만기일',
-    startEvent: null,
-    endEvent: '할부 만기',
+  installment: {
+    startLabel: '할부 실행일', endLabel: '만기일', periodLabel: '할부 기간',
+    startEvent: null, endEvent: '할부 만기',
     endGuidance: '마지막 회차 납입과 만기 후 처리(소유권 이전 등록 등)를 확인해주세요.',
-    hasRenewal: false,
-    noticeLabel: '통보기한',
-    noticeGuidance: (md) => `계약서에 적힌 기한이에요. ${md}까지 필요한 의사를 전달해주세요.`,
+    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE, deferEndUntilDays: 90,
     paymentKinds: ['installment', 'advance_payment', 'other'],
-    dateKinds: ['other'],
+    dateKinds: ['handover', 'other'],
   },
   loan: {
-    startLabel: '대출 실행일',
-    endLabel: '만기일',
-    startEvent: '대출 실행',
-    endEvent: '대출 만기',
+    startLabel: '대출 실행일', endLabel: '만기일', periodLabel: '대출 기간',
+    startEvent: '대출 실행', endEvent: '대출 만기',
     endGuidance: '만기일의 상환·연장 조건을 확인해주세요.',
-    hasRenewal: false,
-    noticeLabel: '통보기한',
-    noticeGuidance: (md) => `계약서에 적힌 기한이에요. ${md}까지 필요한 의사를 전달해주세요.`,
+    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE, deferEndUntilDays: 90,
     paymentKinds: ['loan_repayment', 'interest', 'other'],
     dateKinds: ['other'],
   },
   insurance: {
-    startLabel: '보험 시작일',
-    endLabel: '보험 만기일',
-    startEvent: '보험 시작',
-    endEvent: '보험 만기',
+    startLabel: '보험 시작일', endLabel: '보험 만기일', periodLabel: '보험 기간',
+    startEvent: '보험 시작', endEvent: '보험 만기',
     endGuidance: '만기 전에 갱신 여부와 보험료를 확인해주세요.',
-    hasRenewal: true,
-    noticeLabel: '해지 통보기한',
-    noticeGuidance: RENEWAL_NOTICE,
+    hasRenewal: true, noticeLabel: '해지 통보기한', noticeGuidance: RENEWAL_NOTICE,
     paymentKinds: ['premium', 'other'],
     dateKinds: ['renewal', 'other'],
   },
+  employment: {
+    startLabel: '근로 시작일', endLabel: '근로 종료일', periodLabel: '근로 기간',
+    startEvent: '근로 시작', endEvent: '근로계약 종료',
+    endGuidance: '계약 종료 전에 갱신·전환 여부와 퇴직 관련 조건을 확인해주세요.',
+    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE,
+    paymentKinds: ['salary', 'bonus', 'other'],
+    dateKinds: ['hire', 'other'],
+  },
+  service: {
+    startLabel: '업무 시작일', endLabel: '업무 종료일', periodLabel: '업무 기간',
+    startEvent: '업무 시작', endEvent: '업무 종료',
+    endGuidance: '납기·검수와 남은 대금 지급 일정을 확인해주세요.',
+    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE,
+    paymentKinds: ['down_payment', 'interim_payment', 'balance_payment', 'service_fee', 'other'],
+    dateKinds: ['delivery', 'inspection', 'other'],
+  },
+  sale: {
+    startLabel: '계약 시작일', endLabel: '계약 완료일', periodLabel: '계약 기간',
+    startEvent: null, endEvent: '매매 완료',
+    endGuidance: '잔금과 인도·소유권 이전 일정을 확인해주세요.',
+    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE,
+    paymentKinds: ['down_payment', 'interim_payment', 'balance_payment', 'other'],
+    dateKinds: ['handover', 'ownership_transfer', 'other'],
+  },
   one_time: {
-    startLabel: '계약 시작일',
-    endLabel: '계약 완료일',
-    startEvent: null,
-    endEvent: '계약 완료',
+    startLabel: '계약 시작일', endLabel: '계약 완료일', periodLabel: '계약 기간',
+    startEvent: null, endEvent: '계약 완료',
     endGuidance: '완료일에 남은 잔금과 인도·이행 사항을 확인해주세요.',
-    hasRenewal: false,
-    noticeLabel: '통보기한',
-    noticeGuidance: (md) => `계약서에 적힌 기한이에요. ${md}까지 필요한 의사를 전달해주세요.`,
+    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE,
     paymentKinds: ['down_payment', 'interim_payment', 'balance_payment', 'other'],
     dateKinds: ['other'],
   },
   other: {
-    startLabel: '계약 시작일',
-    endLabel: '계약 종료일',
-    startEvent: '계약 시작',
-    endEvent: '계약 종료',
+    startLabel: '계약 시작일', endLabel: '계약 종료일', periodLabel: '계약 기간',
+    startEvent: '계약 시작', endEvent: '계약 종료',
     endGuidance: '종료 후 처리할 일이 있는지 확인해주세요.',
-    hasRenewal: true,
-    noticeLabel: '해지 통보기한',
-    noticeGuidance: RENEWAL_NOTICE,
+    hasRenewal: true, noticeLabel: '해지 통보기한', noticeGuidance: RENEWAL_NOTICE,
     paymentKinds: ['other', 'recurring_fee', 'setup_fee', 'deposit'],
     dateKinds: ['other'],
   },
 };
 
-/** 분야 → 기본 유형 (직접 입력에서 분야를 먼저 고른 경우의 제안값) */
+/** 유형 프로필 (모르는 유형은 '기타' 프로필) */
+export function profileOf(type: string): ContractTypeProfile {
+  return PROFILES[type as ContractType] ?? PROFILES.other;
+}
+
+/** 분야 → 기본 유형 제안 (직접 입력에서 분야를 먼저 고른 경우). AI 분석은 계약 내용으로 유형을 정한다. */
 export function defaultTypeForCategory(category: string): ContractType {
   switch (category) {
     case 'real_estate':
@@ -330,10 +257,17 @@ export function defaultTypeForCategory(category: string): ContractType {
       return 'insurance';
     case 'finance':
       return 'loan';
+    case 'employment':
+      return 'employment';
+    case 'service':
+      return 'service';
+    case 'sale':
+      return 'sale';
     case 'rental':
     case 'telecom':
     case 'membership':
     case 'subscription':
+    case 'education':
       return 'recurring';
     default:
       return 'other';

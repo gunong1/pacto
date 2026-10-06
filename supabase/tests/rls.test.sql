@@ -2,7 +2,7 @@
 -- 실행: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(39);
 
 -- 테스트 사용자 A, B
 insert into auth.users (id, email, aud, role) values
@@ -34,6 +34,12 @@ grant select on a_contract to authenticated;
 select isnt((select id from a_contract), null, 'A: save_contract로 계약 생성');
 select is((select count(*) from public.contract_payments where contract_id = (select id from a_contract)), 2::bigint, 'A: 결제 여러 건 저장');
 select is((select count(*) from public.contract_dates where contract_id = (select id from a_contract)), 1::bigint, 'A: 주요 날짜 저장');
+select is((select string_agg(direction, ',' order by sort_order) from public.contract_payments where contract_id = (select id from a_contract)), 'expense,expense', 'A: 결제 방향 기본값 (의미별)');
+select lives_ok($$ select public.save_contract('{"title":"근로계약","category":"employment","contract_type":"employment","contract_details":{"employment_kind":"permanent","probation_months":3}}'::jsonb, '[{"kind":"salary","label":"월 급여","amount":3000000,"frequency":"monthly","day_of_month":25,"starts_on":"2026-11-01"}]'::jsonb) $$, 'A: 근로계약(새 유형·분야) 저장');
+select is((select direction from public.contract_payments where kind = 'salary' limit 1), 'income', 'A: 급여는 수입');
+select throws_ok($$ select public.save_contract('{"title":"x","contract_type":"franchise"}'::jsonb) $$, '23503', null, 'A: 룩업에 없는 유형은 거부');
+select is((select count(*) from public.contract_type_defs), 10::bigint, '레지스트리: 유형 10개를 누구나 읽기');
+select throws_ok($$ insert into public.contract_type_defs (code, label) values ('hack', 'x') $$, '42501', null, '레지스트리는 사용자가 수정 불가');
 select is((select contract_id from public.contract_documents where id = 'aaaaaaaa-0000-0000-0000-00000000000d'), (select id from a_contract), 'A: 원본이 계약에 연결');
 select lives_ok($$ insert into public.contract_events (contract_id, title, event_date) select id, '해지 신청서 제출', '2026-11-20' from a_contract $$, 'A: 일정 추가');
 

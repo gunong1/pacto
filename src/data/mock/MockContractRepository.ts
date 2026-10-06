@@ -63,7 +63,17 @@ export class MockContractRepository implements ContractRepository {
       contract,
       payments: draftToPayments(input.draft, id, () => newId('p'), now.slice(0, 10)),
       dates: draftToDates(input.draft, id, () => newId('dt')),
-      events: [],
+      events: (input.events ?? []).map((e) => ({
+        id: newId('e'),
+        contractId: id,
+        eventType: e.eventType,
+        title: e.title.trim(),
+        eventDate: e.eventDate,
+        amount: null,
+        source: 'ai' as const,
+        notificationEnabled: true,
+        completedAt: null,
+      })),
       documents: input.documents.map((d) => ({ ...d, id: d.id ?? newId('d'), contractId: id })),
       aiChecks: input.aiChecks.map((c) => ({ ...c, id: newId('ai'), contractId: id })),
     };

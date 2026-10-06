@@ -13,22 +13,24 @@ import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { draftToRecord } from '@/data/draft';
 import type { ContractDraft } from '@/data/repository';
 import {
-  CONTRACT_DATE_KIND_LABEL,
-  CONTRACT_TYPE_EXAMPLES,
-  CONTRACT_TYPE_LABEL,
-  CONTRACT_TYPE_PROFILES,
+  dateKindLabel,
+  contractTypeExamples,
+  contractTypeLabel,
+  profileOf,
   CONTRACT_TYPES,
-  DETAIL_FIELDS,
-  PAYMENT_KIND_LABEL,
+  detailFields,
+  paymentKindLabel,
   cleanDetails,
-  countsAsSpending,
+  DIRECTION_LABEL,
+  DIRECTIONS,
+  defaultDirection,
   type ContractType,
   type DetailFieldSpec,
   type DetailValue,
   type PaymentKind,
 } from '@/domain/contractTypes';
 import { addMonths, formatDateKo } from '@/domain/dates';
-import { CATEGORY_LABEL, FREQUENCY_LABEL } from '@/domain/labels';
+import { categoryLabel, FREQUENCY_LABEL } from '@/domain/labels';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
 import { contractSchedule, expandPayment } from '@/domain/schedule';
 import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES, type Confidence } from '@/domain/types';
@@ -61,8 +63,9 @@ export interface ContractFormProps {
   evidence?: Partial<Record<string, string>>;
   /** 경로별 안내 (왜 확인이 필요한지) */
   notes?: Partial<Record<string, string>>;
-  /** AI의 유형 판단 (확인 화면) */
+  /** AI의 분야·유형 판단 (확인 화면) — 확정하지 않고 사용자가 바꿀 수 있다 */
   typeSuggestion?: TypeSuggestionView;
+  categorySuggestion?: { value: string; confidence: Confidence; alternatives: string[]; reason: string | null };
   /** 모든 유형의 상세 속성 추출값 — 유형을 바꾸면 새 유형에 맞는 값만 다시 고른다 */
   allDetails?: Record<string, DetailValue>;
   header?: React.ReactNode;
@@ -76,8 +79,9 @@ export interface ContractFormProps {
 }
 
 const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
-const CATEGORY_OPTIONS = CONTRACT_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABEL[c] }));
-const TYPE_OPTIONS = CONTRACT_TYPES.map((t) => ({ value: t, label: CONTRACT_TYPE_LABEL[t] }));
+const CATEGORY_OPTIONS = CONTRACT_CATEGORIES.map((c) => ({ value: c, label: categoryLabel(c) }));
+const TYPE_OPTIONS = CONTRACT_TYPES.map((t) => ({ value: t, label: contractTypeLabel(t) }));
+const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABEL[d] }));
 const FREQUENCY_OPTIONS = PAYMENT_FREQUENCIES.map((f) => ({ value: f, label: FREQUENCY_LABEL[f] }));
 const ONE_TIME_KINDS: ReadonlySet<PaymentKind> = new Set(['setup_fee', 'deposit', 'advance_payment', 'down_payment', 'interim_payment', 'balance_payment']);
 
@@ -86,7 +90,8 @@ const defaultFrequency = (kind: PaymentKind): PaymentFormValues['frequency'] => 
 function newPayment(kind: PaymentKind): PaymentFormValues {
   return {
     kind,
-    label: PAYMENT_KIND_LABEL[kind],
+    direction: defaultDirection(kind),
+    label: paymentKindLabel(kind),
     amount: '',
     frequency: defaultFrequency(kind),
     dayOfMonth: '',
@@ -103,7 +108,7 @@ function newPayment(kind: PaymentKind): PaymentFormValues {
  * 공통 틀(유형 → 기본 정보 → 기간 → 유형별 정보 → 결제 목록 → 주요 날짜 → 갱신·해지 → 기타)은 같고,
  * 유형에 따라 날짜 이름·유형별 정보·결제 의미 선택지가 바뀐다. 결제·날짜는 여러 건 추가/수정/삭제할 수 있다.
  */
-export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit }: ContractFormProps) {
+export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit }: ContractFormProps) {
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),
     defaultValues,
@@ -114,7 +119,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
 
   const values = useWatch({ control }) as ContractFormValues;
   const type = values.contractType;
-  const profile = CONTRACT_TYPE_PROFILES[type];
+  const profile = profileOf(type);
 
   const hint = (path: string) => notes?.[path] ?? (evidence?.[path] ? `원문: “${evidence[path]}”` : undefined);
   const field = (name: FieldName, label: string, extra?: Partial<TextFieldProps> & { amount?: boolean }) => (
@@ -132,7 +137,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
     if (next === prev) return;
     const current = getValues('details');
     const merged: Record<string, DetailValue> = { ...(allDetails ?? {}) };
-    for (const spec of DETAIL_FIELDS[prev]) {
+    for (const spec of detailFields(prev)) {
       const v = detailFromInput(spec, current[spec.key] ?? '');
       if (v !== undefined && v !== null) merged[spec.key] = v;
     }
@@ -143,9 +148,9 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   const paymentKindOptions = (current: PaymentKind) => {
     const kinds = [...profile.paymentKinds];
     if (!kinds.includes(current)) kinds.push(current);
-    return kinds.map((k) => ({ value: k, label: PAYMENT_KIND_LABEL[k] }));
+    return kinds.map((k) => ({ value: k, label: paymentKindLabel(k) }));
   };
-  const dateKindOptions = profile.dateKinds.map((k) => ({ value: k, label: CONTRACT_DATE_KIND_LABEL[k] }));
+  const dateKindOptions = profile.dateKinds.map((k) => ({ value: k, label: dateKindLabel(k) }));
 
   return (
     <Screen
@@ -162,12 +167,20 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
       }>
       {header}
 
-      <Section title="계약 유형" caption="돈과 날짜가 움직이는 방식이에요. 유형에 맞게 일정과 지출을 관리해요." testID="section-type">
+      <Section title="계약 유형" caption="돈·날짜·의무가 움직이는 구조예요. 이 유형에 맞게 일정과 지출을 관리해요." testID="section-type">
         {typeSuggestion ? (
           <View style={[styles.suggestion, flagged?.has('contractType') && styles.suggestionFlagged]} testID="type-suggestion">
+            {categorySuggestion ? (
+              <View style={styles.rowCenter}>
+                <AppText variant="captionStrong" testID="category-suggestion">
+                  AI 판단 분야: {categoryLabel(categorySuggestion.value)} · 신뢰도 {CONFIDENCE_LABEL[categorySuggestion.confidence]}
+                </AppText>
+                {flagged?.has('category') ? <Badge label="확인 필요" tone="check" /> : null}
+              </View>
+            ) : null}
             <View style={styles.rowCenter}>
               <AppText variant="captionStrong">
-                AI 판단: {CONTRACT_TYPE_LABEL[typeSuggestion.value]} · 신뢰도 {CONFIDENCE_LABEL[typeSuggestion.confidence]}
+                AI 판단 유형: {contractTypeLabel(typeSuggestion.value)} · 신뢰도 {CONFIDENCE_LABEL[typeSuggestion.confidence]}
               </AppText>
               {flagged?.has('contractType') ? <Badge label="확인 필요" tone="check" /> : null}
             </View>
@@ -178,24 +191,24 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             ) : null}
             {typeSuggestion.alternatives.length > 0 ? (
               <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
-                다른 가능성: {typeSuggestion.alternatives.map((t) => CONTRACT_TYPE_LABEL[t]).join(', ')}
+                다른 가능성: {typeSuggestion.alternatives.map((t) => contractTypeLabel(t)).join(', ')}
               </AppText>
             ) : null}
             <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
-              유형에 따라 일정과 지출이 다르게 만들어져요. 맞지 않으면 아래에서 바꿔주세요.
+              유형에 따라 일정·지출·확인할 조건이 다르게 만들어져요. 맞지 않으면 아래에서 바꿔주세요.
             </AppText>
           </View>
         ) : null}
         <ChipGroup options={TYPE_OPTIONS} value={type} onChange={changeType} testIDPrefix="type" />
         <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }}>
-          {CONTRACT_TYPE_EXAMPLES[type]}
+          {contractTypeExamples(type)}
         </AppText>
       </Section>
 
       <SectionGap />
       <Section title="기본 정보">
         {field('title', '계약명', { placeholder: '예: 자동차보험' })}
-        <FormLabel label="분야" flagged={flagged?.has('category')} />
+        <FormLabel label="분야 (무슨 계약인가요?)" flagged={flagged?.has('category')} />
         <Controller control={control} name="category" render={({ field: f }) => <ChipGroup options={CATEGORY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="category" />} />
         <View style={{ height: spacing.lg }} />
         {field('counterparty', '계약 상대방', { placeholder: '예: 삼성화재' })}
@@ -210,12 +223,12 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         {date('contractDate', '계약 체결일 (선택)', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
       </Section>
 
-      {DETAIL_FIELDS[type].length > 0 || type === 'lease' ? (
+      {detailFields(type).length > 0 || type === 'lease' ? (
         <>
           <SectionGap />
-          <Section title={`${CONTRACT_TYPE_LABEL[type]} 정보`} testID="section-details">
+          <Section title={`${contractTypeLabel(type)} 정보`} testID="section-details">
             {type === 'lease' ? amount('depositAmount', '보증금') : null}
-            {DETAIL_FIELDS[type].map((spec) => (
+            {detailFields(type).map((spec) => (
               <DetailInput key={`${type}-${spec.key}`} control={control} spec={spec} flagged={flagged?.has(`details.${spec.key}`)} />
             ))}
           </Section>
@@ -238,7 +251,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             <View key={p.id} style={styles.card} testID={`payment-${i}`}>
               <View style={styles.cardHeader}>
                 <AppText variant="body2Strong">결제 {i + 1}</AppText>
-                {!countsAsSpending(pv.kind) ? <Badge label="지출 합계 제외" /> : null}
+                {pv.direction === 'neutral' ? <Badge label="지출 합계 제외" /> : pv.direction === 'income' ? <Badge label="수입" tone="primary" /> : null}
                 <View style={{ flex: 1 }} />
                 <Pressable onPress={() => payments.remove(i)} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={`결제 ${i + 1} 삭제`} testID={`payment-${i}-remove`}>
                   <Ionicons name="trash-outline" size={18} color={colors.textTertiary} />
@@ -255,8 +268,9 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                       // 이름·주기를 직접 바꾸지 않았다면 새 의미의 기본값으로 (예: 설치비 → 일시불)
                       const label = getValues(`payments.${i}.label`);
                       const frequency = getValues(`payments.${i}.frequency`);
-                      if (!label || label === PAYMENT_KIND_LABEL[f.value]) setValue(`payments.${i}.label`, PAYMENT_KIND_LABEL[k]);
+                      if (!label || label === paymentKindLabel(f.value)) setValue(`payments.${i}.label`, paymentKindLabel(k));
                       if (frequency === defaultFrequency(f.value)) setValue(`payments.${i}.frequency`, defaultFrequency(k));
+                      if (getValues(`payments.${i}.direction`) === defaultDirection(f.value)) setValue(`payments.${i}.direction`, defaultDirection(k));
                       f.onChange(k);
                     }}
                     testIDPrefix={`payment-${i}-kind`}
@@ -271,6 +285,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                 </View>
               </View>
               <Controller control={control} name={`payments.${i}.frequency`} render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value} onChange={f.onChange} scroll testIDPrefix={`payment-${i}-frequency`} />} />
+              <View style={{ height: spacing.sm }} />
+              <Controller control={control} name={`payments.${i}.direction`} render={({ field: f }) => <ChipGroup options={DIRECTION_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-direction`} />} />
               <View style={{ height: spacing.md }} />
               {oneTime ? (
                 date(`payments.${i}.startsOn`, '결제일', { hint: values.startDate ? '비워두면 계약 시작일' : undefined, testID: `payment-${i}-startsOn` })
@@ -306,13 +322,13 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                   name={`dates.${i}.kind`}
                   render={({ field: f }) => (
                     <ChipGroup
-                      options={dateKindOptions.some((o) => o.value === f.value) ? dateKindOptions : [...dateKindOptions, { value: f.value, label: CONTRACT_DATE_KIND_LABEL[f.value] }]}
+                      options={dateKindOptions.some((o) => o.value === f.value) ? dateKindOptions : [...dateKindOptions, { value: f.value, label: dateKindLabel(f.value) }]}
                       value={f.value}
                       onChange={(k) => {
-                        const prevLabel = CONTRACT_DATE_KIND_LABEL[f.value];
+                        const prevLabel = dateKindLabel(f.value);
                         const label = getValues(`dates.${i}.label`);
                         f.onChange(k);
-                        if (!label || label === prevLabel) setValue(`dates.${i}.label`, CONTRACT_DATE_KIND_LABEL[k]);
+                        if (!label || label === prevLabel) setValue(`dates.${i}.label`, dateKindLabel(k));
                       }}
                       testIDPrefix={`date-${i}-kind`}
                     />
@@ -335,7 +351,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           size="md"
           onPress={() => {
             const kind = profile.dateKinds[0];
-            dates.append({ kind, label: CONTRACT_DATE_KIND_LABEL[kind], date: '' });
+            dates.append({ kind, label: dateKindLabel(kind), date: '' });
           }}
           testID="add-date"
         />
@@ -441,7 +457,7 @@ function SchedulePreview({ values, today }: { values: ContractFormValues; today:
                 p.frequency === 'one_time' ? '일시불' : `${FREQUENCY_LABEL[p.frequency]}${p.dayOfMonth ? ` ${p.dayOfMonth}일` : ''}`,
                 first ? `${p.frequency === 'one_time' ? '' : '첫 결제 '}${formatDateKo(first.date)}` : null,
                 p.installmentCount ? `총 ${p.installmentCount}회` : null,
-                countsAsSpending(p.kind) ? null : '지출 합계 제외',
+                p.direction === 'neutral' ? '지출 합계 제외' : p.direction === 'income' ? '수입' : null,
               ]
                 .filter(Boolean)
                 .join(' · ')}

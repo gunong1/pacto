@@ -48,7 +48,8 @@ function toPayment(r: Row<'contract_payments'>): ContractPayment {
   return {
     id: r.id,
     contractId: r.contract_id,
-    kind: r.kind,
+    kind: r.kind as ContractPayment['kind'],
+    direction: r.direction as ContractPayment['direction'],
     label: r.label,
     amount: r.amount,
     frequency: r.frequency,
@@ -62,7 +63,7 @@ function toPayment(r: Row<'contract_payments'>): ContractPayment {
 }
 
 function toDate(r: Row<'contract_dates'>): ContractDate {
-  return { id: r.id, contractId: r.contract_id, kind: r.kind, label: r.label, date: r.date };
+  return { id: r.id, contractId: r.contract_id, kind: r.kind as ContractDate['kind'], label: r.label, date: r.date };
 }
 
 function toEvent(r: Row<'contract_events'>): ContractEvent {
@@ -96,8 +97,9 @@ function toContract(r: Row<'contracts'>): Contract {
   return {
     id: r.id,
     title: r.title,
-    category: r.category,
-    contractType: r.contract_type,
+    // 앱이 모르는 코드(나중에 DB 레지스트리에 추가된 분야·유형)도 그대로 보존한다 — 화면은 '기타'로 표시
+    category: r.category as Contract['category'],
+    contractType: r.contract_type as Contract['contractType'],
     details: detailsFromDb(r.contract_type, r.contract_details),
     counterparty: r.counterparty,
     lifecycle: r.lifecycle,
@@ -161,6 +163,7 @@ function paymentsPayload(d: ContractDraft, today: ISODate): Json {
     const r = draftToPayment(p, d, '', '', today);
     return {
       kind: r.kind,
+      direction: r.direction,
       label: r.label,
       amount: r.amount,
       frequency: r.frequency,
@@ -220,6 +223,9 @@ export class SupabaseContractRepository implements ContractRepository {
       }),
     );
     if (!id) throw new RepositoryError('계약을 저장하지 못했어요.');
+    if (input.events?.length) {
+      check(await this.sb.from('contract_events').insert(input.events.map((e) => ({ contract_id: id, title: e.title.trim(), event_date: e.eventDate, event_type: e.eventType, source: 'ai' as const }))));
+    }
     return this.mustGet(id);
   }
 

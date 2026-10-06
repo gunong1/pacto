@@ -90,7 +90,7 @@ describe('status', () => {
 describe('schedule', () => {
   const base = rec('c-water-purifier').contract;
   const p = (over: Partial<ContractPayment>): ContractPayment => ({
-    id: 'p', contractId: base.id, kind: 'recurring_fee', label: 'x', amount: 1000, frequency: 'monthly', dayOfMonth: null, monthOfYear: null, startsOn: '2026-01-31', endsOn: null, installmentCount: null, isVariable: false, ...over,
+    id: 'p', contractId: base.id, kind: 'recurring_fee', direction: 'expense', label: 'x', amount: 1000, frequency: 'monthly', dayOfMonth: null, monthOfYear: null, startsOn: '2026-01-31', endsOn: null, installmentCount: null, isVariable: false, ...over,
   });
 
   test('31일 결제는 짧은 달에 말일로', () => {

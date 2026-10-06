@@ -4,26 +4,13 @@
  * 날짜는 시간대 없는 로컬 날짜 문자열 'YYYY-MM-DD' (Asia/Seoul 기준), 금액은 원 단위 정수.
  */
 
-import type { ContractDateKind, ContractDetails, ContractType, PaymentKind } from './contractTypes';
+import type { ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind } from './contractTypes';
 
-export type { ContractDateKind, ContractDetails, ContractType, PaymentKind } from './contractTypes';
+export { CONTRACT_CATEGORIES } from './contractTypes';
+export type { ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind } from './contractTypes';
 
 export type ISODate = string;
 
-export const CONTRACT_CATEGORIES = [
-  'real_estate',
-  'vehicle',
-  'insurance',
-  'telecom',
-  'rental',
-  'finance',
-  'employment',
-  'business',
-  'membership',
-  'subscription',
-  'other',
-] as const;
-export type ContractCategory = (typeof CONTRACT_CATEGORIES)[number];
 
 /** DB에 저장되는 상태. 종료 임박/갱신 예정은 날짜로 계산한다 (status.ts). */
 export type ContractLifecycle = 'active' | 'ended' | 'cancelled';
@@ -93,6 +80,8 @@ export interface ContractPayment {
   id: string;
   contractId: string;
   kind: PaymentKind;
+  /** 사용자 기준 돈의 방향: 지출 / 수입(급여·용역 대금) / 중립(보증금 등 돌려받는 돈) */
+  direction: Direction;
   label: string;
   amount: number;
   frequency: PaymentFrequency;
@@ -143,16 +132,26 @@ export interface ContractDocument {
   pageCount: number | null;
 }
 
-/** AI 체크 결과 — 위험 평가가 아니라 확인/일정 연결을 위한 정보. */
+/**
+ * PACTO 계약 체크 (내부 이름: clause review) — 법적 판정이 아니라 사용자가 놓치기 쉬운, 확인이 필요한 조항.
+ * 원문 근거(문서·쪽·문장)와 신뢰도를 함께 보관하고, 가능하면 일정 관리로 연결한다.
+ */
 export interface AiCheck {
   id: string;
   contractId: string;
   severity: ReviewSeverity;
-  topic: 'auto_renewal' | 'termination' | 'penalty' | 'deposit' | 'payment' | 'other';
+  /** 주제 코드 (공용 레지스트리 CHECK_TOPIC_DEFS, 이전 버전 코드 포함) */
+  topic: string;
   title: string;
   description: string;
+  /** AI 판단 신뢰도 (이전 버전 데이터는 없음) */
+  confidence?: Confidence;
   evidenceQuote: string | null;
   evidencePage: number | null;
+  /** 근거가 있는 원본 문서 id (contract_documents) */
+  evidenceDocumentId?: string | null;
+  /** 이 조항과 관련해 계약서에 명시된 날짜 */
+  relatedDate?: string | null;
   /** 이 체크를 일정 관리로 연결하는 제안. */
   suggestion: AiCheckSuggestion | null;
   status: 'new' | 'acknowledged' | 'dismissed';

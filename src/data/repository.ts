@@ -4,6 +4,7 @@ import type {
   ContractDateKind,
   ContractDetails,
   ContractType,
+  Direction,
   PaymentKind,
   ContractDocument,
   ContractEventType,
@@ -16,6 +17,8 @@ import type {
 /** 결제 한 건 (확인/수정 폼). 한 계약에 여러 건 — 월 렌탈료 + 설치비, 계약금 + 잔금 … */
 export interface PaymentDraft {
   kind: PaymentKind;
+  /** 사용자 기준 돈의 방향 (지출 / 수입 / 보증금 등 중립) */
+  direction: Direction;
   label: string;
   amount: number;
   frequency: PaymentFrequency;
@@ -71,6 +74,8 @@ export interface CreateContractInput {
   documents: ContractDocumentInput[];
   aiChecks: Omit<AiCheck, 'id' | 'contractId'>[];
   analysisJobId?: string | null;
+  /** 확인 화면에서 "캘린더에 추가"를 고른 계약 체크 일정 (AI 제안) */
+  events?: NewEventInput[];
 }
 
 export interface NewEventInput {

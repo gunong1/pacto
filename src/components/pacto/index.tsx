@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, type AppTextProps } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
 import { formatDDay } from '@/domain/dday';
-import { CATEGORY_LABEL, SEVERITY_LABEL, STATUS_LABEL } from '@/domain/labels';
+import { categoryLabel, SEVERITY_LABEL, STATUS_LABEL } from '@/domain/labels';
 import { formatKRW, formatWon } from '@/domain/money';
 import type { ContractCategory, ContractStatus, ReviewSeverity, ScheduleItemType } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
@@ -37,7 +37,10 @@ export function SeverityLabel({ severity }: { severity: ReviewSeverity }) {
   return <Badge label={SEVERITY_LABEL[severity]} tone={tone} />;
 }
 
-const CATEGORY_ICON: Record<ContractCategory, keyof typeof Ionicons.glyphMap> = {
+const CATEGORY_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
+  education: 'school-outline',
+  service: 'construct-outline',
+  sale: 'swap-horizontal-outline',
   real_estate: 'home-outline',
   vehicle: 'car-outline',
   insurance: 'shield-checkmark-outline',
@@ -55,8 +58,8 @@ export function CategoryIcon({ category, size = 40 }: { category: ContractCatego
   return (
     <View
       style={[styles.icon, { width: size, height: size, borderRadius: size / 2 }]}
-      accessibilityLabel={CATEGORY_LABEL[category]}>
-      <Ionicons name={CATEGORY_ICON[category]} size={size * 0.48} color={colors.textSecondary} />
+      accessibilityLabel={categoryLabel(category)}>
+      <Ionicons name={CATEGORY_ICON[category] ?? CATEGORY_ICON.other} size={size * 0.48} color={colors.textSecondary} />
     </View>
   );
 }

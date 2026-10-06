@@ -7,7 +7,7 @@ import { monthSpending } from '@/domain/spending';
 import { anonClient, newUser } from './helpers';
 
 const TODAY = '2026-10-05';
-const fee: PaymentDraft = { kind: 'recurring_fee', label: '월 회비', amount: 55_000, frequency: 'monthly', dayOfMonth: 5, monthOfYear: null, startsOn: null, endsOn: null, installmentCount: null, isVariable: false };
+const fee: PaymentDraft = { kind: 'recurring_fee', direction: 'expense', label: '월 회비', amount: 55_000, frequency: 'monthly', dayOfMonth: 5, monthOfYear: null, startsOn: null, endsOn: null, installmentCount: null, isVariable: false };
 const gymDraft: ContractDraft = {
   ...EMPTY_DRAFT,
   title: '헬스장',

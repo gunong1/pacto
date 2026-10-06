@@ -1,53 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { useMemo } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
-import { Amount, CategoryIcon, DDay, EVENT_COLOR, SeverityLabel, StatusBadge } from '@/components/pacto';
+import { Amount, CategoryIcon, DDay, EVENT_COLOR, StatusBadge } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SwitchRow } from '@/components/ui/controls';
 import { Divider, EmptyState, KeyValueRow, Screen, Section, SectionGap } from '@/components/ui/layout';
-import { documentStore } from '@/data';
-import { AI_DISCLAIMER } from '@/domain/aiCopy';
-import { addMonths, formatDateKo } from '@/domain/dates';
+import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
+import { addDays, addMonths, formatDateKo } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
-import { CONTRACT_TYPE_LABEL } from '@/domain/contractTypes';
-import { coreInfo } from '@/domain/coreInfo';
-import { CATEGORY_LABEL, EVENT_TYPE_LABEL } from '@/domain/labels';
+import { contractTypeLabel, profileOf } from '@/domain/contractTypes';
+import { coreInfo, otherDetails } from '@/domain/coreInfo';
+import { categoryLabel, EVENT_TYPE_LABEL } from '@/domain/labels';
 import { formatWon } from '@/domain/money';
 import { contractSchedule, nextPayment } from '@/domain/schedule';
 import { contractMonthlyEquivalent } from '@/domain/spending';
-import { currentTerm, deriveStatus } from '@/domain/status';
+import { currentTerm, deriveStatus, terminationNoticeDeadline } from '@/domain/status';
 import { endProfile, isActionable, nextAction } from '@/domain/nextAction';
 import type { AiCheck, ContractRecord } from '@/domain/types';
+import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
+import { openOriginal } from '@/features/contracts/openOriginal';
 import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
-
-/**
- * 원본 계약서 열기 — 비공개 저장소의 짧은 Signed URL(2분)로만 연다. 공개 URL은 사용하지 않는다.
- * 웹은 팝업 차단을 피하기 위해 탭을 먼저 연 뒤 주소를 넣는다.
- */
-async function openOriginal(doc: ContractRecord['documents'][number]) {
-  const tab = Platform.OS === 'web' ? window.open('', '_blank') : null;
-  try {
-    const url = await documentStore.openUrl(doc);
-    if (Platform.OS === 'web') {
-      if (tab) {
-        tab.opener = null;
-        tab.location.href = url;
-      } else window.location.href = url;
-    } else {
-      await WebBrowser.openBrowserAsync(url);
-    }
-  } catch (e) {
-    tab?.close();
-    notify('계약서 원본', e instanceof Error ? e.message : '원본을 열지 못했어요.');
-  }
-}
 
 export default function ContractDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -72,6 +50,7 @@ export default function ContractDetailScreen() {
       next: nextPayment(record, today),
       monthly: contractMonthlyEquivalent(record),
       core: coreInfo(record, today),
+      other: otherDetails(record),
       schedule: contractSchedule(record, { start: today, end: addMonths(today, 12) }, today)
         .filter((i) => i.type !== 'payment')
         .sort((a, b) => a.date.localeCompare(b.date)),
@@ -119,7 +98,7 @@ export default function ContractDetailScreen() {
             <CategoryIcon category={c.category} size={44} />
             <View style={{ flex: 1 }}>
               <AppText variant="caption" color="textTertiary">
-                {[CATEGORY_LABEL[c.category], CONTRACT_TYPE_LABEL[c.contractType], c.counterparty].filter(Boolean).join(' · ')}
+                {[categoryLabel(c.category), contractTypeLabel(c.contractType), c.counterparty].filter(Boolean).join(' · ')}
               </AppText>
               <AppText variant="title2" testID="detail-title">
                 {c.title}
@@ -213,7 +192,7 @@ export default function ContractDetailScreen() {
         <SectionGap />
 
         {/* 유형별 핵심 정보 — 공통 틀은 같고 유형(월 납입형·임대차·할부·대출·보험·일회성)에 따라 항목이 다르다 */}
-        <Section title="핵심 정보" caption={CONTRACT_TYPE_LABEL[c.contractType]} testID="detail-core">
+        <Section title="핵심 정보" caption={contractTypeLabel(c.contractType)} testID="detail-core">
           {live && view.next ? (
             <View style={styles.nextPay} testID="detail-next-payment">
               <View style={{ flex: 1 }}>
@@ -246,7 +225,10 @@ export default function ContractDetailScreen() {
           {c.contractDate ? <KeyValueRow label="계약 체결일" value={formatDateKo(c.contractDate)} testID="detail-contract-date" /> : null}
           {c.earlyTerminationTerms ? <KeyValueRow label={c.contractType === 'loan' ? '중도상환' : '중도해지'} value={c.earlyTerminationTerms} /> : null}
           {c.penaltyTerms ? <KeyValueRow label="위약금" value={c.penaltyTerms} /> : null}
-          {!c.contractDate && !c.earlyTerminationTerms && !c.penaltyTerms ? (
+          {view.other.map((row) => (
+            <KeyValueRow key={row.key} label={row.label} value={row.value} />
+          ))}
+          {!c.contractDate && !c.earlyTerminationTerms && !c.penaltyTerms && view.other.length === 0 ? (
             <AppText variant="body2" color="textTertiary">
               기록된 조건이 없어요.
             </AppText>
@@ -351,7 +333,7 @@ export default function ContractDetailScreen() {
 
         {/* 자동 정리 정보 — 보조 영역 */}
         <SectionGap />
-        <AiSection record={record} onApply={(checkId) => actions.applyAiSuggestion.mutate([checkId])} onAck={(checkId) => actions.setAiCheckStatus.mutate([checkId, 'acknowledged'])} />
+        <AiSection record={record} today={today} onApply={(checkId) => actions.applyAiSuggestion.mutate([checkId])} onAck={(checkId) => actions.setAiCheckStatus.mutate([checkId, 'acknowledged'])} />
 
         <View style={styles.footerActions}>
           <Button label={live ? '해지 처리' : '진행중으로 되돌리기'} variant={live ? 'danger' : 'secondary'} size="md" onPress={changeLifecycle} testID="lifecycle-button" />
@@ -362,60 +344,69 @@ export default function ContractDetailScreen() {
   );
 }
 
-function AiSection({ record, onApply, onAck }: { record: ContractRecord; onApply: (id: string) => void; onAck: (id: string) => void }) {
+/** PACTO 계약 체크 — 확인이 필요한 조항 + 원문 근거 + 관리 연결(해지 통보기한·명시된 날짜를 캘린더에) */
+function AiSection({ record, today, onApply, onAck }: { record: ContractRecord; today: string; onApply: (id: string) => void; onAck: (id: string) => void }) {
   const c = record.contract;
   const checks = record.aiChecks.filter((x) => x.status !== 'dismissed');
-  const isApplied = (x: AiCheck) =>
-    x.suggestion?.kind === 'set_termination_notice' && c.terminationNoticeDays === x.suggestion.terminationNoticeDays && c.autoRenewal === x.suggestion.autoRenewal;
+  const notice = terminationNoticeDeadline(c, today);
+  const isApplied = (x: AiCheck) => {
+    const s = x.suggestion;
+    if (s?.kind === 'set_termination_notice') return c.terminationNoticeDays === s.terminationNoticeDays && (!s.autoRenewal || c.autoRenewal);
+    if (s?.kind === 'add_event') return record.events.some((e) => e.eventDate === s.eventDate && e.title === s.title);
+    return false;
+  };
+  const docFor = (x: AiCheck) => record.documents.find((d) => d.id === x.evidenceDocumentId) ?? record.documents[0];
 
   return (
-    <Section title="확인이 필요한 조항" caption={c.source === 'upload' ? '계약서에서 자동으로 정리한 내용이에요' : undefined} testID="detail-checks">
+    <Section title={CHECK_SECTION_TITLE} caption={c.source === 'upload' ? '계약서에서 놓치기 쉬운, 확인이 필요한 조건이에요' : undefined} testID="detail-checks">
       {checks.length === 0 ? (
         <AppText variant="body2" color="textTertiary">
-          {c.source === 'upload' ? '따로 확인이 필요한 조항이 없어요.' : '직접 입력한 계약은 조항 정리 정보가 없어요.'}
+          {c.source === 'upload' ? '따로 확인이 필요한 조건을 찾지 못했어요.' : '직접 입력한 계약은 계약 체크 정보가 없어요.'}
         </AppText>
       ) : (
-        checks.map((x, i) => (
-          <View key={x.id}>
-            {i > 0 ? <Divider /> : null}
-            <View style={styles.check}>
-              <View style={styles.checkHead}>
-                <SeverityLabel severity={x.severity} />
-                <AppText variant="body2Strong">{x.title}</AppText>
-              </View>
-              <AppText variant="body2" color="textSecondary" style={{ marginTop: 6 }}>
-                {x.description}
-              </AppText>
-              {x.evidenceQuote ? (
-                <View style={styles.quote}>
-                  <AppText variant="caption" color="textSecondary">
-                    “{x.evidenceQuote}”
-                  </AppText>
-                  {x.evidencePage ? (
-                    <AppText variant="small" color="textTertiary" style={{ marginTop: 4 }}>
-                      원문 {x.evidencePage}쪽
-                    </AppText>
-                  ) : null}
-                </View>
-              ) : null}
-              <View style={styles.checkActions}>
-                {x.suggestion?.kind === 'set_termination_notice' ? (
-                  isApplied(x) ? (
-                    <View style={styles.applied}>
-                      <Ionicons name="checkmark-circle" size={16} color={colors.positive} />
-                      <AppText variant="caption" color="textSecondary">
-                        해지 통보기한이 캘린더에 등록되어 있어요
-                      </AppText>
-                    </View>
-                  ) : (
-                    <Button label="해지 통보기한 캘린더에 등록" size="sm" variant="secondary" onPress={() => onApply(x.id)} testID={`apply-${x.id}`} />
-                  )
-                ) : null}
-                {x.status === 'new' && !(x.suggestion && !isApplied(x)) ? <Button label="확인했어요" size="sm" variant="ghost" onPress={() => onAck(x.id)} /> : null}
-              </View>
+        checks.map((x, i) => {
+          const s = x.suggestion;
+          const doc = docFor(x);
+          const applied = isApplied(x);
+          const deadline =
+            s?.kind === 'set_termination_notice'
+              ? applied && notice
+                ? { label: profileOf(c.contractType).noticeLabel, date: notice.date }
+                : c.endDate
+                  ? { label: profileOf(c.contractType).noticeLabel, date: addDays(c.endDate, -s.terminationNoticeDays) }
+                  : null
+              : s?.kind === 'add_event'
+                ? { label: s.title, date: s.eventDate }
+                : null;
+          return (
+            <View key={x.id}>
+              {i > 0 ? <Divider /> : null}
+              <ContractCheckCard
+                testID={`check-${x.id}`}
+                check={x}
+                deadline={deadline}
+                onOpenOriginal={doc ? () => openOriginal(doc, x.evidencePage) : undefined}
+                action={
+                  <>
+                    {s ? (
+                      applied ? (
+                        <View style={styles.applied}>
+                          <Ionicons name="checkmark-circle" size={16} color={colors.positive} />
+                          <AppText variant="caption" color="textSecondary">
+                            캘린더와 알림에 등록되어 있어요
+                          </AppText>
+                        </View>
+                      ) : (
+                        <Button label="캘린더에 추가" size="sm" variant="secondary" onPress={() => onApply(x.id)} testID={`apply-${x.id}`} />
+                      )
+                    ) : null}
+                    {x.status === 'new' && !(s && !applied) ? <Button label="확인했어요" size="sm" variant="ghost" onPress={() => onAck(x.id)} /> : null}
+                  </>
+                }
+              />
             </View>
-          </View>
-        ))
+          );
+        })
       )}
       <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.md }}>
         {AI_DISCLAIMER}

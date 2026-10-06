@@ -7,7 +7,6 @@ import { MonthGrid } from '@/components/pacto/MonthGrid';
 import { AppText } from '@/components/ui/AppText';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { formatDateKo, isValidISODate, monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from '@/domain/dates';
-import { countsAsSpending } from '@/domain/contractTypes';
 import { EVENT_TYPE_LABEL } from '@/domain/labels';
 import { formatKRW, formatWonCompact, formatWon } from '@/domain/money';
 import { scheduleForRange } from '@/domain/schedule';
@@ -67,6 +66,11 @@ export default function CalendarScreen() {
           {payingContracts > 0 ? `${payingContracts}개 계약에서 결제 예정` : '결제 예정인 계약이 없어요'}
           {spending.hasEstimated ? ' · 변동 금액은 예상치' : ''}
         </AppText>
+        {spending.incomeTotal > 0 ? (
+          <AppText variant="caption" color="textSecondary" style={{ marginTop: 2 }} testID="calendar-income">
+            들어올 돈 +{formatKRW(spending.incomeTotal)} (급여·대금 등, 지출과 별도)
+          </AppText>
+        ) : null}
         {spending.depositTotal > 0 ? (
           <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }} testID="calendar-deposit-note">
             보증금 {formatWonCompact(spending.depositTotal)}은 돌려받는 돈이라 지출 합계에서 제외했어요
@@ -112,8 +116,8 @@ export default function CalendarScreen() {
                 key={i.key}
                 category={i.category}
                 title={i.contractTitle}
-                subtitle={`${i.title}${i.estimated ? ' (예상)' : ''}${i.paymentKind && !countsAsSpending(i.paymentKind) ? ' · 지출 합계 제외' : ''}`}
-                right={i.amount != null ? <AppText variant="body2Strong" tabular>{formatWon(i.amount)}</AppText> : <TypeTag type={i.type} />}
+                subtitle={`${i.title}${i.estimated ? ' (예상)' : ''}${i.direction === 'neutral' ? ' · 지출 합계 제외' : i.direction === 'income' ? ' · 수입' : ''}`}
+                right={i.amount != null ? <AppText variant="body2Strong" tabular color={i.direction === 'income' ? 'positive' : undefined}>{i.direction === 'income' ? '+' : ''}{formatWon(i.amount)}</AppText> : <TypeTag type={i.type} />}
                 onPress={() => router.push(`/contract/${i.contractId}`)}
               />
             ))
@@ -127,7 +131,7 @@ export default function CalendarScreen() {
               category={i.category}
               title={i.contractTitle}
               subtitle={`${Number(i.date.slice(8))}일 · ${i.title}`}
-              right={i.amount != null ? <AppText variant="body2Strong" tabular>{formatWon(i.amount)}</AppText> : <TypeTag type={i.type} />}
+              right={i.amount != null ? <AppText variant="body2Strong" tabular color={i.direction === 'income' ? 'positive' : undefined}>{i.direction === 'income' ? '+' : ''}{formatWon(i.amount)}</AppText> : <TypeTag type={i.type} />}
               onPress={() => router.push(`/contract/${i.contractId}`)}
             />
           ))}

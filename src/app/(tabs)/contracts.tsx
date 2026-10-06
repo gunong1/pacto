@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { ChipGroup } from '@/components/ui/controls';
 import { EmptyState, Screen } from '@/components/ui/layout';
 import { daysUntil } from '@/domain/dday';
-import { CATEGORY_LABEL } from '@/domain/labels';
+import { categoryLabel } from '@/domain/labels';
 import { formatWon } from '@/domain/money';
 import { nextPayment } from '@/domain/schedule';
 import { contractMonthlyEquivalent } from '@/domain/spending';
@@ -100,7 +100,7 @@ export default function ContractsScreen() {
         <ChipGroup options={STATUS_FILTERS} value={status} onChange={setStatus} scroll testIDPrefix="filter-status" />
         <View style={{ height: spacing.sm }} />
         <ChipGroup
-          options={[{ value: 'all' as const, label: '모든 종류' }, ...usedCategories.map((c) => ({ value: c, label: CATEGORY_LABEL[c] }))]}
+          options={[{ value: 'all' as const, label: '모든 종류' }, ...usedCategories.map((c) => ({ value: c, label: categoryLabel(c) }))]}
           value={category}
           onChange={setCategory}
           scroll

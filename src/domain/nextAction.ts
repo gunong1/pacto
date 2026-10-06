@@ -1,7 +1,7 @@
 import { addDays, addMonths, parseISODate } from './dates';
 import { daysUntil } from './dday';
 import { formatWon } from './money';
-import { CONTRACT_TYPE_PROFILES } from './contractTypes';
+import { profileOf } from './contractTypes';
 import { contractSchedule, nextPayment, prepareDate } from './schedule';
 import { isLive } from './status';
 import type { Contract, ContractCategory, ContractRecord, ISODate } from './types';
@@ -50,18 +50,18 @@ export const CATEGORY_PROFILES: Record<ContractCategory, CategoryProfile> = {
   finance: { endLabel: '만기', endGuidance: '만기일의 상환·연장 조건을 확인해주세요.' },
   employment: { endLabel: '계약 종료', endGuidance: '계약 연장 여부를 미리 확인해주세요.' },
   business: { endLabel: '계약 종료', endGuidance: '연장 또는 종료 조건을 계약서에서 확인해주세요.' },
+  education: { endLabel: '수강 종료', endGuidance: '수강 연장이나 환불 조건을 확인해주세요.' },
+  service: { endLabel: '업무 종료', endGuidance: '납기·검수와 남은 대금 지급 일정을 확인해주세요.' },
+  sale: { endLabel: '매매 완료', endGuidance: '잔금과 인도·소유권 이전 일정을 확인해주세요.' },
   other: { endLabel: '계약 종료', endGuidance: '종료 후 처리할 일이 있는지 확인해주세요.' },
 };
 
 /** 종료 문구: 월 납입형·기타는 분야별 표현(렌탈 계약 종료·회원권 만료 …), 그 외는 유형별 표현(대출 만기·보험 만기 …) */
 export function endProfile(contract: Contract): CategoryProfile {
   if (contract.contractType === 'recurring' || contract.contractType === 'other') return CATEGORY_PROFILES[contract.category];
-  const p = CONTRACT_TYPE_PROFILES[contract.contractType];
+  const p = profileOf(contract.contractType);
   return { endLabel: p.endEvent, endGuidance: p.endGuidance };
 }
-
-/** 할부·대출 만기를 "다음 행동"으로 보여주기 시작하는 시점 (일) */
-const INSTALLMENT_END_WINDOW_DAYS = 90;
 
 const KIND_PRIORITY: Record<NextActionKind, number> = {
   termination_notice: 0,
@@ -86,7 +86,7 @@ function remaining(label: string, days: number, particle: '이' | '가' | '까�
 export function actionCandidates(record: ContractRecord, today: ISODate): NextAction[] {
   const { contract } = record;
   if (!isLive(contract, today)) return [];
-  const typeProfile = CONTRACT_TYPE_PROFILES[contract.contractType];
+  const typeProfile = profileOf(contract.contractType);
   const profile = endProfile(contract);
   const base = { contractId: contract.id, contractTitle: contract.title, category: contract.category };
   const out: NextAction[] = [];
@@ -108,7 +108,7 @@ export function actionCandidates(record: ContractRecord, today: ISODate): NextAc
         headline: remaining('자동갱신 예정일', days, '까지'),
         guidance: `${monthDay(addDays(i.date, 1))}부터 같은 조건으로 연장될 예정이에요. 계속 이용할지 확인해주세요.`,
       });
-    } else if (i.type === 'contract_end' && (contract.contractType === 'auto_installment' || contract.contractType === 'loan') && days > INSTALLMENT_END_WINDOW_DAYS) {
+    } else if (i.type === 'contract_end' && typeProfile.deferEndUntilDays != null && days > typeProfile.deferEndUntilDays) {
       // 할부·대출은 만기가 멀면 매달 납입이 더 중요한 일이라 "다음 결제"를 보여준다
       continue;
     } else if (i.type === 'contract_end') {

@@ -36,7 +36,7 @@ function contract(partial: Partial<Contract> & Pick<Contract, 'id' | 'title' | '
 }
 
 function payment(partial: Partial<ContractPayment> & Pick<ContractPayment, 'id' | 'contractId' | 'amount' | 'frequency' | 'startsOn'>): ContractPayment {
-  return { kind: 'recurring_fee', label: '납부금', dayOfMonth: null, monthOfYear: null, endsOn: null, installmentCount: null, isVariable: false, ...partial };
+  return { kind: 'recurring_fee', direction: 'expense', label: '납부금', dayOfMonth: null, monthOfYear: null, endsOn: null, installmentCount: null, isVariable: false, ...partial };
 }
 
 export function createMockRecords(): ContractRecord[] {
@@ -154,7 +154,7 @@ export function createMockRecords(): ContractRecord[] {
         id: 'c-car-loan',
         title: '자동차 할부',
         category: 'vehicle',
-        contractType: 'auto_installment',
+        contractType: 'installment',
         counterparty: '현대캐피탈',
         startDate: '2024-05-01',
         endDate: '2029-04-30',

@@ -1,4 +1,4 @@
-import { CONTRACT_TYPE_PROFILES, type PaymentKind } from './contractTypes';
+import { profileOf, type PaymentKind } from './contractTypes';
 import { addDays, dateInMonth, parseISODate } from './dates';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
 import type {
@@ -6,6 +6,7 @@ import type {
   ContractCategory,
   ContractPayment,
   ContractRecord,
+  Direction,
   ISODate,
   ScheduleItemType,
 } from './types';
@@ -29,6 +30,7 @@ export interface PaymentOccurrence {
   paymentId: string;
   contractId: string;
   kind: PaymentKind;
+  direction: Direction;
   label: string;
   /** 회차 (총 회차가 있는 결제만): 3/36 */
   installment: { no: number; total: number } | null;
@@ -89,6 +91,7 @@ export function expandPayment(
       paymentId: payment.id,
       contractId: contract.id,
       kind: payment.kind,
+      direction: payment.direction,
       label: payment.label,
       installment: total != null ? { no, total } : null,
       estimated: payment.isVariable,
@@ -126,6 +129,8 @@ export interface ScheduleItem {
   title: string;
   /** 결제 항목의 의미 (결제가 아니면 null) */
   paymentKind: PaymentKind | null;
+  /** 결제 항목의 돈 방향 (결제가 아니면 null) */
+  direction: Direction | null;
   amount: number | null;
   estimated: boolean;
   contractId: string;
@@ -170,6 +175,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
         type: 'payment',
         title: o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label,
         paymentKind: p.kind,
+        direction: p.direction,
         amount: o.amount,
         estimated: o.estimated,
         eventId: null,
@@ -177,8 +183,8 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
     }
   }
 
-  const profile = CONTRACT_TYPE_PROFILES[contract.contractType];
-  const plain = { paymentKind: null, amount: null, estimated: false, eventId: null };
+  const profile = profileOf(contract.contractType);
+  const plain = { paymentKind: null, direction: null, amount: null, estimated: false, eventId: null };
 
   if (profile.startEvent && inRange(contract.startDate)) {
     items.push({ ...base, ...plain, key: `start:${contract.id}`, date: contract.startDate, type: 'contract_start', title: profile.startEvent });
@@ -203,6 +209,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
         type: 'contract_end',
         title: contract.autoRenewal ? `${profile.endEvent} (자동갱신 조건)` : profile.endEvent,
         paymentKind: null,
+        direction: null,
         amount: null,
         estimated: end !== contract.endDate,
         eventId: null,
@@ -230,6 +237,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
       type: 'contract_end',
       title: contract.lifecycle === 'cancelled' ? '계약 해지' : '계약 종료',
       paymentKind: null,
+      direction: null,
       amount: null,
       estimated: false,
       eventId: null,
@@ -238,7 +246,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
 
   for (const e of record.events) {
     if (!inRange(e.eventDate)) continue;
-    items.push({ ...base, key: `event:${e.id}`, date: e.eventDate, type: e.eventType, title: e.title, paymentKind: null, amount: e.amount, estimated: false, eventId: e.id });
+    items.push({ ...base, key: `event:${e.id}`, date: e.eventDate, type: e.eventType, title: e.title, paymentKind: null, direction: null, amount: e.amount, estimated: false, eventId: e.id });
   }
 
   return items;
@@ -246,7 +254,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
 
 /** 종료 전 미리 확인할 시점 (임대차: 만기 60일 전 갱신 확인). 자동갱신 계약은 해지 통보기한으로 대신한다. */
 export function prepareDate(contract: Contract): { date: ISODate; label: string; guidance: string } | null {
-  const prep = CONTRACT_TYPE_PROFILES[contract.contractType].prepare;
+  const prep = profileOf(contract.contractType).prepare;
   if (!prep || !contract.endDate || contract.autoRenewal || contract.lifecycle !== 'active') return null;
   return { date: addDays(contract.endDate, -prep.daysBefore), label: prep.label, guidance: prep.guidance };
 }

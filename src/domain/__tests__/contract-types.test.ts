@@ -4,7 +4,7 @@
  */
 import { draftToRecord, EMPTY_DRAFT, recordToDraft } from '@/data/draft';
 import type { ContractDraft, PaymentDraft } from '@/data/repository';
-import { DETAIL_SCHEMAS, cleanDetails, detailsFromDb, detailsToDb } from '@/domain/contractTypes';
+import { cleanDetails, defaultDirection, detailSchema, detailsFromDb, detailsToDb } from '@/domain/contractTypes';
 import { coreInfo } from '@/domain/coreInfo';
 import { monthRange } from '@/domain/dates';
 import { actionCandidates, nextAction } from '@/domain/nextAction';
@@ -15,6 +15,7 @@ import type { ContractRecord } from '@/domain/types';
 const TODAY = '2026-10-06';
 
 const pay = (p: Partial<PaymentDraft> & Pick<PaymentDraft, 'kind' | 'label' | 'amount' | 'frequency'>): PaymentDraft => ({
+  direction: defaultDirection(p.kind),
   dayOfMonth: null,
   monthOfYear: null,
   startsOn: null,
@@ -137,7 +138,7 @@ describe('4. 자동차 할부: 선수금 + 월 할부금 36회', () => {
   const r = build('car', {
     title: '자동차 할부',
     category: 'vehicle',
-    contractType: 'auto_installment',
+    contractType: 'installment',
     startDate: '2026-10-20',
     endDate: '2029-10-25',
     details,
@@ -148,10 +149,10 @@ describe('4. 자동차 할부: 선수금 + 월 할부금 36회', () => {
   });
 
   test('상세 속성은 유형 스키마로 검증된다', () => {
-    expect(DETAIL_SCHEMAS.auto_installment.safeParse(details).success).toBe(true);
-    expect(DETAIL_SCHEMAS.auto_installment.safeParse({ ...details, leaseKind: 'jeonse' }).success).toBe(false);
-    expect(DETAIL_SCHEMAS.auto_installment.safeParse({ ...details, interestRate: '4.9%' }).success).toBe(false);
-    expect(detailsFromDb('auto_installment', detailsToDb('auto_installment', details))).toEqual(details);
+    expect(detailSchema('installment').safeParse(details).success).toBe(true);
+    expect(detailSchema('installment').safeParse({ ...details, leaseKind: 'jeonse' }).success).toBe(false);
+    expect(detailSchema('installment').safeParse({ ...details, interestRate: '4.9%' }).success).toBe(false);
+    expect(detailsFromDb('installment', detailsToDb('installment', details))).toEqual(details);
   });
   test('10월: 선수금, 11월부터 할부금 회차 표시', () => {
     expect(spend(r, 2026, 10)).toBe(5_000_000);
@@ -262,7 +263,7 @@ describe('공통', () => {
 });
 
 describe('상세 화면 핵심 정보 — 유형별로 다른 항목', () => {
-  test('렌탈: 월 렌탈료·설치비·이용 기간·자동갱신·해지 통보기한·의무 사용기간', () => {
+  test('렌탈: 월 렌탈료·설치비·이용 기간·자동갱신·해지 통보기한·최소 이용기간', () => {
     const r = build('rental', {
       contractType: 'recurring', startDate: '2026-10-12', endDate: '2029-10-11', autoRenewal: true, renewalPeriodMonths: 12, terminationNoticeDays: 30,
       details: { commitmentMonths: 36 },
@@ -270,11 +271,11 @@ describe('상세 화면 핵심 정보 — 유형별로 다른 항목', () => {
     });
     expect(core(r)).toEqual({
       '월 렌탈료': '29,900원 · 매월 12일',
-      '초기 설치비': '20,000원 · 일시불 · 2026. 10. 12.',
+      '초기 설치비': '20,000원 · 2026. 10. 12.',
       '이용 기간': '2026. 10. 12. ~ 2029. 10. 11.',
       자동갱신: '있음 · 12개월 단위',
       '해지 통보기한': '종료 30일 전까지 (2029. 9. 11.)',
-      '의무 사용기간': '36개월',
+      '최소 이용기간': '36개월',
     });
   });
 
@@ -297,11 +298,11 @@ describe('상세 화면 핵심 정보 — 유형별로 다른 항목', () => {
 
   test('자동차 할부: 할부원금·월 납입액·남은 회차·만기', () => {
     const r = build('car', {
-      contractType: 'auto_installment', startDate: '2026-10-20', endDate: '2029-10-25',
+      contractType: 'installment', startDate: '2026-10-20', endDate: '2029-10-25',
       details: { vehicleName: '아반떼', principal: 23_000_000, interestRate: 4.9 },
       payments: [pay({ kind: 'installment', label: '할부금', amount: 683_000, frequency: 'monthly', dayOfMonth: 25, startsOn: '2026-11-25', installmentCount: 36 })],
     });
-    expect(core(r)).toMatchObject({ 차량: '아반떼', 할부원금: '23,000,000원', 금리: '연 4.9%', 할부금: '683,000원 · 매월 25일', '남은 회차': '36회 남음 (0/36회 납부)', 만기일: '2029. 10. 25.' });
+    expect(core(r)).toMatchObject({ '차량·물품명': '아반떼', 할부원금: '23,000,000원', 금리: '연 4.9%', 할부금: '683,000원 · 매월 25일', '남은 회차': '36회 남음 (0/36회 납부)', 만기일: '2029. 10. 25.' });
     expect(core(r, '2027-03-01')['남은 회차']).toBe('32회 남음 (4/36회 납부)');
   });
 
@@ -355,5 +356,93 @@ describe('수정 시 일정 재계산', () => {
     const before = build('r2', { contractType: 'one_time', startDate: '2026-10-10', payments: [pay({ kind: 'balance_payment', label: '잔금', amount: 1, frequency: 'one_time', startsOn: '2026-12-20' })] });
     const after = draftToRecord({ ...recordToDraft(before), startDate: '2026-10-20' }, 'r2', TODAY);
     expect(after.payments[0].startsOn).toBe('2026-12-20');
+  });
+});
+
+describe('8. 근로계약: 급여는 수입(지출과 섞지 않음), 근로 시작·종료·입사일', () => {
+  const r = build('job', {
+    title: '근로계약서', category: 'employment', contractType: 'employment', counterparty: 'PACTO 주식회사',
+    contractDate: '2026-10-20', startDate: '2026-11-02', endDate: '2027-11-01',
+    details: { employmentKind: 'fixed_term', probationMonths: 3, workHours: '09:00~18:00', annualSalary: 42_000_000 },
+    payments: [pay({ kind: 'salary', label: '월 급여', amount: 3_500_000, frequency: 'monthly', dayOfMonth: 25 })],
+    dates: [{ kind: 'hire', label: '입사일', date: '2026-11-02' }],
+  });
+  test('급여는 수입: 지출 0, 수입 3,500,000', () => {
+    expect(spend(r, 2026, 11)).toBe(0);
+    expect(monthSpending([r], { year: 2026, month: 11 }).incomeTotal).toBe(3_500_000);
+    expect(contractMonthlyEquivalent(r)).toBe(0);
+  });
+  test('캘린더: 근로 시작 + 입사일, 급여일, 근로계약 종료', () => {
+    expect(titles(on(r, '2026-11-02'))).toEqual(['근로 시작', '입사일'].sort());
+    expect(on(r, '2026-11-25').map((i) => [i.title, i.direction])).toEqual([['월 급여', 'income']]);
+    expect(titles(on(r, '2027-11-01'))).toEqual(['근로계약 종료']);
+    expect(on(r, '2026-10-20')).toEqual([]);
+  });
+  test('상세: 회사·고용 형태·급여(+)·연봉·근로 기간·수습', () => {
+    expect(core(r)).toMatchObject({ 회사: 'PACTO 주식회사', '고용 형태': '계약직', '월 급여': '+3,500,000원 · 매월 25일', 연봉: '42,000,000원', '근로 기간': '2026. 11. 2. ~ 2027. 11. 1.', 수습기간: '3개월' });
+  });
+});
+
+describe('9. 용역(프리랜서, 내가 수행자): 계약금·잔금은 수입, 납기·검수일', () => {
+  const r = build('svc', {
+    title: '앱 디자인 용역', category: 'service', contractType: 'service', counterparty: '발주사',
+    startDate: '2026-10-15', endDate: '2026-12-31',
+    details: { userRole: 'provider', workScope: '앱 화면 디자인 20장' },
+    payments: [
+      pay({ kind: 'down_payment', direction: 'income', label: '계약금', amount: 3_000_000, frequency: 'one_time', startsOn: '2026-10-15' }),
+      pay({ kind: 'balance_payment', direction: 'income', label: '잔금', amount: 7_000_000, frequency: 'one_time', startsOn: '2026-12-31' }),
+    ],
+    dates: [{ kind: 'delivery', label: '납기일', date: '2026-12-15' }, { kind: 'inspection', label: '검수일', date: '2026-12-22' }],
+  });
+  test('대금은 수입으로, 지출은 0', () => {
+    expect(spend(r, 2026, 10)).toBe(0);
+    expect(monthSpending([r], { year: 2026, month: 10 }).incomeTotal).toBe(3_000_000);
+    expect(monthSpending([r], { year: 2026, month: 12 }).incomeTotal).toBe(7_000_000);
+  });
+  test('캘린더: 업무 시작, 납기, 검수, 잔금 + 업무 종료', () => {
+    expect(titles(on(r, '2026-10-15'))).toEqual(['계약금', '업무 시작'].sort());
+    expect(titles(on(r, '2026-12-15'))).toEqual(['납기일']);
+    expect(titles(on(r, '2026-12-22'))).toEqual(['검수일']);
+    expect(titles(on(r, '2026-12-31'))).toEqual(['업무 종료', '잔금'].sort());
+  });
+  test('상세: 나의 역할·업무 내용·대금(+)·납기·검수', () => {
+    expect(core(r)).toMatchObject({ '나의 역할': '수행자 (대금을 받음)', '업무 내용': '앱 화면 디자인 20장', 계약금: '+3,000,000원 · 2026. 10. 15.', 납기일: '2026. 12. 15.', 검수일: '2026. 12. 22.' });
+  });
+});
+
+describe('10. 매매(내가 매수인): 계약금·중도금·잔금 각각 지출, 인도·소유권 이전일', () => {
+  const r = build('sale', {
+    title: '중고차 매매', category: 'vehicle', contractType: 'sale', counterparty: '매도인', totalAmount: 200_000_000,
+    contractDate: '2026-10-10', endDate: '2027-01-31',
+    details: { userRole: 'buyer', subject: '아파트 101동 1203호' },
+    payments: [
+      pay({ kind: 'down_payment', label: '계약금', amount: 20_000_000, frequency: 'one_time', startsOn: '2026-10-10' }),
+      pay({ kind: 'interim_payment', label: '중도금', amount: 50_000_000, frequency: 'one_time', startsOn: '2026-11-30' }),
+      pay({ kind: 'balance_payment', label: '잔금', amount: 130_000_000, frequency: 'one_time', startsOn: '2027-01-31' }),
+    ],
+    dates: [{ kind: 'handover', label: '인도일', date: '2027-01-31' }, { kind: 'ownership_transfer', label: '소유권 이전일', date: '2027-02-05' }],
+  });
+  test('각 날짜에 각 금액 (계약금 2천만·중도금 5천만·잔금 1억3천만)', () => {
+    expect(spend(r, 2026, 10)).toBe(20_000_000);
+    expect(spend(r, 2026, 11)).toBe(50_000_000);
+    expect(spend(r, 2027, 1)).toBe(130_000_000);
+  });
+  test('캘린더: 잔금 + 인도일 + 매매 완료, 소유권 이전일 (체결일은 표시 안 함)', () => {
+    expect(titles(on(r, '2027-01-31'))).toEqual(['매매 완료', '인도일', '잔금'].sort());
+    expect(titles(on(r, '2027-02-05'))).toEqual(['소유권 이전일']);
+    expect(titles(on(r, '2026-10-10'))).toEqual(['계약금']);
+  });
+  test('상세: 역할·대상·총 매매금액·계약금/중도금/잔금·인도·이전', () => {
+    expect(core(r)).toMatchObject({ '나의 역할': '매수인 (사는 쪽)', '매매 대상': '아파트 101동 1203호', '총 매매금액': '2억원', 계약금: '2,000만원 · 2026. 10. 10.', 잔금: '1억 3,000만원 · 2027. 1. 31.', 인도일: '2027. 1. 31.', '소유권 이전일': '2027. 2. 5.' });
+  });
+});
+
+describe('확장성', () => {
+  test('앱이 모르는 유형·분야 코드도 깨지지 않고 기타처럼 동작 (코드는 보존)', () => {
+    const r = build('future', { title: '가맹계약', category: 'franchise' as never, contractType: 'franchise' as never, startDate: '2026-11-01', endDate: '2027-10-31', payments: [pay({ kind: 'other', label: '가맹비', amount: 1_000_000, frequency: 'monthly', dayOfMonth: 1 })] });
+    expect(r.contract.contractType).toBe('franchise');
+    expect(titles(on(r, '2026-11-01'))).toEqual(['가맹비', '계약 시작'].sort());
+    expect(spend(r, 2026, 11)).toBe(1_000_000);
+    expect(core(r)['계약 기간']).toBe('2026. 11. 1. ~ 2027. 10. 31.');
   });
 });

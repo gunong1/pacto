@@ -3,9 +3,10 @@ import { z } from 'zod';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
   CONTRACT_DATE_KINDS,
+  DIRECTIONS,
   CONTRACT_TYPES,
-  DETAIL_FIELDS,
-  DETAIL_SCHEMAS,
+  detailFields,
+  detailSchema,
   PAYMENT_KINDS,
   type ContractDetails,
   type ContractType,
@@ -40,6 +41,7 @@ const optionalInt = (min: number, max: number, message: string) =>
 
 const paymentFormSchema = z.object({
   kind: z.enum(PAYMENT_KINDS),
+  direction: z.enum(DIRECTIONS),
   label: z.string().max(40),
   amount: z.string().refine((v) => parseAmount(v) != null, '금액을 입력해주세요'),
   frequency: z.enum(PAYMENT_FREQUENCIES),
@@ -96,7 +98,7 @@ export const contractFormSchema = z
       }
     });
     // 유형별 정보: 앱·AI·저장이 같은 스키마로 검증
-    for (const spec of DETAIL_FIELDS[v.contractType]) {
+    for (const spec of detailFields(v.contractType)) {
       const raw = v.details[spec.key];
       if (raw === undefined || raw === '') continue;
       if (detailFromInput(spec, raw) === undefined) {
@@ -148,21 +150,22 @@ export function detailToInput(spec: DetailFieldSpec, value: unknown): string | b
 }
 
 export function detailsToForm(type: ContractType, details: ContractDetails): Record<string, string | boolean> {
-  return Object.fromEntries(DETAIL_FIELDS[type].map((spec) => [spec.key, detailToInput(spec, details[spec.key])]));
+  return Object.fromEntries(detailFields(type).map((spec) => [spec.key, detailToInput(spec, details[spec.key])]));
 }
 
 export function detailsFromForm(type: ContractType, values: Record<string, string | boolean>): ContractDetails {
   const out: ContractDetails = {};
-  for (const spec of DETAIL_FIELDS[type]) {
+  for (const spec of detailFields(type)) {
     const v = detailFromInput(spec, values[spec.key] ?? '');
     if (v !== undefined && v !== null) out[spec.key] = v;
   }
-  return DETAIL_SCHEMAS[type].parse(out);
+  return detailSchema(type).parse(out);
 }
 
 export function paymentToForm(p: PaymentDraft): PaymentFormValues {
   return {
     kind: p.kind,
+    direction: p.direction,
     label: p.label,
     amount: formatAmountInput(p.amount),
     frequency: p.frequency,
@@ -212,6 +215,7 @@ export function formToDraft(v: ParsedContractForm): ContractDraft {
       const oneTime = p.frequency === 'one_time';
       return {
         kind: p.kind,
+        direction: p.direction,
         label: p.label.trim(),
         amount: parseAmount(p.amount) ?? 0,
         frequency: p.frequency,

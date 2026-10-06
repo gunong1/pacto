@@ -1,24 +1,12 @@
 import type {
-  ContractCategory,
   ContractStatus,
   PaymentFrequency,
   ReviewSeverity,
   ScheduleItemType,
 } from './types';
 
-export const CATEGORY_LABEL: Record<ContractCategory, string> = {
-  real_estate: '부동산',
-  vehicle: '자동차',
-  insurance: '보험',
-  telecom: '통신',
-  rental: '렌탈',
-  finance: '금융',
-  employment: '근로',
-  business: '사업',
-  membership: '회원권',
-  subscription: '구독',
-  other: '기타',
-};
+/** 분야 이름은 contractTypes.categoryLabel (공용 레지스트리, 모르는 코드는 '기타') */
+export { categoryLabel } from './contractTypes';
 
 export const STATUS_LABEL: Record<ContractStatus, string> = {
   active: '진행중',

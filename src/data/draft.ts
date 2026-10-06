@@ -1,4 +1,4 @@
-import { PAYMENT_KIND_LABEL } from '@/domain/contractTypes';
+import { paymentKindLabel } from '@/domain/contractTypes';
 import type { Contract, ContractDate, ContractPayment, ContractRecord } from '@/domain/types';
 
 import type { ContractDraft, DateDraft, PaymentDraft } from './repository';
@@ -87,7 +87,8 @@ export function draftToPayment(p: PaymentDraft, draft: Pick<ContractDraft, 'star
     id,
     contractId,
     kind: p.kind,
-    label: p.label.trim() || PAYMENT_KIND_LABEL[p.kind],
+    direction: p.direction,
+    label: p.label.trim() || paymentKindLabel(p.kind),
     amount: p.amount,
     frequency: p.frequency,
     dayOfMonth: oneTime ? null : p.dayOfMonth,
@@ -145,6 +146,7 @@ export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payment
     payments: record.payments.map(
       (p): PaymentDraft => ({
         kind: p.kind,
+        direction: p.direction,
         label: p.label,
         amount: p.amount,
         frequency: p.frequency,
