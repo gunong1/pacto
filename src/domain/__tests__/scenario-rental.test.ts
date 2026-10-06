@@ -8,7 +8,7 @@ import { contractFormSchema, draftToForm, formToDraft } from '@/features/contrac
 import { normalizeDateInput } from '../dates';
 import { nextAction } from '../nextAction';
 import { contractSchedule, expandPayment, scheduleForRange } from '../schedule';
-import { monthlyAverage, monthSpending } from '../spending';
+import { monthSpending, recurringMonthlyCost } from '../spending';
 import type { ContractPayment, ContractRecord } from '../types';
 
 const TODAY = '2026-10-06';
@@ -142,7 +142,7 @@ describe('결제 주기별 실제 지출 (월평균과 분리)', () => {
   test('연납: 납부 월에 연간 금액 전체, 월평균은 별도 지표', () => {
     const r = pay({ frequency: 'yearly', amount: 1_368_000 });
     expect(months(r)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 1_368_000, 0, 0]);
-    expect(monthlyAverage([r], '2027-01-01')).toBe(114_000);
+    expect(recurringMonthlyCost([r], '2027-01-01')).toBe(114_000);
   });
 
   test('일회성: 해당 결제일에만', () => {

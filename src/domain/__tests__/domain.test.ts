@@ -8,7 +8,7 @@ import { attentionItems, nextAction } from '../nextAction';
 import { formatKRW, formatWon, formatWonCompact, parseAmount } from '../money';
 import { upcomingReminders } from '../reminders';
 import { contractSchedule, expandPayment, nextPayment } from '../schedule';
-import { annualForecast, contractMonthlyEquivalent, monthlyAverage, monthSpending } from '../spending';
+import { contractMonthlyEquivalent, monthSpending, recurringMonthlyCost } from '../spending';
 import { currentTerm, deriveStatus, terminationNoticeDeadline } from '../status';
 import type { Contract, ContractPayment, ContractRecord } from '../types';
 
@@ -150,11 +150,8 @@ describe('spending', () => {
     expect(jan.items.some((i) => i.contractId === 'c-car-insurance' && i.amount === 1_368_000)).toBe(true);
   });
 
-  test('연간 예상/월평균 — 종료되는 계약은 이후 제외', () => {
-    // 정수기12 + 인터넷12 + 헬스장12(자동갱신) + 할부12 + 휴대폰5(2027-02 종료) + 넷플릭스12, 보험 0(12/31 종료)
-    const expected = 39_900 * 12 + 38_500 * 12 + 55_000 * 12 + 683_000 * 12 + 79_000 * 5 + 17_000 * 12;
-    expect(annualForecast(records, TODAY)).toBe(expected);
-    expect(monthlyAverage(records, TODAY)).toBe(Math.round(expected / 12));
+  test('매달 나가는 정기 계약비 — 앞으로 결제가 남은 정기 결제의 월 환산 (연납 보험은 12/31 종료로 다음 결제가 없어 제외)', () => {
+    expect(recurringMonthlyCost(records, TODAY)).toBe(39_900 + 38_500 + 55_000 + 683_000 + 79_000 + 17_000);
   });
 });
 

@@ -13,7 +13,7 @@ import { formatMonthDayKo, yearMonthOf } from '@/domain/dates';
 import { categoryLabel } from '@/domain/labels';
 import { formatKRW } from '@/domain/money';
 import { attentionItems } from '@/domain/nextAction';
-import { annualForecast, monthlyAverage, monthSpending } from '@/domain/spending';
+import { monthSpending, recurringMonthlyCost } from '@/domain/spending';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
@@ -37,8 +37,7 @@ export default function HomeScreen() {
     return {
       ym,
       spending,
-      annual: annualForecast(records, today),
-      average: monthlyAverage(records, today),
+      recurring: recurringMonthlyCost(records, today),
       attention,
       ends,
       summary: statusSummary(records, today),
@@ -137,19 +136,18 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        <View style={styles.subMetrics}>
+        {/* 일시불(1년권 일시 결제 등)은 결제한 달 지출에만 — 매달 나가는 돈과 섞지 않는다 */}
+        <View style={styles.subMetrics} testID="home-recurring">
           <View style={styles.metric}>
             <AppText variant="caption" color="textTertiary">
-              월평균 계약비
+              매달 나가는 정기 계약비
             </AppText>
-            <Amount value={view.average} variant="body2Strong" />
-          </View>
-          <View style={styles.metricDivider} />
-          <View style={styles.metric}>
-            <AppText variant="caption" color="textTertiary">
-              연간 예상 (12개월)
+            <AppText variant="body2Strong" tabular testID="home-recurring-amount">
+              {formatKRW(view.recurring)} / 월
             </AppText>
-            <Amount value={view.annual} variant="body2Strong" />
+            <AppText variant="small" color="textTertiary" align="center">
+              월납·연납 등 정기 결제를 월 단위로 환산 · 일시불 제외
+            </AppText>
           </View>
         </View>
       </View>
@@ -294,7 +292,6 @@ const styles = StyleSheet.create({
   breakdownRow: { flexDirection: 'row', justifyContent: 'space-between' },
   subMetrics: { flexDirection: 'row', marginTop: spacing.xl, backgroundColor: colors.bgSubtle, borderRadius: radius.lg, paddingVertical: spacing.md },
   metric: { flex: 1, alignItems: 'center', gap: 2 },
-  metricDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   summary: { flexDirection: 'row' },
   summaryItem: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, gap: 2 },
   checkLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.gutter, marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.bgSubtle },

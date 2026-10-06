@@ -14,7 +14,7 @@ import { coreInfo, extraCosts } from '@/domain/coreInfo';
 import { BANNED_AI_PHRASES, findBannedPhrases } from '@/domain/aiCopy';
 import { detailSchema } from '@/domain/contractTypes';
 import { scheduleForRange } from '@/domain/schedule';
-import { annualForecast, monthSpending } from '@/domain/spending';
+import { monthSpending, recurringMonthlyCost } from '@/domain/spending';
 import { toReviewModel } from '@/features/registration/extraction';
 
 const TODAY = '2026-10-06';
@@ -441,7 +441,8 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
     expect(monthSpending([r], { year: 2026, month: 10 }).total).toBe(660_000);
     for (let mo = 11; mo <= 12; mo++) expect(monthSpending([r], { year: 2026, month: mo }).total).toBe(0);
     expect(monthSpending([r], { year: 2027, month: 6 }).total).toBe(0);
-    expect(annualForecast([r], TODAY)).toBe(660_000);
+    // 홈 "매달 나가는 정기 계약비": 1년권 일시불은 매달 나가는 돈이 아님
+    expect(recurringMonthlyCost([r], TODAY)).toBe(0);
     // 상세: 결제와 "추가로 발생할 수 있는 비용"을 나눠 보여줌
     expect(extraCosts(r).map((x) => [x.label, x.value, x.obligation])).toEqual([
       ['양도 수수료', '30,000원', 'conditional'],

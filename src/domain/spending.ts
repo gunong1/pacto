@@ -1,5 +1,5 @@
 import { isConfirmedPayment } from './contractTypes';
-import { monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from './dates';
+import { addDays, monthRange, type YearMonth } from './dates';
 import { expandPayment, type PaymentOccurrence } from './schedule';
 import type { ContractCategory, ContractPayment, ContractRecord, Direction, ISODate } from './types';
 
@@ -58,17 +58,21 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth): MonthSp
   };
 }
 
-/** 연간 예상 계약지출 = 이번 달부터 12개월간 결제 예정액 합계. */
-export function annualForecast(records: ContractRecord[], today: ISODate): number {
-  const from = yearMonthOf(today);
-  const start = monthRange(from).start;
-  const end = monthRange(shiftYearMonth(from, 11)).end;
-  return occurrencesIn(records, start, end).reduce((sum, i) => sum + i.amount, 0);
-}
-
-/** 월평균 계약비 = 연간 예상 ÷ 12 (연납 보험료 등이 고르게 분산된 값). */
-export function monthlyAverage(records: ContractRecord[], today: ISODate): number {
-  return Math.round(annualForecast(records, today) / 12);
+/**
+ * 매달 나가는 정기 계약비 = 지금 이어지고 있는 정기 결제(월납·분기납·연납 …)의 월 환산 합계.
+ * 일시불(헬스장 1년권 일시 결제·설치비 등)은 한 번 내는 돈이라 넣지 않는다 — 결제한 달의 지출에만 나타난다.
+ * 앞으로 12개월 안에 결제가 남아 있는 확정 지출만 (종료·해지·회차 완료된 결제와 선택형·조건부 비용 제외).
+ */
+export function recurringMonthlyCost(records: ContractRecord[], today: ISODate): number {
+  const range = { start: today, end: addDays(today, 365) };
+  return records.reduce(
+    (sum, { contract, payments, dates }) =>
+      sum +
+      payments
+        .filter((p) => p.frequency !== 'one_time' && expandPayment(p, contract, range, dates).length > 0)
+        .reduce((s, p) => s + paymentMonthlyEquivalent(p), 0),
+    0,
+  );
 }
 
 const MONTHS_PER_PAYMENT: Record<ContractPayment['frequency'], number | null> = {

@@ -9,7 +9,7 @@ import { coreInfo } from '@/domain/coreInfo';
 import { monthRange } from '@/domain/dates';
 import { actionCandidates, nextAction } from '@/domain/nextAction';
 import { scheduleForRange, type ScheduleItem } from '@/domain/schedule';
-import { contractMonthlyEquivalent, monthSpending, monthlyAverage } from '@/domain/spending';
+import { contractMonthlyEquivalent, monthSpending, recurringMonthlyCost } from '@/domain/spending';
 import type { ContractRecord } from '@/domain/types';
 
 const TODAY = '2026-10-06';
@@ -215,7 +215,7 @@ describe('6. 연납 보험: 결제 달에 연간 보험료 전액', () => {
   });
   test('월평균(보조 지표)은 실제 월 지출과 별도: 100,000원', () => {
     expect(contractMonthlyEquivalent(r)).toBe(100_000);
-    expect(monthlyAverage([r], TODAY)).toBe(100_000);
+    expect(recurringMonthlyCost([r], TODAY)).toBe(100_000);
   });
   test('보험 시작·만기·갱신일', () => {
     expect(titles(on(r, '2026-12-01'))).toEqual(['보험 시작', '연간 보험료'].sort());
