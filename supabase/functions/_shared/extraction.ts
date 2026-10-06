@@ -1,7 +1,7 @@
 // 계약서 정보 추출 — 공급자와 무관한 스키마 / 프롬프트 / 검증 / 앱 형식 변환.
 // 순수 TypeScript (Deno·Node 공용) — 앱 테스트(jest)에서도 같은 파일을 검증한다.
 
-export const PROMPT_VERSION = 'extract-v1';
+export const PROMPT_VERSION = 'extract-v2';
 
 export const CATEGORIES = ['real_estate', 'vehicle', 'insurance', 'telecom', 'rental', 'finance', 'employment', 'business', 'membership', 'subscription', 'other'] as const;
 export const FREQUENCIES = ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly', 'one_time'] as const;
@@ -19,14 +19,14 @@ export const FIELDS: Record<string, { type: FieldType; desc: string }> = {
   title: { type: 'string', desc: '계약명 (예: 자동차보험, 정수기 렌탈, 전세계약). 계약서 제목이나 상품명을 짧게' },
   category: { type: 'category', desc: '계약 종류' },
   counterparty: { type: 'string', desc: '사용자(고객·임차인·가입자)의 계약 상대방 회사명 또는 이름. 계약서에 적힌 정식 명칭 그대로' },
-  contractDate: { type: 'date', desc: '계약 체결일' },
-  startDate: { type: 'date', desc: '계약(이용·렌탈·보험) 시작일' },
+  contractDate: { type: 'date', desc: '계약 체결일 (서명·작성일). 시작일과 다를 수 있음' },
+  startDate: { type: 'date', desc: '계약 효력 시작일 (이용·렌탈 개시일, 보험 개시일, 입주일). 체결일과 다를 수 있음' },
   endDate: { type: 'date', desc: '계약 종료일(만기일). 기간만 적혀 있으면 시작일 기준으로 계산' },
   totalAmount: { type: 'integer', desc: '계약 총액(원). 명시된 경우만' },
   paymentLabel: { type: 'string', desc: '정기 결제 항목 이름 (예: 월 렌탈료, 보험료, 월 회비)' },
   paymentAmount: { type: 'integer', desc: '결제 1회 금액(원, VAT 포함 금액 우선)' },
   paymentFrequency: { type: 'frequency', desc: '결제 주기' },
-  paymentDay: { type: 'integer', desc: '매 결제일 (1~31일)' },
+  paymentDay: { type: 'integer', desc: '정기 결제가 이루어지는 날 (매월 N일의 N, 1~31). 계약서에 명시된 경우만' },
   paymentVariable: { type: 'boolean', desc: '사용량 등으로 매번 금액이 달라지는지' },
   autoRenewal: { type: 'boolean', desc: '만료 시 자동으로 연장되는 조건이 있는지' },
   renewalPeriodMonths: { type: 'integer', desc: '자동 연장 시 연장 기간(개월)' },
@@ -102,6 +102,8 @@ export function extractionInstructions(today: string): string {
     '규칙:',
     '- 계약서에 적힌 내용만 사용합니다. 추측하지 말고, 찾을 수 없으면 value를 null, confidence를 low로 둡니다.',
     '- 날짜는 YYYY-MM-DD 형식. 금액은 원 단위 정수(쉼표·원 없이). 계약 상대방은 계약서의 정식 명칭 그대로.',
+    '- 계약 체결일(서명일), 계약 시작일(효력·개시일), 결제일(매월 납부일), 계약 종료일은 서로 다른 값입니다. 서로 대신 채우지 않습니다.',
+    '- 결제일이 따로 적혀 있지 않으면 시작일에서 추측하지 말고 paymentDay를 null로 둡니다.',
     `- 오늘 날짜는 ${today}입니다. "개시일로부터 36개월" 같은 기간 표현은 시작일 기준으로 종료일을 계산하고 confidence를 medium으로 둡니다.`,
     '- evidence_quote는 계약서 원문을 그대로 옮긴 짧은 문장(120자 이내), evidence_page는 그 쪽 번호입니다. 원문을 바꾸거나 지어내지 않습니다.',
     '- checks에는 사용자가 확인하면 좋은 조항만 넣습니다: 자동갱신·해지 통보기한, 중도해지·위약금, 보증금 반환, 결제 조건. 없으면 빈 배열.',

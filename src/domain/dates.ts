@@ -122,3 +122,27 @@ export function formatMonthDayKo(date: ISODate): string {
   const { month, day } = parseISODate(date);
   return `${month}월 ${day}일`;
 }
+
+/**
+ * 날짜 입력 정규화 — 사용자가 '-'를 입력하지 않아도 되게 한다.
+ * '261005' → '2026-10-05', '20261012' → '2026-10-12', '2026-10-12' → 그대로, '2026.10.12' → '2026-10-12'
+ * 실제 존재하지 않는 날짜(13월, 평년 2/29 등)나 형식이 맞지 않으면 null.
+ */
+export function normalizeDateInput(input: string): ISODate | null {
+  const trimmed = input.trim();
+  if (trimmed === '') return null;
+  let y: number, m: number, d: number;
+  const sep = /^(\d{4})[-./\s](\d{1,2})[-./\s](\d{1,2})\.?$/.exec(trimmed);
+  const digits = trimmed.replace(/\D/g, '');
+  if (sep) {
+    [y, m, d] = [Number(sep[1]), Number(sep[2]), Number(sep[3])];
+  } else if (/^\d+$/.test(trimmed) && digits.length === 8) {
+    [y, m, d] = [Number(digits.slice(0, 4)), Number(digits.slice(4, 6)), Number(digits.slice(6, 8))];
+  } else if (/^\d+$/.test(trimmed) && digits.length === 6) {
+    [y, m, d] = [2000 + Number(digits.slice(0, 2)), Number(digits.slice(2, 4)), Number(digits.slice(4, 6))];
+  } else {
+    return null;
+  }
+  const iso = toISODate(y, m, d);
+  return isValidISODate(iso) ? iso : null;
+}

@@ -7,6 +7,7 @@ import { EVENT_COLOR } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { ChipGroup, SwitchRow, TextField, type TextFieldProps } from '@/components/ui/controls';
+import { DateField } from '@/components/ui/DateField';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { applyDraftToContract, blankContract, draftToPayment } from '@/data/draft';
 import type { ContractDraft } from '@/data/repository';
@@ -55,7 +56,24 @@ export function ContractForm({ defaultValues, flagged, evidence, header, trailin
     <FormText control={control} name={name} label={label} flagged={flagged?.has(name)} hint={evidence?.[name] ? `원문: “${evidence[name]}”` : undefined} {...extra} />
   );
   const amount = (name: FieldName, label: string) => field(name, label, { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: `field-${name}` });
-  const date = (name: FieldName, label: string) => field(name, label, { placeholder: 'YYYY-MM-DD', keyboardType: 'numbers-and-punctuation', maxLength: 10 });
+  const date = (name: FieldName, label: string) => (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field: f, fieldState }) => (
+        <DateField
+          label={label}
+          value={String(f.value ?? '')}
+          onChangeText={f.onChange}
+          onBlur={f.onBlur}
+          error={fieldState.error?.message}
+          flagged={flagged?.has(name)}
+          hint={evidence?.[name] ? `원문: “${evidence[name]}”` : undefined}
+          testID={`field-${name}`}
+        />
+      )}
+    />
+  );
 
   const values = useWatch({ control }) as ContractFormValues;
   const frequency = values.paymentFrequency;
@@ -88,8 +106,8 @@ export function ContractForm({ defaultValues, flagged, evidence, header, trailin
       <Section title="기간">
         {date('contractDate', '계약 체결일')}
         <View style={styles.row2}>
-          <View style={styles.col}>{date('startDate', '시작일')}</View>
-          <View style={styles.col}>{date('endDate', '종료일')}</View>
+          <View style={styles.col}>{date('startDate', '계약 시작일')}</View>
+          <View style={styles.col}>{date('endDate', '계약 종료일')}</View>
         </View>
       </Section>
 

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { ContractDraft } from '@/data/repository';
-import { isValidISODate } from '@/domain/dates';
+import { isValidISODate, normalizeDateInput } from '@/domain/dates';
 import { formatAmountInput, parseAmount } from '@/domain/money';
 import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES } from '@/domain/types';
 
@@ -10,10 +10,12 @@ import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES } from '@/domain/types';
  * 입력값은 문자열로 받고, 저장 시 formToDraft로 변환한다.
  */
 
+/** '261012' · '20261012' · '2026-10-12' 모두 허용 → 'YYYY-MM-DD'로 정규화 후 실제 날짜인지 검증 */
 const optionalDate = z
   .string()
   .trim()
-  .refine((v) => v === '' || isValidISODate(v), '날짜를 2026-01-31 형식으로 입력해주세요');
+  .transform((v) => (v === '' ? '' : (normalizeDateInput(v) ?? v)))
+  .refine((v) => v === '' || isValidISODate(v), '올바른 날짜가 아니에요 (예: 261012 또는 2026-10-12)');
 
 const optionalAmount = z
   .string()

@@ -42,8 +42,8 @@ async function signUp(page, email, password) {
   await page.click(tid('method-manual'));
   await page.fill(`input${tid('field-title')}`, '헬스장');
   await page.click(tid('category-membership'));
-  await page.fill('input[aria-label="시작일"]', '2026-01-01');
-  await page.fill('input[aria-label="종료일"]', '2026-12-31');
+  await page.fill(`input${tid('field-startDate')}`, '260101');
+  await page.fill(`input${tid('field-endDate')}`, '20261231');
   await page.click(tid('frequency-monthly'));
   await page.fill(`input${tid('field-paymentAmount')}`, '55000');
   await page.fill(`input${tid('field-paymentDay')}`, '5');

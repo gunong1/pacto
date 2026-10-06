@@ -49,7 +49,10 @@ const log = (...a) => console.log('✔', ...a);
   await page.waitForTimeout(400);
   await shot('04-detail-gym');
   const headline = await page.locator(tid('detail-next-headline')).innerText();
-  if (headline !== '해지 통보기한이 57일 남았습니다.') throw new Error('다음 행동 불일치: ' + headline);
+  // mock 헬스장 해지 통보기한 2026-12-01 — 오늘(한국 시간) 기준 남은 일수로 비교
+  const kstToday = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+  const noticeDays = Math.round((Date.parse('2026-12-01') - Date.parse(kstToday)) / 86_400_000);
+  if (headline !== `해지 통보기한이 ${noticeDays}일 남았습니다.`) throw new Error('다음 행동 불일치: ' + headline);
   log('4 계약 상세:', await page.locator(tid('detail-title')).innerText(), '/ 다음 행동:', headline);
   await page.click(tid('detail-open-calendar'));
   await page.waitForSelector(tid('calendar-day-list'));

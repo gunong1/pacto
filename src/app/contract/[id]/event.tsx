@@ -4,8 +4,9 @@ import { View } from 'react-native';
 
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/controls';
+import { DateField } from '@/components/ui/DateField';
 import { Screen, Section } from '@/components/ui/layout';
-import { isValidISODate } from '@/domain/dates';
+import { normalizeDateInput } from '@/domain/dates';
 import { useContract, useContractActions, useToday } from '@/features/contracts/queries';
 import { confirm } from '@/lib/dialog';
 import { spacing } from '@/theme';
@@ -22,13 +23,14 @@ export default function EventScreen() {
   const [touched, setTouched] = useState(false);
 
   const titleError = touched && !title.trim() ? '일정 이름을 입력해주세요' : undefined;
-  const dateError = touched && !isValidISODate(date) ? '날짜를 2026-01-31 형식으로 입력해주세요' : undefined;
+  const normalizedDate = normalizeDateInput(date);
+  const dateError = touched && !normalizedDate ? '올바른 날짜가 아니에요 (예: 261012 또는 2026-10-12)' : undefined;
   const busy = addEvent.isPending || updateEvent.isPending || removeEvent.isPending;
 
   const save = () => {
     setTouched(true);
-    if (!title.trim() || !isValidISODate(date)) return;
-    const input = { title, eventDate: date, eventType: 'custom' as const };
+    if (!title.trim() || !normalizedDate) return;
+    const input = { title, eventDate: normalizedDate, eventType: 'custom' as const };
     if (eventId) updateEvent.mutate([eventId, input], { onSuccess: () => router.back() });
     else addEvent.mutate([input], { onSuccess: () => router.back() });
   };
@@ -51,7 +53,7 @@ export default function EventScreen() {
       <Section>
         <View style={{ height: spacing.sm }} />
         <TextField label="일정 이름" value={title} onChangeText={setTitle} placeholder="예: 집주인에게 재계약 여부 확인" error={titleError} testID="event-title" />
-        <TextField label="날짜" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" maxLength={10} error={dateError} testID="event-date" />
+        <DateField label="날짜" value={date} onChangeText={setDate} error={dateError} testID="event-date" />
       </Section>
     </Screen>
   );
