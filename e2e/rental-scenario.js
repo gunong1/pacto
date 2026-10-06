@@ -1,6 +1,6 @@
 /**
- * 기준 시나리오 E2E — 공기청정기 렌탈 (실제 데이터 모드)
- * 체결 2026-10-05 / 시작 2026-10-12 / 종료 2029-10-11 / 매월 12일 29,900원 / 자동갱신 / 해지 통보 30일 전
+ * 기준 시나리오 E2E — 공기청정기 렌탈 (실제 데이터 모드, 월 납입형)
+ * 체결 2026-10-05 / 시작 2026-10-12 / 종료 2029-10-11 / 매월 12일 29,900원 + 초기 설치비 20,000원(날짜 없음 → 시작일) / 자동갱신 / 해지 통보 30일 전
  * 날짜는 '-' 없이 입력. 저장 → 캘린더 매핑 → 수정 후 새로고침 없이 반영까지 확인.
  * 사용: BASE_URL=http://localhost:8082 node e2e/rental-scenario.js  (기기 날짜 2026년 10월 기준)
  */
@@ -39,6 +39,7 @@ const assert = (cond, msg) => {
   // 직접 입력 (날짜는 숫자만)
   await page.click(tid('first-run-register'));
   await page.click(tid('method-manual'));
+  await page.click(tid('type-recurring'));
   await input('field-title').fill('공기청정기 렌탈');
   await page.click(tid('category-rental'));
   await input('field-contractDate').fill('261005');
@@ -57,10 +58,16 @@ const assert = (cond, msg) => {
   log('없는 날짜(260229) → 오류 표시');
   await input('field-contractDate').fill('261005');
 
-  await page.click(tid('frequency-monthly'));
-  await input('field-paymentAmount').fill('29900');
-  await input('field-paymentDay').fill('12');
-  await page.locator('input[aria-label="결제 항목 이름"]').fill('월 렌탈료');
+  // 결제 2건: 월 렌탈료(매월 12일) + 초기 설치비(일시불, 날짜 비움 → 계약 시작일)
+  await page.click(tid('add-payment'));
+  await input('payment-0-label').fill('월 렌탈료');
+  await input('payment-0-amount').fill('29900');
+  await input('payment-0-dayOfMonth').fill('12');
+  await page.click(tid('add-payment'));
+  await page.click(tid('payment-1-kind-setup_fee'));
+  await input('payment-1-label').fill('초기 설치비');
+  await input('payment-1-amount').fill('20000');
+  assert((await input('payment-1-dayOfMonth').count()) === 0 && (await input('payment-1-startsOn').count()) === 1, '설치비 기본 주기가 일시불이 아님');
   await page.click(tid('field-autoRenewal'));
   await page.locator('input[aria-label="갱신 주기"]').fill('12');
   await input('field-terminationNoticeDays').fill('30');
@@ -68,8 +75,9 @@ const assert = (cond, msg) => {
   await page.click(tid('submit-contract'));
   await page.waitForSelector(tid('detail-title'), { timeout: 15000 });
   const detail = await page.locator(tid('contract-detail')).innerText();
-  assert(detail.includes('2026. 10. 5.'), '상세에 계약 체결일 없음');
-  log('저장 → 상세에 계약 체결일 2026. 10. 5. 표시');
+  assert(detail.includes('계약 체결일') && detail.includes('2026. 10. 5.'), '상세에 계약 체결일 없음');
+  assert(detail.includes('월 렌탈료') && detail.includes('초기 설치비') && detail.includes('해지 통보기한'), '상세 핵심 정보 누락: ' + detail.slice(0, 300));
+  log('저장 → 상세: 핵심 정보(월 렌탈료·초기 설치비·자동갱신·해지 통보기한) + 계약 체결일 2026. 10. 5.(기록)');
 
   // 캘린더 확인
   await page.goto(BASE + '/', { waitUntil: 'networkidle' });
@@ -78,15 +86,15 @@ const assert = (cond, msg) => {
   await page.waitForSelector(tid('calendar-title'));
   assert((await page.locator(tid('calendar-title')).innerText()).includes('10월'), '10월이 아님');
   const label12 = await page.locator(tid('day-2026-10-12')).getAttribute('aria-label');
-  assert(label12 && label12.includes('일정 2종'), '10/12 이벤트 2종 표시 아님: ' + label12);
+  assert(label12 && label12.includes('일정 2종'), '10/12 점(색) 2종 표시 아님: ' + label12);
   assert(!(await page.locator(tid('day-2026-10-05')).getAttribute('aria-label')).includes('일정'), '체결일에 이벤트가 생김');
   await page.click(tid('day-2026-10-12'));
   const day12 = await page.locator(tid('calendar-day-list')).innerText();
-  assert(day12.includes('계약 시작') && day12.includes('월 렌탈료') && day12.includes('29,900원'), '10/12 리스트: ' + day12);
+  assert(day12.includes('이용 시작') && day12.includes('월 렌탈료') && day12.includes('29,900원') && day12.includes('초기 설치비') && day12.includes('20,000원'), '10/12 리스트: ' + day12);
   const total = await page.locator(tid('calendar-month-total')).innerText();
-  assert(total.includes('₩29,900'), '10월 지출이 29,900원 한 번이 아님: ' + total);
+  assert(total.includes('₩49,900'), '10월 지출이 49,900원이 아님: ' + total);
   await shot('02-calendar-oct12');
-  log('10/12: 계약 시작 + 월 렌탈료 29,900원 (점 2개), 10월 지출 ₩29,900 (한 번만)');
+  log('10/12: 이용 시작 + 월 렌탈료 29,900원 + 초기 설치비 20,000원 (점 2색, 목록 3줄), 10월 지출 ₩49,900');
 
   await page.click(tid('calendar-next'));
   await page.click(tid('day-2026-11-12'));
@@ -103,9 +111,9 @@ const assert = (cond, msg) => {
   await page.click(tid('calendar-next'));
   await page.click(tid('day-2029-10-11'));
   const end = await page.locator(tid('calendar-day-list')).innerText();
-  assert(end.includes('계약 만료') || end.includes('자동갱신'), '2029-10-11 종료/갱신 없음: ' + end);
+  assert(end.includes('이용 종료') && end.includes('자동갱신'), '2029-10-11 종료/갱신 없음: ' + end);
   await shot('03-calendar-2029-10');
-  log('2029-09-11 해지 통보기한, 2029-10-11 계약 만료(자동갱신 조건)');
+  log('2029-09-11 해지 통보기한, 2029-10-11 이용 종료(자동갱신 조건)');
 
   // 수정: 시작일 10/12 → 10/15 → 새로고침 없이 캘린더 반영
   await page.click(tid('tab-contracts'));
@@ -121,10 +129,10 @@ const assert = (cond, msg) => {
   for (let i = 0; i < 40 && !(await page.locator(tid('calendar-title')).innerText()).includes('2026년 10월'); i++) await page.click(tid('calendar-prev'));
   const l12 = (await page.locator(tid('day-2026-10-12')).getAttribute('aria-label')) || '';
   const l15 = (await page.locator(tid('day-2026-10-15')).getAttribute('aria-label')) || '';
-  assert(!l12.includes('일정') && l15.includes('일정 1종'), `수정 반영 실패 12=${l12} 15=${l15}`);
+  assert(!l12.includes('일정') && l15.includes('일정 2종'), `수정 반영 실패 12=${l12} 15=${l15}`);
   const total2 = await page.locator(tid('calendar-month-total')).innerText();
-  assert(total2.includes('₩0'), '시작일 변경 후 10월 지출: ' + total2);
-  log('시작일 10/15로 수정 → 새로고침 없이 캘린더·지출 즉시 반영 (10/12 비움, 10/15 계약 시작, 10월 ₩0)');
+  assert(total2.includes('₩20,000'), '시작일 변경 후 10월 지출: ' + total2);
+  log('시작일 10/15로 수정 → 새로고침 없이 반영 (10/12 비움, 10/15 이용 시작 + 설치비, 첫 렌탈료 11/12 → 10월 ₩20,000)');
 
   console.log('\npage errors:', errors.length ? errors : 'none');
   await browser.close();

@@ -1,9 +1,9 @@
 import type {
   ContractCategory,
-  ContractEventType,
   ContractStatus,
   PaymentFrequency,
   ReviewSeverity,
+  ScheduleItemType,
 } from './types';
 
 export const CATEGORY_LABEL: Record<ContractCategory, string> = {
@@ -43,11 +43,13 @@ export const SEVERITY_LABEL: Record<ReviewSeverity, string> = {
   caution: '주의 필요',
 };
 
-export const EVENT_TYPE_LABEL: Record<ContractEventType, string> = {
+export const EVENT_TYPE_LABEL: Record<ScheduleItemType, string> = {
   payment: '결제',
-  contract_start: '계약 시작',
-  contract_end: '계약 종료',
+  contract_start: '시작',
+  contract_end: '종료·만기',
   renewal: '자동갱신',
-  termination_notice: '해지 통보기한',
+  termination_notice: '통보기한',
+  prepare: '확인 시점',
+  key_date: '주요 날짜',
   custom: '일정',
 };

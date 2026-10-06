@@ -1,12 +1,13 @@
+import { CONTRACT_TYPE_PROFILES, type PaymentKind } from './contractTypes';
 import { addDays, dateInMonth, parseISODate } from './dates';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
 import type {
   Contract,
   ContractCategory,
-  ContractEventType,
   ContractPayment,
   ContractRecord,
   ISODate,
+  ScheduleItemType,
 } from './types';
 
 export interface DateRange {
@@ -27,7 +28,10 @@ export interface PaymentOccurrence {
   amount: number;
   paymentId: string;
   contractId: string;
+  kind: PaymentKind;
   label: string;
+  /** 회차 (총 회차가 있는 결제만): 3/36 */
+  installment: { no: number; total: number } | null;
   /** 금액이 변동될 수 있음 (통신비 등). */
   estimated: boolean;
 }
@@ -36,7 +40,29 @@ function monthIndex(year: number, month: number): number {
   return year * 12 + (month - 1);
 }
 
-/** 결제 규칙을 조회 범위 안의 실제 결제일 목록으로 전개한다. */
+/** 정기 결제의 첫 회차 월 인덱스 (기준 월 주기에 맞추고, 시작일보다 앞선 날짜면 다음 주기). */
+function firstOccurrenceIdx(payment: ContractPayment): number {
+  const step = FREQUENCY_STEP_MONTHS[payment.frequency as keyof typeof FREQUENCY_STEP_MONTHS];
+  const s = parseISODate(payment.startsOn);
+  const day = payment.dayOfMonth ?? s.day;
+  let idx = monthIndex(s.year, s.month);
+  const anchorIdx = monthIndex(s.year, payment.monthOfYear ?? s.month);
+  idx += (((anchorIdx - idx) % step) + step) % step;
+  if (dateInMonth(Math.floor(idx / 12), (idx % 12) + 1, day) < payment.startsOn) idx += step;
+  return idx;
+}
+
+/** 총 회차가 있는 결제의 마지막 회차 날짜 (일시불은 결제일). */
+export function lastInstallmentDate(payment: ContractPayment): ISODate | null {
+  if (payment.installmentCount == null) return null;
+  if (payment.frequency === 'one_time') return payment.startsOn;
+  const step = FREQUENCY_STEP_MONTHS[payment.frequency];
+  const idx = firstOccurrenceIdx(payment) + (payment.installmentCount - 1) * step;
+  const day = payment.dayOfMonth ?? parseISODate(payment.startsOn).day;
+  return dateInMonth(Math.floor(idx / 12), (idx % 12) + 1, day);
+}
+
+/** 결제 규칙을 조회 범위 안의 실제 결제일 목록으로 전개한다. 일시불은 startsOn이 결제일. */
 export function expandPayment(
   payment: ContractPayment,
   contract: Contract,
@@ -46,26 +72,36 @@ export function expandPayment(
   const cutoff = paymentCutoff(contract);
   let end: ISODate | null = payment.endsOn;
   if (cutoff != null) end = end == null ? cutoff : end < cutoff ? end : cutoff;
+  const last = lastInstallmentDate(payment);
+  if (last != null) end = end == null || last < end ? last : end;
 
   const s = parseISODate(start);
   const day = payment.dayOfMonth ?? s.day;
-  const make = (date: ISODate): PaymentOccurrence => ({
-    date,
-    amount: payment.amount,
-    paymentId: payment.id,
-    contractId: contract.id,
-    label: payment.label,
-    estimated: payment.isVariable,
-  });
+  const total = payment.installmentCount;
+  const step = payment.frequency === 'one_time' ? 0 : FREQUENCY_STEP_MONTHS[payment.frequency];
+  const firstIdx = step ? firstOccurrenceIdx(payment) : 0;
+  const make = (date: ISODate): PaymentOccurrence => {
+    const d = parseISODate(date);
+    const no = step ? Math.round((monthIndex(d.year, d.month) - firstIdx) / step) + 1 : 1;
+    return {
+      date,
+      amount: payment.amount,
+      paymentId: payment.id,
+      contractId: contract.id,
+      kind: payment.kind,
+      label: payment.label,
+      installment: total != null ? { no, total } : null,
+      estimated: payment.isVariable,
+    };
+  };
   const inBounds = (date: ISODate) =>
     date >= start && date >= range.start && date <= range.end && (end == null || date <= end);
 
   if (payment.frequency === 'one_time') {
-    const date = dateInMonth(s.year, s.month, day);
-    return inBounds(date) ? [make(date)] : [];
+    // 일시불은 종료/해지와 무관하게 정해진 날에 한 번 (해지 처리 이후 날짜면 제외)
+    return start >= range.start && start <= range.end && (cutoff == null || start <= cutoff || contract.lifecycle === 'active') ? [make(start)] : [];
   }
 
-  const step = FREQUENCY_STEP_MONTHS[payment.frequency];
   const anchorMonth = payment.monthOfYear ?? s.month;
   const anchorIdx = monthIndex(s.year, anchorMonth);
 
@@ -86,8 +122,10 @@ export function expandPayment(
 export interface ScheduleItem {
   key: string;
   date: ISODate;
-  type: ContractEventType;
+  type: ScheduleItemType;
   title: string;
+  /** 결제 항목의 의미 (결제가 아니면 null) */
+  paymentKind: PaymentKind | null;
   amount: number | null;
   estimated: boolean;
   contractId: string;
@@ -97,18 +135,25 @@ export interface ScheduleItem {
   eventId: string | null;
 }
 
-const TYPE_ORDER: Record<ContractEventType, number> = {
+const TYPE_ORDER: Record<ScheduleItemType, number> = {
   termination_notice: 0,
-  contract_end: 1,
-  renewal: 2,
-  payment: 3,
+  prepare: 1,
+  contract_end: 2,
+  renewal: 3,
   contract_start: 4,
-  custom: 5,
+  key_date: 5,
+  payment: 6,
+  custom: 7,
 };
 
 /**
- * 한 계약의 일정 (결제 + 시작/종료/자동갱신/해지 통보기한 + 사용자 일정).
- * 시작/종료/갱신/해지통보는 저장하지 않고 계약 정보에서 계산 → 수정 시 재생성 불필요.
+ * 한 계약의 일정. 계약 유형 프로필은 이름(이용 시작·대출 실행·보험 만기 …)만 정하고,
+ * 실제 항목은 그 계약에 저장된 결제 목록·주요 날짜·기간에서 만든다.
+ * - 결제: 결제 규칙 전개 (회차·종료일 반영)
+ * - 시작일 / 종료일(만기) / 자동갱신 / 해지 통보기한 / 종료 전 확인 시점(임대차)
+ * - 주요 날짜(설치·입주·잔금·갱신 …), 사용자 일정
+ * - 계약 체결일은 기록용이라 일정에 넣지 않는다
+ * 모두 저장하지 않고 계산 → 계약을 수정하면 자동으로 다시 만들어진다.
  */
 export function contractSchedule(record: ContractRecord, range: DateRange, today: ISODate): ScheduleItem[] {
   const { contract } = record;
@@ -123,7 +168,8 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
         key: `pay:${p.id}:${o.date}`,
         date: o.date,
         type: 'payment',
-        title: p.label,
+        title: o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label,
+        paymentKind: p.kind,
         amount: o.amount,
         estimated: o.estimated,
         eventId: null,
@@ -131,8 +177,16 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
     }
   }
 
-  if (inRange(contract.startDate)) {
-    items.push({ ...base, key: `start:${contract.id}`, date: contract.startDate, type: 'contract_start', title: '계약 시작', amount: null, estimated: false, eventId: null });
+  const profile = CONTRACT_TYPE_PROFILES[contract.contractType];
+  const plain = { paymentKind: null, amount: null, estimated: false, eventId: null };
+
+  if (profile.startEvent && inRange(contract.startDate)) {
+    items.push({ ...base, ...plain, key: `start:${contract.id}`, date: contract.startDate, type: 'contract_start', title: profile.startEvent });
+  }
+
+  for (const d of record.dates) {
+    if (!inRange(d.date)) continue;
+    items.push({ ...base, ...plain, key: `date:${d.id}`, date: d.date, type: 'key_date', title: d.label });
   }
 
   if (contract.lifecycle === 'active') {
@@ -147,7 +201,8 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
         key: `end:${contract.id}:${end}`,
         date: end,
         type: 'contract_end',
-        title: contract.autoRenewal ? '계약 만료 (자동갱신 조건)' : '계약 종료',
+        title: contract.autoRenewal ? `${profile.endEvent} (자동갱신 조건)` : profile.endEvent,
+        paymentKind: null,
         amount: null,
         estimated: end !== contract.endDate,
         eventId: null,
@@ -156,12 +211,16 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
     if (contract.autoRenewal && term) {
       const renewal = addDays(term.termEnd, 1);
       if (inRange(renewal)) {
-        items.push({ ...base, key: `renew:${contract.id}:${renewal}`, date: renewal, type: 'renewal', title: '자동갱신 예정', amount: null, estimated: false, eventId: null });
+        items.push({ ...base, ...plain, key: `renew:${contract.id}:${renewal}`, date: renewal, type: 'renewal', title: '자동갱신 예정' });
       }
     }
     const notice = terminationNoticeDeadline(contract, today);
     if (notice && inRange(notice.date)) {
-      items.push({ ...base, key: `notice:${contract.id}:${notice.date}`, date: notice.date, type: 'termination_notice', title: '해지 통보기한', amount: null, estimated: false, eventId: null });
+      items.push({ ...base, ...plain, key: `notice:${contract.id}:${notice.date}`, date: notice.date, type: 'termination_notice', title: profile.noticeLabel });
+    }
+    const prep = prepareDate(contract);
+    if (prep && inRange(prep.date)) {
+      items.push({ ...base, ...plain, key: `prepare:${contract.id}:${prep.date}`, date: prep.date, type: 'prepare', title: prep.label });
     }
   } else if (contract.lifecycleChangedOn && inRange(contract.lifecycleChangedOn)) {
     items.push({
@@ -170,6 +229,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
       date: contract.lifecycleChangedOn,
       type: 'contract_end',
       title: contract.lifecycle === 'cancelled' ? '계약 해지' : '계약 종료',
+      paymentKind: null,
       amount: null,
       estimated: false,
       eventId: null,
@@ -178,10 +238,17 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
 
   for (const e of record.events) {
     if (!inRange(e.eventDate)) continue;
-    items.push({ ...base, key: `event:${e.id}`, date: e.eventDate, type: e.eventType, title: e.title, amount: e.amount, estimated: false, eventId: e.id });
+    items.push({ ...base, key: `event:${e.id}`, date: e.eventDate, type: e.eventType, title: e.title, paymentKind: null, amount: e.amount, estimated: false, eventId: e.id });
   }
 
   return items;
+}
+
+/** 종료 전 미리 확인할 시점 (임대차: 만기 60일 전 갱신 확인). 자동갱신 계약은 해지 통보기한으로 대신한다. */
+export function prepareDate(contract: Contract): { date: ISODate; label: string; guidance: string } | null {
+  const prep = CONTRACT_TYPE_PROFILES[contract.contractType].prepare;
+  if (!prep || !contract.endDate || contract.autoRenewal || contract.lifecycle !== 'active') return null;
+  return { date: addDays(contract.endDate, -prep.daysBefore), label: prep.label, guidance: prep.guidance };
 }
 
 export function sortSchedule(items: ScheduleItem[]): ScheduleItem[] {

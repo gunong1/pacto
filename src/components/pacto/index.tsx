@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/controls';
 import { formatDDay } from '@/domain/dday';
 import { CATEGORY_LABEL, SEVERITY_LABEL, STATUS_LABEL } from '@/domain/labels';
 import { formatKRW, formatWon } from '@/domain/money';
-import type { ContractCategory, ContractEventType, ContractStatus, ReviewSeverity } from '@/domain/types';
+import type { ContractCategory, ContractStatus, ReviewSeverity, ScheduleItemType } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
 
 /** D-Day: 7일 이내는 주의 색, 30일 이내는 강조 색. */
@@ -65,20 +65,23 @@ export function CategoryIcon({ category, size = 40 }: { category: ContractCatego
  * 캘린더 이벤트 색상 체계 (고정). 색만으로 구분하지 않고 항상 범례/라벨 텍스트를 함께 표시한다.
  * 결제 = 네이비 · 계약 시작 = 라이트 블루 · 해지 통보기한 = 레드 · 종료·갱신 = 앰버 · 내 일정 = 그레이
  */
-export const EVENT_COLOR: Record<ContractEventType, string> = {
+/** 캘린더 색: 돈이 움직이는 날 = 네이비, 시작·주요 날짜(입주·설치·실행 …) = 라이트 블루, 통보기한 = 레드, 종료·만기·갱신·확인 시점 = 앰버, 내 일정 = 그레이 */
+export const EVENT_COLOR: Record<ScheduleItemType, string> = {
   payment: colors.primary,
   termination_notice: colors.caution,
   contract_end: colors.amber,
   renewal: colors.amber,
+  prepare: colors.amber,
   contract_start: colors.brandSky,
+  key_date: colors.brandSky,
   custom: colors.textTertiary,
 };
 
 export const EVENT_LEGEND: { label: string; color: string }[] = [
   { label: '결제', color: EVENT_COLOR.payment },
-  { label: '계약 시작', color: EVENT_COLOR.contract_start },
-  { label: '해지 통보기한', color: EVENT_COLOR.termination_notice },
-  { label: '종료·갱신', color: EVENT_COLOR.contract_end },
+  { label: '시작·주요 날짜', color: EVENT_COLOR.contract_start },
+  { label: '통보기한', color: EVENT_COLOR.termination_notice },
+  { label: '종료·만기·갱신', color: EVENT_COLOR.contract_end },
   { label: '내 일정', color: EVENT_COLOR.custom },
 ];
 

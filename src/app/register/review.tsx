@@ -88,6 +88,9 @@ export default function ReviewScreen() {
       defaultValues={draftToForm(model.draft)}
       flagged={model.flagged}
       evidence={extraction.provider === 'mock' ? undefined : model.evidence}
+      notes={model.notes}
+      typeSuggestion={model.typeSuggestion}
+      allDetails={model.allDetails}
       header={header}
       today={today}
       submitLabel="계약 저장"

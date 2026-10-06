@@ -3,16 +3,16 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { daysInMonth, toISODate, weekdayOf, type YearMonth } from '@/domain/dates';
-import type { ContractEventType, ISODate } from '@/domain/types';
+import type { ISODate, ScheduleItemType } from '@/domain/types';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
 import { EVENT_COLOR } from './index';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const DOT_ORDER: ContractEventType[] = ['termination_notice', 'contract_end', 'renewal', 'payment', 'custom', 'contract_start'];
+const DOT_ORDER: ScheduleItemType[] = ['termination_notice', 'contract_end', 'renewal', 'prepare', 'payment', 'custom', 'contract_start', 'key_date'];
 
 /** 같은 색(종료·갱신, 일정)은 점 하나로 */
-function dotColors(types: Set<ContractEventType>): string[] {
+function dotColors(types: Set<ScheduleItemType>): string[] {
   const out: string[] = [];
   for (const t of DOT_ORDER) {
     if (!types.has(t)) continue;
@@ -26,7 +26,7 @@ export interface MonthGridProps {
   yearMonth: YearMonth;
   today: ISODate;
   selected: ISODate | null;
-  markers: Map<ISODate, Set<ContractEventType>>;
+  markers: Map<ISODate, Set<ScheduleItemType>>;
   onSelect: (date: ISODate) => void;
   onChangeMonth: (delta: number) => void;
 }

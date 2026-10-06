@@ -1,33 +1,70 @@
+import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMemo } from 'react';
-import { Controller, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form';
-import { StyleSheet, View } from 'react-native';
+import { Controller, useFieldArray, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { EVENT_COLOR } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { ChipGroup, SwitchRow, TextField, type TextFieldProps } from '@/components/ui/controls';
+import { Badge, ChipGroup, SwitchRow, TextField, type TextFieldProps } from '@/components/ui/controls';
 import { DateField } from '@/components/ui/DateField';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
-import { applyDraftToContract, blankContract, draftToPayment } from '@/data/draft';
+import { draftToRecord } from '@/data/draft';
 import type { ContractDraft } from '@/data/repository';
+import {
+  CONTRACT_DATE_KIND_LABEL,
+  CONTRACT_TYPE_EXAMPLES,
+  CONTRACT_TYPE_LABEL,
+  CONTRACT_TYPE_PROFILES,
+  CONTRACT_TYPES,
+  DETAIL_FIELDS,
+  PAYMENT_KIND_LABEL,
+  cleanDetails,
+  countsAsSpending,
+  type ContractType,
+  type DetailFieldSpec,
+  type DetailValue,
+  type PaymentKind,
+} from '@/domain/contractTypes';
 import { addMonths, formatDateKo } from '@/domain/dates';
 import { CATEGORY_LABEL, FREQUENCY_LABEL } from '@/domain/labels';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
-import { contractSchedule, nextPayment } from '@/domain/schedule';
-import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES, type ContractRecord } from '@/domain/types';
-import { colors, radius, spacing } from '@/theme';
+import { contractSchedule, expandPayment } from '@/domain/schedule';
+import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES, type Confidence } from '@/domain/types';
+import { colors, hitSlop, radius, spacing } from '@/theme';
 
-import { contractFormSchema, formToDraft, type ContractFormValues } from './form';
+import {
+  contractFormSchema,
+  detailFromInput,
+  detailsToForm,
+  formToDraft,
+  type ContractFormValues,
+  type ParsedContractForm,
+  type PaymentFormValues,
+} from './form';
 
 type FieldName = FieldPath<ContractFormValues>;
 
+export interface TypeSuggestionView {
+  value: ContractType;
+  confidence: Confidence;
+  alternatives: ContractType[];
+  reason: string | null;
+}
+
 export interface ContractFormProps {
   defaultValues: ContractFormValues;
-  /** 신뢰도 낮음/값 없음 → "확인 필요" 표시할 필드 */
+  /** "확인 필요" 표시 경로 ('startDate', 'payments.1.startsOn', 'contractType' …) */
   flagged?: ReadonlySet<string>;
-  /** 필드별 원문 근거 */
+  /** 경로별 원문 근거 */
   evidence?: Partial<Record<string, string>>;
+  /** 경로별 안내 (왜 확인이 필요한지) */
+  notes?: Partial<Record<string, string>>;
+  /** AI의 유형 판단 (확인 화면) */
+  typeSuggestion?: TypeSuggestionView;
+  /** 모든 유형의 상세 속성 추출값 — 유형을 바꾸면 새 유형에 맞는 값만 다시 고른다 */
+  allDetails?: Record<string, DetailValue>;
   header?: React.ReactNode;
   /** 폼과 일정 미리보기 아래에 붙는 보조 영역 (예: AI 체크 요약) */
   trailing?: React.ReactNode;
@@ -38,46 +75,77 @@ export interface ContractFormProps {
   onSubmit: (draft: ContractDraft) => void;
 }
 
+const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
 const CATEGORY_OPTIONS = CONTRACT_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABEL[c] }));
-const FREQUENCY_OPTIONS = [
-  { value: 'none' as const, label: '결제 없음' },
-  ...PAYMENT_FREQUENCIES.map((f) => ({ value: f, label: FREQUENCY_LABEL[f] })),
-];
+const TYPE_OPTIONS = CONTRACT_TYPES.map((t) => ({ value: t, label: CONTRACT_TYPE_LABEL[t] }));
+const FREQUENCY_OPTIONS = PAYMENT_FREQUENCIES.map((f) => ({ value: f, label: FREQUENCY_LABEL[f] }));
+const ONE_TIME_KINDS: ReadonlySet<PaymentKind> = new Set(['setup_fee', 'deposit', 'advance_payment', 'down_payment', 'interim_payment', 'balance_payment']);
 
-/** 계약 확인/수정 폼 — AI 등록 확인, 직접 입력, 수정에서 공용. 모든 주요 필드를 수정할 수 있다. */
-export function ContractForm({ defaultValues, flagged, evidence, header, trailing, footerNote, submitLabel, submitting, today, onSubmit }: ContractFormProps) {
-  const { control, handleSubmit } = useForm<ContractFormValues>({
+const defaultFrequency = (kind: PaymentKind): PaymentFormValues['frequency'] => (ONE_TIME_KINDS.has(kind) ? 'one_time' : kind === 'premium' ? 'yearly' : 'monthly');
+
+function newPayment(kind: PaymentKind): PaymentFormValues {
+  return {
+    kind,
+    label: PAYMENT_KIND_LABEL[kind],
+    amount: '',
+    frequency: defaultFrequency(kind),
+    dayOfMonth: '',
+    monthOfYear: '',
+    startsOn: '',
+    endsOn: '',
+    installmentCount: '',
+    isVariable: false,
+  };
+}
+
+/**
+ * 계약 확인/수정 폼 — AI 등록 확인, 직접 입력, 수정에서 공용.
+ * 공통 틀(유형 → 기본 정보 → 기간 → 유형별 정보 → 결제 목록 → 주요 날짜 → 갱신·해지 → 기타)은 같고,
+ * 유형에 따라 날짜 이름·유형별 정보·결제 의미 선택지가 바뀐다. 결제·날짜는 여러 건 추가/수정/삭제할 수 있다.
+ */
+export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit }: ContractFormProps) {
+  const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),
     defaultValues,
     mode: 'onTouched',
   });
-
-  const field = (name: FieldName, label: string, extra?: Partial<TextFieldProps> & { amount?: boolean }) => (
-    <FormText control={control} name={name} label={label} flagged={flagged?.has(name)} hint={evidence?.[name] ? `원문: “${evidence[name]}”` : undefined} {...extra} />
-  );
-  const amount = (name: FieldName, label: string) => field(name, label, { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: `field-${name}` });
-  const date = (name: FieldName, label: string) => (
-    <Controller
-      control={control}
-      name={name}
-      render={({ field: f, fieldState }) => (
-        <DateField
-          label={label}
-          value={String(f.value ?? '')}
-          onChangeText={f.onChange}
-          onBlur={f.onBlur}
-          error={fieldState.error?.message}
-          flagged={flagged?.has(name)}
-          hint={evidence?.[name] ? `원문: “${evidence[name]}”` : undefined}
-          testID={`field-${name}`}
-        />
-      )}
-    />
-  );
+  const payments = useFieldArray({ control, name: 'payments' });
+  const dates = useFieldArray({ control, name: 'dates' });
 
   const values = useWatch({ control }) as ContractFormValues;
-  const frequency = values.paymentFrequency;
-  const autoRenewal = values.autoRenewal;
+  const type = values.contractType;
+  const profile = CONTRACT_TYPE_PROFILES[type];
+
+  const hint = (path: string) => notes?.[path] ?? (evidence?.[path] ? `원문: “${evidence[path]}”` : undefined);
+  const field = (name: FieldName, label: string, extra?: Partial<TextFieldProps> & { amount?: boolean }) => (
+    <FormText control={control} name={name} label={label} flagged={flagged?.has(name)} hint={hint(name)} testID={`field-${name}`} {...extra} />
+  );
+  const amount = (name: FieldName, label: string) => field(name, label, { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true });
+  const date = (name: FieldName, label: string, extra?: { hint?: string; testID?: string; flagPath?: string }) => {
+    const path = extra?.flagPath ?? name;
+    return <FormDate control={control} name={name} label={label} flagged={flagged?.has(path)} hint={hint(path) ?? extra?.hint} testID={extra?.testID ?? `field-${name}`} />;
+  };
+
+  /** 유형 변경: 결제·날짜는 그대로 두고, 유형별 정보만 새 유형 기준으로 다시 고른다 */
+  const changeType = (next: ContractType) => {
+    const prev = getValues('contractType');
+    if (next === prev) return;
+    const current = getValues('details');
+    const merged: Record<string, DetailValue> = { ...(allDetails ?? {}) };
+    for (const spec of DETAIL_FIELDS[prev]) {
+      const v = detailFromInput(spec, current[spec.key] ?? '');
+      if (v !== undefined && v !== null) merged[spec.key] = v;
+    }
+    setValue('contractType', next);
+    setValue('details', detailsToForm(next, cleanDetails(next, merged)));
+  };
+
+  const paymentKindOptions = (current: PaymentKind) => {
+    const kinds = [...profile.paymentKinds];
+    if (!kinds.includes(current)) kinds.push(current);
+    return kinds.map((k) => ({ value: k, label: PAYMENT_KIND_LABEL[k] }));
+  };
+  const dateKindOptions = profile.dateKinds.map((k) => ({ value: k, label: CONTRACT_DATE_KIND_LABEL[k] }));
 
   return (
     <Screen
@@ -94,9 +162,40 @@ export function ContractForm({ defaultValues, flagged, evidence, header, trailin
       }>
       {header}
 
+      <Section title="계약 유형" caption="돈과 날짜가 움직이는 방식이에요. 유형에 맞게 일정과 지출을 관리해요." testID="section-type">
+        {typeSuggestion ? (
+          <View style={[styles.suggestion, flagged?.has('contractType') && styles.suggestionFlagged]} testID="type-suggestion">
+            <View style={styles.rowCenter}>
+              <AppText variant="captionStrong">
+                AI 판단: {CONTRACT_TYPE_LABEL[typeSuggestion.value]} · 신뢰도 {CONFIDENCE_LABEL[typeSuggestion.confidence]}
+              </AppText>
+              {flagged?.has('contractType') ? <Badge label="확인 필요" tone="check" /> : null}
+            </View>
+            {typeSuggestion.reason ? (
+              <AppText variant="caption" color="textSecondary" style={{ marginTop: 2 }}>
+                {typeSuggestion.reason}
+              </AppText>
+            ) : null}
+            {typeSuggestion.alternatives.length > 0 ? (
+              <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
+                다른 가능성: {typeSuggestion.alternatives.map((t) => CONTRACT_TYPE_LABEL[t]).join(', ')}
+              </AppText>
+            ) : null}
+            <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
+              유형에 따라 일정과 지출이 다르게 만들어져요. 맞지 않으면 아래에서 바꿔주세요.
+            </AppText>
+          </View>
+        ) : null}
+        <ChipGroup options={TYPE_OPTIONS} value={type} onChange={changeType} testIDPrefix="type" />
+        <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }}>
+          {CONTRACT_TYPE_EXAMPLES[type]}
+        </AppText>
+      </Section>
+
+      <SectionGap />
       <Section title="기본 정보">
-        {field('title', '계약명', { placeholder: '예: 자동차보험', testID: 'field-title' })}
-        <FormLabel label="계약 종류" flagged={flagged?.has('category')} />
+        {field('title', '계약명', { placeholder: '예: 자동차보험' })}
+        <FormLabel label="분야" flagged={flagged?.has('category')} />
         <Controller control={control} name="category" render={({ field: f }) => <ChipGroup options={CATEGORY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="category" />} />
         <View style={{ height: spacing.lg }} />
         {field('counterparty', '계약 상대방', { placeholder: '예: 삼성화재' })}
@@ -104,49 +203,171 @@ export function ContractForm({ defaultValues, flagged, evidence, header, trailin
 
       <SectionGap />
       <Section title="기간">
-        {date('contractDate', '계약 체결일')}
         <View style={styles.row2}>
-          <View style={styles.col}>{date('startDate', '계약 시작일')}</View>
-          <View style={styles.col}>{date('endDate', '계약 종료일')}</View>
+          <View style={styles.col}>{date('startDate', profile.startLabel)}</View>
+          <View style={styles.col}>{date('endDate', profile.endLabel)}</View>
         </View>
+        {date('contractDate', '계약 체결일 (선택)', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
       </Section>
 
+      {DETAIL_FIELDS[type].length > 0 || type === 'lease' ? (
+        <>
+          <SectionGap />
+          <Section title={`${CONTRACT_TYPE_LABEL[type]} 정보`} testID="section-details">
+            {type === 'lease' ? amount('depositAmount', '보증금') : null}
+            {DETAIL_FIELDS[type].map((spec) => (
+              <DetailInput key={`${type}-${spec.key}`} control={control} spec={spec} flagged={flagged?.has(`details.${spec.key}`)} />
+            ))}
+          </Section>
+        </>
+      ) : null}
+
       <SectionGap />
-      <Section title="결제">
-        <FormLabel label="결제 주기" flagged={flagged?.has('paymentFrequency')} />
-        <Controller control={control} name="paymentFrequency" render={({ field: f, fieldState }) => (
-          <View>
-            <ChipGroup options={FREQUENCY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="frequency" />
-            {fieldState.error ? <AppText variant="caption" color="caution" style={{ marginTop: 4 }}>{fieldState.error.message}</AppText> : null}
-          </View>
-        )} />
-        <View style={{ height: spacing.lg }} />
-        {frequency !== 'none' ? (
-          <>
-            <View style={styles.row2}>
-              <View style={styles.col}>{amount('paymentAmount', '결제 금액')}</View>
-              <View style={styles.colNarrow}>{field('paymentDay', '결제일', { keyboardType: 'number-pad', suffix: '일', maxLength: 2, testID: 'field-paymentDay' })}</View>
-            </View>
-            {field('paymentLabel', '결제 항목 이름', { placeholder: '예: 월 렌탈료' })}
-            <Controller control={control} name="paymentVariable" render={({ field: f }) => <SwitchRow label="금액이 매달 달라져요" description="통신비처럼 변동되는 금액은 예상치로 표시" value={f.value} onValueChange={f.onChange} />} />
-          </>
+      <Section title="결제" caption="내는 돈을 모두 넣어주세요. 한 계약에 여러 건일 수 있어요 (예: 월 렌탈료 + 설치비)." testID="section-payments">
+        {flagged?.has('payments') && notes?.payments ? (
+          <AppText variant="caption" color="check" style={{ marginBottom: spacing.md }}>
+            {notes.payments}
+          </AppText>
         ) : null}
+        {payments.fields.map((p, i) => {
+          const pv = values.payments?.[i];
+          if (!pv) return null;
+          const oneTime = pv.frequency === 'one_time';
+          const path = `payments.${i}`;
+          return (
+            <View key={p.id} style={styles.card} testID={`payment-${i}`}>
+              <View style={styles.cardHeader}>
+                <AppText variant="body2Strong">결제 {i + 1}</AppText>
+                {!countsAsSpending(pv.kind) ? <Badge label="지출 합계 제외" /> : null}
+                <View style={{ flex: 1 }} />
+                <Pressable onPress={() => payments.remove(i)} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={`결제 ${i + 1} 삭제`} testID={`payment-${i}-remove`}>
+                  <Ionicons name="trash-outline" size={18} color={colors.textTertiary} />
+                </Pressable>
+              </View>
+              <Controller
+                control={control}
+                name={`payments.${i}.kind`}
+                render={({ field: f }) => (
+                  <ChipGroup
+                    options={paymentKindOptions(f.value)}
+                    value={f.value}
+                    onChange={(k) => {
+                      // 이름·주기를 직접 바꾸지 않았다면 새 의미의 기본값으로 (예: 설치비 → 일시불)
+                      const label = getValues(`payments.${i}.label`);
+                      const frequency = getValues(`payments.${i}.frequency`);
+                      if (!label || label === PAYMENT_KIND_LABEL[f.value]) setValue(`payments.${i}.label`, PAYMENT_KIND_LABEL[k]);
+                      if (frequency === defaultFrequency(f.value)) setValue(`payments.${i}.frequency`, defaultFrequency(k));
+                      f.onChange(k);
+                    }}
+                    testIDPrefix={`payment-${i}-kind`}
+                  />
+                )}
+              />
+              <View style={{ height: spacing.md }} />
+              <View style={styles.row2}>
+                <View style={styles.col}>{field(`payments.${i}.label`, '항목 이름', { placeholder: '예: 월 렌탈료', testID: `payment-${i}-label` })}</View>
+                <View style={styles.col}>
+                  {field(`payments.${i}.amount`, '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: `payment-${i}-amount`, flagged: flagged?.has(`${path}.amount`), hint: hint(`${path}.amount`) })}
+                </View>
+              </View>
+              <Controller control={control} name={`payments.${i}.frequency`} render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value} onChange={f.onChange} scroll testIDPrefix={`payment-${i}-frequency`} />} />
+              <View style={{ height: spacing.md }} />
+              {oneTime ? (
+                date(`payments.${i}.startsOn`, '결제일', { hint: values.startDate ? '비워두면 계약 시작일' : undefined, testID: `payment-${i}-startsOn` })
+              ) : (
+                <>
+                  <View style={styles.row2}>
+                    <View style={styles.colNarrow}>
+                      {field(`payments.${i}.dayOfMonth`, '결제일', { keyboardType: 'number-pad', suffix: '일', maxLength: 2, testID: `payment-${i}-dayOfMonth`, flagged: flagged?.has(`${path}.dayOfMonth`), hint: hint(`${path}.dayOfMonth`) })}
+                    </View>
+                    <View style={styles.col}>{date(`payments.${i}.startsOn`, '첫 결제일', { hint: '비워두면 시작일부터', testID: `payment-${i}-startsOn` })}</View>
+                  </View>
+                  <View style={styles.row2}>
+                    <View style={styles.col}>{date(`payments.${i}.endsOn`, '마지막 결제일 (선택)', { hint: '비워두면 종료일까지', testID: `payment-${i}-endsOn` })}</View>
+                    <View style={styles.colNarrow}>{field(`payments.${i}.installmentCount`, '총 회차', { keyboardType: 'number-pad', suffix: '회', maxLength: 3, testID: `payment-${i}-installmentCount` })}</View>
+                  </View>
+                  <Controller control={control} name={`payments.${i}.isVariable`} render={({ field: f }) => <SwitchRow label="금액이 매번 달라져요" description="통신비처럼 변동되는 금액은 예상치로 표시" value={f.value} onValueChange={f.onChange} />} />
+                </>
+              )}
+            </View>
+          );
+        })}
+        <Button label="+ 결제 추가" variant="secondary" size="md" onPress={() => payments.append(newPayment(profile.paymentKinds[0]))} testID="add-payment" />
+      </Section>
+
+      <SectionGap />
+      <Section title="주요 날짜" caption="설치일·입주일·잔금일처럼 챙겨야 할 날짜. 캘린더에 표시돼요." testID="section-dates">
+        {dates.fields.map((d, i) => (
+          <View key={d.id} style={styles.card} testID={`date-${i}`}>
+            <View style={styles.cardHeader}>
+              <View style={{ flex: 1 }}>
+                <Controller
+                  control={control}
+                  name={`dates.${i}.kind`}
+                  render={({ field: f }) => (
+                    <ChipGroup
+                      options={dateKindOptions.some((o) => o.value === f.value) ? dateKindOptions : [...dateKindOptions, { value: f.value, label: CONTRACT_DATE_KIND_LABEL[f.value] }]}
+                      value={f.value}
+                      onChange={(k) => {
+                        const prevLabel = CONTRACT_DATE_KIND_LABEL[f.value];
+                        const label = getValues(`dates.${i}.label`);
+                        f.onChange(k);
+                        if (!label || label === prevLabel) setValue(`dates.${i}.label`, CONTRACT_DATE_KIND_LABEL[k]);
+                      }}
+                      testIDPrefix={`date-${i}-kind`}
+                    />
+                  )}
+                />
+              </View>
+              <Pressable onPress={() => dates.remove(i)} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={`날짜 ${i + 1} 삭제`} testID={`date-${i}-remove`}>
+                <Ionicons name="trash-outline" size={18} color={colors.textTertiary} />
+              </Pressable>
+            </View>
+            <View style={styles.row2}>
+              <View style={styles.col}>{field(`dates.${i}.label`, '이름', { testID: `date-${i}-label`, flagged: flagged?.has(`dates.${i}`), hint: hint(`dates.${i}`) })}</View>
+              <View style={styles.col}>{date(`dates.${i}.date`, '날짜', { testID: `date-${i}-date` })}</View>
+            </View>
+          </View>
+        ))}
+        <Button
+          label="+ 날짜 추가"
+          variant="secondary"
+          size="md"
+          onPress={() => {
+            const kind = profile.dateKinds[0];
+            dates.append({ kind, label: CONTRACT_DATE_KIND_LABEL[kind], date: '' });
+          }}
+          testID="add-date"
+        />
+      </Section>
+
+      <SectionGap />
+      {profile.hasRenewal ? (
+        <Section title="갱신 · 해지">
+          <Controller control={control} name="autoRenewal" render={({ field: f }) => <SwitchRow label="자동갱신" description="만료 시 자동으로 연장되는 계약 (묵시적 갱신 포함)" value={f.value} onValueChange={f.onChange} testID="field-autoRenewal" />} />
+          {flagged?.has('autoRenewal') ? (
+            <AppText variant="caption" color="check" style={{ marginBottom: spacing.sm }}>
+              자동갱신 여부를 확인해주세요{evidence?.autoRenewal ? ` — 원문: “${evidence.autoRenewal}”` : ''}
+            </AppText>
+          ) : null}
+          {values.autoRenewal ? field('renewalPeriodMonths', '갱신 주기', { keyboardType: 'number-pad', suffix: '개월', maxLength: 3 }) : null}
+          {field('terminationNoticeDays', `${profile.noticeLabel} (종료 며칠 전까지)`, { keyboardType: 'number-pad', suffix: '일 전', maxLength: 3 })}
+          {field('earlyTerminationTerms', '중도해지 관련 내용', { multiline: true })}
+          {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
+        </Section>
+      ) : (
+        <Section title="중도해지 · 위약금">
+          {field('earlyTerminationTerms', type === 'loan' ? '중도상환 관련 내용' : '중도해지 관련 내용', { multiline: true })}
+          {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
+        </Section>
+      )}
+
+      <SectionGap />
+      <Section title="기타">
         {amount('totalAmount', '계약 총액')}
-        {amount('depositAmount', '보증금')}
+        {type !== 'lease' ? amount('depositAmount', '보증금') : null}
+        {field('memo', '메모', { multiline: true, placeholder: '자유롭게 적어두세요' })}
       </Section>
-
-      <SectionGap />
-      <Section title="갱신 · 해지">
-        <Controller control={control} name="autoRenewal" render={({ field: f }) => <SwitchRow label="자동갱신" description="만료 시 자동으로 연장되는 계약" value={f.value} onValueChange={f.onChange} testID="field-autoRenewal" />} />
-        {flagged?.has('autoRenewal') ? <AppText variant="caption" color="check" style={{ marginBottom: spacing.sm }}>자동갱신 여부를 확인해주세요{evidence?.autoRenewal ? ` — 원문: “${evidence.autoRenewal}”` : ''}</AppText> : null}
-        {autoRenewal ? field('renewalPeriodMonths', '갱신 주기', { keyboardType: 'number-pad', suffix: '개월', maxLength: 3 }) : null}
-        {field('terminationNoticeDays', '해지 통보기한 (종료 며칠 전까지)', { keyboardType: 'number-pad', suffix: '일 전', maxLength: 3, testID: 'field-terminationNoticeDays' })}
-        {field('earlyTerminationTerms', '중도해지 관련 내용', { multiline: true })}
-        {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
-      </Section>
-
-      <SectionGap />
-      <Section title="메모">{field('memo', '메모', { multiline: true, placeholder: '자유롭게 적어두세요' })}</Section>
 
       <SectionGap />
       <SchedulePreview values={values} today={today} />
@@ -155,34 +376,77 @@ export function ContractForm({ defaultValues, flagged, evidence, header, trailin
   );
 }
 
-/** 저장하면 캘린더에 등록될 일정 미리보기 — 계약 조건이 실제 일정 관리로 이어지는 것을 보여준다. */
+/** 유형별 정보 한 칸 */
+function DetailInput({ control, spec, flagged }: { control: Control<ContractFormValues>; spec: DetailFieldSpec; flagged?: boolean }) {
+  const name = `details.${spec.key}` as FieldName;
+  if (spec.input === 'enum' || spec.input === 'boolean') {
+    const options = spec.input === 'enum' ? [...(spec.options ?? [])] : [{ value: 'true', label: '예' }, { value: 'false', label: '아니오' }];
+    return (
+      <View style={{ marginBottom: spacing.lg }}>
+        <FormLabel label={spec.label} flagged={flagged} />
+        <Controller
+          control={control}
+          name={name}
+          render={({ field: f }) => (
+            <ChipGroup options={options} value={String(f.value ?? '') || null} onChange={(v) => f.onChange(String(f.value) === v ? '' : v)} testIDPrefix={`detail-${spec.key}`} />
+          )}
+        />
+      </View>
+    );
+  }
+  return (
+    <FormText
+      control={control}
+      name={name}
+      label={spec.label}
+      flagged={flagged}
+      amount={spec.input === 'amount'}
+      multiline={spec.input === 'text'}
+      keyboardType={spec.input === 'percent' ? 'decimal-pad' : spec.input === 'text' ? 'default' : 'number-pad'}
+      suffix={spec.suffix}
+      testID={`detail-${spec.key}`}
+    />
+  );
+}
+
+/** 저장하면 관리될 결제·일정 미리보기 — 계약 조건이 실제 일정·지출 관리로 이어지는 것을 보여준다. */
 function SchedulePreview({ values, today }: { values: ContractFormValues; today: string }) {
   const preview = useMemo(() => {
     const parsed = contractFormSchema.safeParse(values);
     if (!parsed.success) return null;
-    const draft = formToDraft(parsed.data);
-    const base = applyDraftToContract(blankContract('preview', 'manual', ''), draft);
-    const payment = draftToPayment(draft, 'preview', 'preview-p', today);
-    const record: ContractRecord = { contract: base, payments: payment ? [payment] : [], events: [], documents: [], aiChecks: [] };
+    const record = draftToRecord(formToDraft(parsed.data), 'preview', today);
+    const pays = record.payments.map((p) => ({ p, first: expandPayment(p, record.contract, { start: '1900-01-01', end: '2999-12-31' })[0] ?? null }));
     const items = contractSchedule(record, { start: today, end: addMonths(today, 36) }, today).filter((i) => i.type !== 'payment');
-    return { items: items.slice(0, 5), next: nextPayment(record, today), payment };
+    return { items: items.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6), pays };
   }, [values, today]);
 
   return (
-    <Section title="저장하면 캘린더에 등록되는 일정" testID="schedule-preview">
+    <Section title="저장하면 관리되는 결제·일정" testID="schedule-preview">
       {!preview ? (
         <AppText variant="body2" color="textTertiary">
           필수 정보를 확인하면 일정이 표시돼요.
         </AppText>
-      ) : preview.items.length === 0 && !preview.next ? (
+      ) : preview.items.length === 0 && preview.pays.length === 0 ? (
         <AppText variant="body2" color="textTertiary">
           날짜·결제 정보를 입력하면 일정이 만들어져요.
         </AppText>
       ) : (
         <View style={styles.preview}>
-          {preview.next && preview.payment ? (
-            <PreviewRow color={EVENT_COLOR.payment} title={`${preview.payment.label} ${formatWon(preview.payment.amount)}`} sub={`${FREQUENCY_LABEL[preview.payment.frequency]}${preview.payment.dayOfMonth ? ` ${preview.payment.dayOfMonth}일` : ''} · 첫 결제 ${formatDateKo(preview.next.date)}`} />
-          ) : null}
+          {preview.pays.map(({ p, first }) => (
+            <PreviewRow
+              key={p.id}
+              color={EVENT_COLOR.payment}
+              title={`${p.label} ${formatWon(p.amount)}`}
+              sub={[
+                p.frequency === 'one_time' ? '일시불' : `${FREQUENCY_LABEL[p.frequency]}${p.dayOfMonth ? ` ${p.dayOfMonth}일` : ''}`,
+                first ? `${p.frequency === 'one_time' ? '' : '첫 결제 '}${formatDateKo(first.date)}` : null,
+                p.installmentCount ? `총 ${p.installmentCount}회` : null,
+                countsAsSpending(p.kind) ? null : '지출 합계 제외',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            />
+          ))}
           {preview.items.map((i) => (
             <PreviewRow key={i.key} color={EVENT_COLOR[i.type]} title={i.title} sub={formatDateKo(i.date, true)} />
           ))}
@@ -212,13 +476,7 @@ function FormLabel({ label, flagged }: { label: string; flagged?: boolean }) {
       <AppText variant="captionStrong" color="textSecondary">
         {label}
       </AppText>
-      {flagged ? (
-        <View style={styles.flag}>
-          <AppText variant="small" color="check">
-            확인 필요
-          </AppText>
-        </View>
-      ) : null}
+      {flagged ? <Badge label="확인 필요" tone="check" /> : null}
     </View>
   );
 }
@@ -246,12 +504,37 @@ function FormText({
   );
 }
 
+function FormDate({ control, name, label, flagged, hint, testID }: { control: Control<ContractFormValues>; name: FieldName; label: string; flagged?: boolean; hint?: string; testID?: string }) {
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field: f, fieldState }) => (
+        <DateField
+          label={label}
+          value={String(f.value ?? '')}
+          onChangeText={f.onChange}
+          onBlur={f.onBlur}
+          error={fieldState.error?.message}
+          flagged={flagged}
+          hint={hint}
+          testID={testID}
+        />
+      )}
+    />
+  );
+}
+
 const styles = StyleSheet.create({
   row2: { flexDirection: 'row', gap: spacing.md },
   col: { flex: 1 },
   colNarrow: { width: 110 },
+  rowCenter: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   label: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 8 },
-  flag: { backgroundColor: colors.checkSoft, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm },
+  suggestion: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.bgSubtle, marginBottom: spacing.md },
+  suggestionFlagged: { backgroundColor: colors.checkSoft },
+  card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   preview: { gap: 2 },
   previewRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 8 },
   dot: { width: 8, height: 8, borderRadius: 4 },

@@ -19,7 +19,7 @@ export default function EditContractScreen() {
 
   return (
     <ContractForm
-      defaultValues={draftToForm(recordToDraft(record.contract, record.payments[0]))}
+      defaultValues={draftToForm(recordToDraft(record))}
       today={today}
       submitLabel="수정 완료"
       submitting={update.isPending}

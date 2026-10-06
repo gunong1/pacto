@@ -1,27 +1,27 @@
-import type { Contract, ContractPayment } from '@/domain/types';
+import { PAYMENT_KIND_LABEL } from '@/domain/contractTypes';
+import type { Contract, ContractDate, ContractPayment, ContractRecord } from '@/domain/types';
 
-import type { ContractDraft } from './repository';
+import type { ContractDraft, DateDraft, PaymentDraft } from './repository';
 
 export const EMPTY_DRAFT: ContractDraft = {
   title: '',
   category: 'other',
+  contractType: 'other',
+  details: {},
   counterparty: null,
   contractDate: null,
   startDate: null,
   endDate: null,
   totalAmount: null,
-  paymentLabel: null,
-  paymentAmount: null,
-  paymentFrequency: null,
-  paymentDay: null,
-  paymentVariable: false,
+  depositAmount: null,
   autoRenewal: false,
   renewalPeriodMonths: null,
   terminationNoticeDays: null,
-  depositAmount: null,
   earlyTerminationTerms: null,
   penaltyTerms: null,
   memo: null,
+  payments: [],
+  dates: [],
 };
 
 /** 새 계약의 기본값 (draft 적용 전). */
@@ -30,6 +30,8 @@ export function blankContract(id: string, source: Contract['source'], now: strin
     id,
     title: '',
     category: 'other',
+    contractType: 'other',
+    details: {},
     counterparty: null,
     lifecycle: 'active',
     lifecycleChangedOn: null,
@@ -58,6 +60,8 @@ export function applyDraftToContract(contract: Contract, draft: ContractDraft): 
     ...contract,
     title: draft.title.trim(),
     category: draft.category,
+    contractType: draft.contractType,
+    details: draft.details,
     counterparty: draft.counterparty,
     contractDate: draft.contractDate,
     startDate: draft.startDate,
@@ -73,44 +77,85 @@ export function applyDraftToContract(contract: Contract, draft: ContractDraft): 
   };
 }
 
-/** draft의 결제 정보 → 대표 결제 규칙. 금액/주기가 없으면 null. */
-export function draftToPayment(draft: ContractDraft, contractId: string, id: string, fallbackStart: string): ContractPayment | null {
-  if (draft.paymentAmount == null || draft.paymentFrequency == null) return null;
+/**
+ * 결제 draft → 결제 규칙. 시작일이 없으면 계약 시작일(없으면 체결일, 그것도 없으면 fallback).
+ * 일시불은 startsOn이 결제일이라 결제일(dayOfMonth)·회차를 쓰지 않는다.
+ */
+export function draftToPayment(p: PaymentDraft, draft: Pick<ContractDraft, 'startDate' | 'contractDate'>, contractId: string, id: string, fallbackStart: string): ContractPayment {
+  const oneTime = p.frequency === 'one_time';
   return {
     id,
     contractId,
-    label: draft.paymentLabel?.trim() || (draft.paymentFrequency === 'one_time' ? '결제금' : '납부금'),
-    amount: draft.paymentAmount,
-    frequency: draft.paymentFrequency,
-    dayOfMonth: draft.paymentDay,
-    monthOfYear: null,
-    startsOn: draft.startDate ?? draft.contractDate ?? fallbackStart,
-    endsOn: null,
-    isVariable: draft.paymentVariable,
+    kind: p.kind,
+    label: p.label.trim() || PAYMENT_KIND_LABEL[p.kind],
+    amount: p.amount,
+    frequency: p.frequency,
+    dayOfMonth: oneTime ? null : p.dayOfMonth,
+    monthOfYear: oneTime ? null : p.monthOfYear,
+    startsOn: p.startsOn ?? draft.startDate ?? draft.contractDate ?? fallbackStart,
+    endsOn: oneTime ? null : p.endsOn,
+    installmentCount: oneTime ? null : p.installmentCount,
+    isVariable: p.isVariable,
   };
 }
 
-/** 저장된 계약 → 수정 폼 초기값. */
-export function recordToDraft(contract: Contract, payment: ContractPayment | undefined): ContractDraft {
+export function draftToPayments(draft: ContractDraft, contractId: string, newId: (i: number) => string, fallbackStart: string): ContractPayment[] {
+  return draft.payments.map((p, i) => draftToPayment(p, draft, contractId, newId(i), fallbackStart));
+}
+
+export function draftToDates(draft: ContractDraft, contractId: string, newId: (i: number) => string): ContractDate[] {
+  return draft.dates.map((d, i) => ({ id: newId(i), contractId, kind: d.kind, label: d.label.trim(), date: d.date }));
+}
+
+/** draft로 미리보기용 계약 레코드를 만든다 (일정 미리보기·테스트). */
+export function draftToRecord(draft: ContractDraft, id: string, fallbackStart: string): ContractRecord {
+  return {
+    contract: applyDraftToContract(blankContract(id, 'manual', ''), draft),
+    payments: draftToPayments(draft, id, (i) => `${id}-p${i}`, fallbackStart),
+    dates: draftToDates(draft, id, (i) => `${id}-d${i}`),
+    events: [],
+    documents: [],
+    aiChecks: [],
+  };
+}
+
+/**
+ * 저장된 계약 → 수정 폼 초기값.
+ * 결제 시작일이 계약 시작일과 같으면 비워 둔다 → "시작일을 따라감"으로 보여주고, 시작일을 고치면 결제도 함께 옮겨진다.
+ */
+export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payments' | 'dates'>): ContractDraft {
+  const { contract } = record;
   return {
     title: contract.title,
     category: contract.category,
+    contractType: contract.contractType,
+    details: contract.details,
     counterparty: contract.counterparty,
     contractDate: contract.contractDate,
     startDate: contract.startDate,
     endDate: contract.endDate,
     totalAmount: contract.totalAmount,
-    paymentLabel: payment?.label ?? null,
-    paymentAmount: payment?.amount ?? null,
-    paymentFrequency: payment?.frequency ?? null,
-    paymentDay: payment?.dayOfMonth ?? null,
-    paymentVariable: payment?.isVariable ?? false,
+    depositAmount: contract.depositAmount,
     autoRenewal: contract.autoRenewal,
     renewalPeriodMonths: contract.renewalPeriodMonths,
     terminationNoticeDays: contract.terminationNoticeDays,
-    depositAmount: contract.depositAmount,
     earlyTerminationTerms: contract.earlyTerminationTerms,
     penaltyTerms: contract.penaltyTerms,
     memo: contract.memo,
+    payments: record.payments.map(
+      (p): PaymentDraft => ({
+        kind: p.kind,
+        label: p.label,
+        amount: p.amount,
+        frequency: p.frequency,
+        dayOfMonth: p.dayOfMonth,
+        monthOfYear: p.monthOfYear,
+        startsOn: p.startsOn === contract.startDate ? null : p.startsOn,
+        endsOn: p.endsOn,
+        installmentCount: p.installmentCount,
+        isVariable: p.isVariable,
+      }),
+    ),
+    dates: record.dates.map((d): DateDraft => ({ kind: d.kind, label: d.label, date: d.date })),
   };
 }

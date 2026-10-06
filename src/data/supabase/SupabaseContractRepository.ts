@@ -1,6 +1,8 @@
+import { detailsFromDb, detailsToDb } from '@/domain/contractTypes';
 import type {
   AiCheck,
   Contract,
+  ContractDate,
   ContractDocument,
   ContractEvent,
   ContractLifecycle,
@@ -17,13 +19,14 @@ import type { PactoSupabase } from './client';
 type Row<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 type ContractRow = Row<'contracts'> & {
   contract_payments: Row<'contract_payments'>[];
+  contract_dates: Row<'contract_dates'>[];
   contract_events: Row<'contract_events'>[];
   contract_documents: Row<'contract_documents'>[];
 };
 
 export const CONTRACT_BUCKET = 'contract-files';
 
-const SELECT = '*, contract_payments(*), contract_events(*), contract_documents(*)';
+const SELECT = '*, contract_payments(*), contract_dates(*), contract_events(*), contract_documents(*)';
 
 /** 오류 원문(내부 정보)을 그대로 노출하지 않는 저장소 오류 */
 export class RepositoryError extends Error {
@@ -45,6 +48,7 @@ function toPayment(r: Row<'contract_payments'>): ContractPayment {
   return {
     id: r.id,
     contractId: r.contract_id,
+    kind: r.kind,
     label: r.label,
     amount: r.amount,
     frequency: r.frequency,
@@ -52,8 +56,13 @@ function toPayment(r: Row<'contract_payments'>): ContractPayment {
     monthOfYear: r.month_of_year,
     startsOn: r.starts_on,
     endsOn: r.ends_on,
+    installmentCount: r.installment_count,
     isVariable: r.is_variable,
   };
+}
+
+function toDate(r: Row<'contract_dates'>): ContractDate {
+  return { id: r.id, contractId: r.contract_id, kind: r.kind, label: r.label, date: r.date };
 }
 
 function toEvent(r: Row<'contract_events'>): ContractEvent {
@@ -88,6 +97,8 @@ function toContract(r: Row<'contracts'>): Contract {
     id: r.id,
     title: r.title,
     category: r.category,
+    contractType: r.contract_type,
+    details: detailsFromDb(r.contract_type, r.contract_details),
     counterparty: r.counterparty,
     lifecycle: r.lifecycle,
     lifecycleChangedOn: r.lifecycle_changed_on,
@@ -115,6 +126,7 @@ function toRecord(r: ContractRow): ContractRecord {
   return {
     contract,
     payments: [...r.contract_payments].sort((a, b) => a.sort_order - b.sort_order).map(toPayment),
+    dates: [...r.contract_dates].sort((a, b) => a.date.localeCompare(b.date) || a.sort_order - b.sort_order).map(toDate),
     events: [...r.contract_events].sort((a, b) => a.event_date.localeCompare(b.event_date)).map(toEvent),
     documents: [...r.contract_documents].sort((a, b) => a.sort_order - b.sort_order).map(toDocument),
     aiChecks: (Array.isArray(r.ai_checks) ? (r.ai_checks as unknown as AiCheck[]) : []).map((c) => ({ ...c, contractId: r.id })),
@@ -126,6 +138,8 @@ function contractPayload(d: ContractDraft, extra: Record<string, unknown> = {}):
   return {
     title: d.title.trim(),
     category: d.category,
+    contract_type: d.contractType,
+    contract_details: detailsToDb(d.contractType, d.details),
     counterparty: d.counterparty,
     contract_date: d.contractDate,
     start_date: d.startDate,
@@ -142,19 +156,26 @@ function contractPayload(d: ContractDraft, extra: Record<string, unknown> = {}):
   } as Json;
 }
 
-function paymentPayload(d: ContractDraft, today: ISODate): Json | null {
-  const p = draftToPayment(d, '', '', today);
-  if (!p) return null;
-  return {
-    label: p.label,
-    amount: p.amount,
-    frequency: p.frequency,
-    day_of_month: p.dayOfMonth,
-    month_of_year: p.monthOfYear,
-    starts_on: p.startsOn,
-    ends_on: p.endsOn,
-    is_variable: p.isVariable,
-  };
+function paymentsPayload(d: ContractDraft, today: ISODate): Json {
+  return d.payments.map((p) => {
+    const r = draftToPayment(p, d, '', '', today);
+    return {
+      kind: r.kind,
+      label: r.label,
+      amount: r.amount,
+      frequency: r.frequency,
+      day_of_month: r.dayOfMonth,
+      month_of_year: r.monthOfYear,
+      starts_on: r.startsOn,
+      ends_on: r.endsOn,
+      installment_count: r.installmentCount,
+      is_variable: r.isVariable,
+    };
+  });
+}
+
+function datesPayload(d: ContractDraft): Json {
+  return d.dates.map((x) => ({ kind: x.kind, label: x.label.trim(), date: x.date }));
 }
 
 function newCheckId(): string {
@@ -192,7 +213,8 @@ export class SupabaseContractRepository implements ContractRepository {
     const id = check(
       await this.sb.rpc('save_contract', {
         p_contract: contractPayload(input.draft, { source: input.source, analysis_job_id: input.analysisJobId ?? null }),
-        p_payment: paymentPayload(input.draft, this.today()) ?? undefined,
+        p_payments: paymentsPayload(input.draft, this.today()),
+        p_dates: datesPayload(input.draft),
         p_document_ids: input.documents.map((d) => d.id).filter((x): x is string => !!x),
         p_ai_checks: checks as unknown as Json,
       }),
@@ -205,7 +227,8 @@ export class SupabaseContractRepository implements ContractRepository {
     check(
       await this.sb.rpc('save_contract', {
         p_contract: contractPayload(draft),
-        p_payment: paymentPayload(draft, this.today()) ?? undefined,
+        p_payments: paymentsPayload(draft, this.today()),
+        p_dates: datesPayload(draft),
         p_contract_id: id,
       }),
     );

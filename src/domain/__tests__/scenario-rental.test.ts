@@ -2,7 +2,7 @@
  * 기준 시나리오: 공기청정기 렌탈
  * 체결 2026-10-05 / 시작 2026-10-12 / 종료 2029-10-11 / 매월 12일 29,900원 / 자동갱신 12개월 / 해지 통보 종료 30일 전
  */
-import { applyDraftToContract, blankContract, draftToPayment, EMPTY_DRAFT } from '@/data/draft';
+import { draftToRecord, EMPTY_DRAFT } from '@/data/draft';
 import { contractFormSchema, draftToForm, formToDraft } from '@/features/contracts/form';
 
 import { normalizeDateInput } from '../dates';
@@ -13,26 +13,24 @@ import type { ContractPayment, ContractRecord } from '../types';
 
 const TODAY = '2026-10-06';
 
-/** 사용자가 날짜를 '-' 없이 입력한 그대로 폼 → 저장 데이터로 */
+/** 사용자가 날짜를 '-' 없이 입력한 그대로 폼 → 저장 데이터로 (월 납입형, 결제 1건) */
 function rentalRecord(overrides: Partial<Record<string, string>> = {}): ContractRecord {
+  const { paymentDay = '12', ...rest } = overrides;
   const form = {
-    ...draftToForm({ ...EMPTY_DRAFT, title: '공기청정기 렌탈', category: 'rental' }),
+    ...draftToForm({ ...EMPTY_DRAFT, title: '공기청정기 렌탈', category: 'rental', contractType: 'recurring' }),
     contractDate: '261005',
     startDate: '261012',
     endDate: '20291011',
-    paymentLabel: '월 렌탈료',
-    paymentAmount: '29,900',
-    paymentFrequency: 'monthly' as const,
-    paymentDay: '12',
+    payments: [
+      { kind: 'recurring_fee' as const, label: '월 렌탈료', amount: '29,900', frequency: 'monthly' as const, dayOfMonth: paymentDay, monthOfYear: '', startsOn: '', endsOn: '', installmentCount: '', isVariable: false },
+    ],
     autoRenewal: true,
     renewalPeriodMonths: '12',
     terminationNoticeDays: '30',
-    ...overrides,
+    ...rest,
   };
   const draft = formToDraft(contractFormSchema.parse(form));
-  const contract = applyDraftToContract(blankContract('c-rental', 'upload', ''), draft);
-  const payment = draftToPayment(draft, 'c-rental', 'p-rental', TODAY);
-  return { contract, payments: payment ? [payment] : [], events: [], documents: [], aiChecks: [] };
+  return draftToRecord(draft, 'c-rental', TODAY);
 }
 
 const at = (r: ContractRecord, date: string) =>
@@ -74,8 +72,8 @@ describe('공기청정기 렌탈 — 캘린더 이벤트 매핑', () => {
     expect(at(r, '2026-10-05')).toEqual([]);
   });
 
-  test('10/12: 계약 시작 + 월 렌탈료가 같은 날 함께 존재', () => {
-    expect(at(r, '2026-10-12').sort()).toEqual(['contract_start:계약 시작', 'payment:월 렌탈료:29900']);
+  test('10/12: 이용 시작 + 월 렌탈료가 같은 날 함께 존재', () => {
+    expect(at(r, '2026-10-12').sort()).toEqual(['contract_start:이용 시작', 'payment:월 렌탈료:29900']);
   });
 
   test('11/12, 12/12: 월 렌탈료만', () => {
@@ -83,9 +81,9 @@ describe('공기청정기 렌탈 — 캘린더 이벤트 매핑', () => {
     expect(at(r, '2026-12-12')).toEqual(['payment:월 렌탈료:29900']);
   });
 
-  test('2029-09-11 해지 통보기한, 2029-10-11 계약 만료(자동갱신 조건), 다음 날 자동갱신 예정', () => {
+  test('2029-09-11 해지 통보기한, 2029-10-11 이용 종료(자동갱신 조건), 다음 날 자동갱신 예정', () => {
     expect(at(r, '2029-09-11')).toEqual(['termination_notice:해지 통보기한']);
-    expect(at(r, '2029-10-11')).toEqual(['contract_end:계약 만료 (자동갱신 조건)']);
+    expect(at(r, '2029-10-11')).toEqual(['contract_end:이용 종료 (자동갱신 조건)']);
     expect(at(r, '2029-10-12')).toContain('renewal:자동갱신 예정');
   });
 
@@ -102,16 +100,16 @@ describe('공기청정기 렌탈 — 캘린더 이벤트 매핑', () => {
 });
 
 describe('수정 시 일정 재계산 (시스템 일정은 저장하지 않고 계약 정보에서 계산)', () => {
-  test('시작일 변경 → 계약 시작 이벤트가 새 날짜로', () => {
+  test('시작일 변경 → 이용 시작 이벤트가 새 날짜로', () => {
     const r = rentalRecord({ startDate: '261015' });
     expect(at(r, '2026-10-12')).toEqual([]); // 시작 전이라 결제도 없음
-    expect(at(r, '2026-10-15')).toEqual(['contract_start:계약 시작']);
+    expect(at(r, '2026-10-15')).toEqual(['contract_start:이용 시작']);
     expect(at(r, '2026-11-12')).toEqual(['payment:월 렌탈료:29900']);
   });
 
   test('결제일 변경 → 결제 일정 재계산', () => {
     const r = rentalRecord({ paymentDay: '25' });
-    expect(at(r, '2026-10-12')).toEqual(['contract_start:계약 시작']);
+    expect(at(r, '2026-10-12')).toEqual(['contract_start:이용 시작']);
     expect(at(r, '2026-10-25')).toEqual(['payment:월 렌탈료:29900']);
   });
 
@@ -121,7 +119,7 @@ describe('수정 시 일정 재계산 (시스템 일정은 저장하지 않고 �
     expect(at(r, '2027-08-12').sort()).toEqual(['payment:월 렌탈료:29900', 'termination_notice:해지 통보기한']);
     const noAuto = rentalRecord({ terminationNoticeDays: '' });
     noAuto.contract.autoRenewal = false;
-    expect(at(noAuto, '2029-10-11')).toEqual(['contract_end:계약 종료']);
+    expect(at(noAuto, '2029-10-11')).toEqual(['contract_end:이용 종료']);
     expect(scheduleForRange([noAuto], { start: '2029-09-01', end: '2029-12-31' }, TODAY).some((i) => i.type === 'renewal' || i.type === 'termination_notice')).toBe(false);
   });
 });

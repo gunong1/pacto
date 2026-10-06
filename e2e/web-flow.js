@@ -86,10 +86,10 @@ const log = (...a) => console.log('✔', ...a);
   await page.waitForSelector(tid('submit-contract'), { timeout: 15000 });
   await page.waitForTimeout(300);
   await shot('07-review', true);
-  const day = page.locator(`input${tid('field-paymentDay')}`);
+  const day = page.locator(`input${tid('payment-0-dayOfMonth')}`);
   await day.fill('12');
   await page.waitForTimeout(200);
-  log('6 확인 화면: 결제일 10 → 12 수정');
+  log('6 확인 화면: 유형=월 납입형, 결제 2건(렌탈료+설치비), 결제일 10 → 12 수정');
 
   // 7. 계약 저장
   await page.click(tid('submit-contract'));
@@ -109,7 +109,7 @@ const log = (...a) => console.log('✔', ...a);
   const after = await total();
   await shot('09-home-after');
   const n = (s) => Number((/₩([\d,]+)/.exec(s)?.[1] ?? s).replace(/[^\d]/g, ''));
-  if (n(after) - n(before) !== 29900) throw new Error(`지출 반영 실패 ${before} → ${after}`);
+  if (n(after) - n(before) !== 49900) throw new Error(`지출 반영 실패 ${before} → ${after}`);
   if (!(await page.locator(tid('home-recent')).innerText()).includes('공기청정기 렌탈')) throw new Error('최근 등록 미반영');
   log('8 홈 반영: 지출', before, '→', after, '/ 최근 등록에 표시');
   await page.click(tid('tab-contracts'));

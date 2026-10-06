@@ -1,6 +1,6 @@
 import type { AiCheck, ContractRecord } from '@/domain/types';
 
-import { applyDraftToContract, blankContract, draftToPayment } from '../draft';
+import { applyDraftToContract, blankContract, draftToDates, draftToPayments } from '../draft';
 import type { ContractDraft, ContractRepository, CreateContractInput, NewEventInput } from '../repository';
 import { createMockRecords } from './mockContracts';
 
@@ -59,10 +59,10 @@ export class MockContractRepository implements ContractRepository {
     const id = newId('c');
     const now = new Date().toISOString();
     const contract = applyDraftToContract(blankContract(id, input.source, now), input.draft);
-    const payment = draftToPayment(input.draft, id, newId('p'), now.slice(0, 10));
     const record: ContractRecord = {
       contract,
-      payments: payment ? [payment] : [],
+      payments: draftToPayments(input.draft, id, () => newId('p'), now.slice(0, 10)),
+      dates: draftToDates(input.draft, id, () => newId('dt')),
       events: [],
       documents: input.documents.map((d) => ({ ...d, id: d.id ?? newId('d'), contractId: id })),
       aiChecks: input.aiChecks.map((c) => ({ ...c, id: newId('ai'), contractId: id })),
@@ -75,9 +75,9 @@ export class MockContractRepository implements ContractRepository {
     await this.delay();
     const r = this.find(id);
     r.contract = applyDraftToContract(r.contract, draft);
-    const [primary, ...rest] = r.payments;
-    const payment = draftToPayment(draft, id, primary?.id ?? newId('p'), r.contract.createdAt.slice(0, 10));
-    r.payments = payment ? [{ ...payment, monthOfYear: primary?.frequency === payment.frequency ? primary.monthOfYear : null }, ...rest] : rest;
+    // 결제·날짜 목록은 통째로 교체 (DB save_contract와 같은 의미)
+    r.payments = draftToPayments(draft, id, () => newId('p'), r.contract.createdAt.slice(0, 10));
+    r.dates = draftToDates(draft, id, () => newId('dt'));
     return this.touch(r);
   }
 

@@ -13,7 +13,7 @@ PACTO 저장소에는 DB 스키마·보안 정책·Edge Function이 모두 코�
 ```bash
 npx supabase login
 npx supabase link --project-ref <프로젝트 ref>     # 대시보드 URL의 project/<ref>
-npx supabase db push                               # 테이블, RLS, save_contract, private 버킷, Storage 정책
+npx supabase db push                               # 테이블, RLS, save_contract, private 버킷, Storage 정책, 계약 유형 구조(개정 3)
 npx supabase functions deploy delete-account       # 회원 탈퇴 (Storage 파일 + 계정 삭제)
 npx supabase functions deploy analyze-contract     # 계약서 자동 정리 (2-1 참고)
 ```

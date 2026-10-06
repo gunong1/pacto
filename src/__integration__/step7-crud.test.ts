@@ -1,4 +1,5 @@
 import { EMPTY_DRAFT } from '@/data/draft';
+import type { ContractDraft, PaymentDraft } from '@/data/repository';
 import { SupabaseContractRepository } from '@/data/supabase/SupabaseContractRepository';
 import { nextAction } from '@/domain/nextAction';
 import { monthSpending } from '@/domain/spending';
@@ -6,19 +7,18 @@ import { monthSpending } from '@/domain/spending';
 import { anonClient, newUser } from './helpers';
 
 const TODAY = '2026-10-05';
-const gymDraft = {
+const fee: PaymentDraft = { kind: 'recurring_fee', label: '월 회비', amount: 55_000, frequency: 'monthly', dayOfMonth: 5, monthOfYear: null, startsOn: null, endsOn: null, installmentCount: null, isVariable: false };
+const gymDraft: ContractDraft = {
   ...EMPTY_DRAFT,
   title: '헬스장',
-  category: 'membership' as const,
+  category: 'membership',
+  contractType: 'recurring',
   counterparty: '바디핏',
   startDate: '2026-01-01',
   endDate: '2026-12-31',
   autoRenewal: true,
   renewalPeriodMonths: 12,
-  paymentLabel: '월 회비',
-  paymentAmount: 55_000,
-  paymentFrequency: 'monthly' as const,
-  paymentDay: 5,
+  payments: [fee],
 };
 
 describe('Step 7 — 실제 계약 CRUD (SupabaseContractRepository)', () => {
@@ -45,11 +45,20 @@ describe('Step 7 — 실제 계약 CRUD (SupabaseContractRepository)', () => {
     expect(list.map((r) => r.contract.id)).toEqual([id]);
     expect(monthSpending(list, { year: 2026, month: 10 }).total).toBe(55_000);
 
-    // 수정: 결제 금액·결제일 변경
-    const updated = await repo.update(id, { ...gymDraft, paymentAmount: 60_000, paymentDay: 10, memo: '락커 포함' });
-    expect(updated.payments).toHaveLength(1);
-    expect(updated.payments[0]).toMatchObject({ amount: 60_000, dayOfMonth: 10 });
-    expect(updated.contract.memo).toBe('락커 포함');
+    // 수정: 결제 금액·결제일 변경 + 결제 추가(가입비) + 주요 날짜 + 유형별 정보
+    const updated = await repo.update(id, {
+      ...gymDraft,
+      memo: '락커 포함',
+      details: { commitmentMonths: 12 },
+      payments: [{ ...fee, amount: 60_000, dayOfMonth: 10 }, { ...fee, kind: 'setup_fee', label: '가입비', amount: 30_000, frequency: 'one_time', dayOfMonth: null, startsOn: '2026-10-20' }],
+      dates: [{ kind: 'other', label: '락커 배정', date: '2026-10-20' }],
+    });
+    expect(updated.payments).toHaveLength(2);
+    expect(updated.payments[0]).toMatchObject({ kind: 'recurring_fee', amount: 60_000, dayOfMonth: 10 });
+    expect(updated.payments[1]).toMatchObject({ kind: 'setup_fee', amount: 30_000, frequency: 'one_time', startsOn: '2026-10-20' });
+    expect(updated.dates).toEqual([expect.objectContaining({ kind: 'other', label: '락커 배정', date: '2026-10-20' })]);
+    expect(updated.contract).toMatchObject({ memo: '락커 포함', contractType: 'recurring', details: { commitmentMonths: 12 } });
+    expect(monthSpending([updated], { year: 2026, month: 10 }).total).toBe(90_000);
 
     // AI 제안 적용 → 해지 통보기한이 다음 행동으로
     const applied = await repo.applyAiSuggestion(id, created.aiChecks[0].id);
@@ -74,9 +83,10 @@ describe('Step 7 — 실제 계약 CRUD (SupabaseContractRepository)', () => {
     expect(r.contract).toMatchObject({ lifecycle: 'cancelled', lifecycleChangedOn: '2026-10-31' });
     expect(monthSpending([r], { year: 2026, month: 11 }).total).toBe(0);
 
-    // 결제 정보 비우면 결제 규칙 삭제
-    r = await repo.update(id, { ...gymDraft, paymentAmount: null, paymentFrequency: null });
+    // 결제·날짜를 모두 지우면 삭제
+    r = await repo.update(id, { ...gymDraft, payments: [], dates: [] });
     expect(r.payments).toHaveLength(0);
+    expect(r.dates).toHaveLength(0);
 
     await repo.remove(id);
     expect(await repo.get(id)).toBeNull();

@@ -41,12 +41,14 @@ async function signUp(page, email, password) {
   await page.click(tid('first-run-register'));
   await page.click(tid('method-manual'));
   await page.fill(`input${tid('field-title')}`, '헬스장');
+  await page.click(tid('type-recurring'));
   await page.click(tid('category-membership'));
   await page.fill(`input${tid('field-startDate')}`, '260101');
   await page.fill(`input${tid('field-endDate')}`, '20261231');
-  await page.click(tid('frequency-monthly'));
-  await page.fill(`input${tid('field-paymentAmount')}`, '55000');
-  await page.fill(`input${tid('field-paymentDay')}`, '5');
+  await page.click(tid('add-payment'));
+  await page.fill(`input${tid('payment-0-label')}`, '월 회비');
+  await page.fill(`input${tid('payment-0-amount')}`, '55000');
+  await page.fill(`input${tid('payment-0-dayOfMonth')}`, '5');
   await page.click(tid('field-autoRenewal'));
   await page.fill('input[aria-label="갱신 주기"]', '12');
   await page.fill(`input${tid('field-terminationNoticeDays')}`, '30');
@@ -74,7 +76,7 @@ async function signUp(page, email, password) {
 
   // 수정
   await page.click(tid('edit-contract'));
-  await page.fill(`input${tid('field-paymentAmount')}`, '60000');
+  await page.fill(`input${tid('payment-0-amount')}`, '60000');
   await page.click(tid('submit-contract'));
   await page.locator(`${tid('contract-detail')} >> text=60,000원`).first().waitFor({ timeout: 15000 });
   log('계약 수정 → 60,000원');

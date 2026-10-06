@@ -1,3 +1,4 @@
+import { defaultTypeForCategory } from '@/domain/contractTypes';
 import type { Contract, ContractPayment, ContractRecord } from '@/domain/types';
 
 /**
@@ -9,6 +10,8 @@ const NOW = '2026-09-01T00:00:00.000Z';
 
 function contract(partial: Partial<Contract> & Pick<Contract, 'id' | 'title' | 'category'>): Contract {
   return {
+    contractType: defaultTypeForCategory(partial.category),
+    details: {},
     counterparty: null,
     lifecycle: 'active',
     lifecycleChangedOn: null,
@@ -33,7 +36,7 @@ function contract(partial: Partial<Contract> & Pick<Contract, 'id' | 'title' | '
 }
 
 function payment(partial: Partial<ContractPayment> & Pick<ContractPayment, 'id' | 'contractId' | 'amount' | 'frequency' | 'startsOn'>): ContractPayment {
-  return { label: '납부금', dayOfMonth: null, monthOfYear: null, endsOn: null, isVariable: false, ...partial };
+  return { kind: 'recurring_fee', label: '납부금', dayOfMonth: null, monthOfYear: null, endsOn: null, installmentCount: null, isVariable: false, ...partial };
 }
 
 export function createMockRecords(): ContractRecord[] {
@@ -50,8 +53,9 @@ export function createMockRecords(): ContractRecord[] {
         totalAmount: 1_368_000,
         createdAt: '2026-01-02T00:00:00.000Z',
       }),
+      dates: [],
       payments: [
-        payment({ id: 'p-car-insurance', contractId: 'c-car-insurance', label: '연간 보험료', amount: 1_368_000, frequency: 'yearly', dayOfMonth: 1, monthOfYear: 1, startsOn: '2026-01-01' }),
+        payment({ id: 'p-car-insurance', contractId: 'c-car-insurance', kind: 'premium', label: '연간 보험료', amount: 1_368_000, frequency: 'yearly', dayOfMonth: 1, monthOfYear: 1, startsOn: '2026-01-01' }),
       ],
       events: [],
       documents: [{ id: 'd-car-insurance', contractId: 'c-car-insurance', fileName: '자동차보험_증권.pdf', mimeType: 'application/pdf', sizeBytes: 482_113, storagePath: null, localUri: null, pageCount: 6 }],
@@ -70,6 +74,7 @@ export function createMockRecords(): ContractRecord[] {
         penaltyTerms: '잔여 렌탈료의 10% 및 설치비',
         createdAt: '2026-09-21T00:00:00.000Z',
       }),
+      dates: [],
       payments: [
         payment({ id: 'p-water-purifier', contractId: 'c-water-purifier', label: '월 렌탈료', amount: 39_900, frequency: 'monthly', dayOfMonth: 25, startsOn: '2026-10-01' }),
       ],
@@ -102,6 +107,7 @@ export function createMockRecords(): ContractRecord[] {
         renewalPeriodMonths: 12,
         createdAt: '2026-08-10T00:00:00.000Z',
       }),
+      dates: [],
       payments: [
         payment({ id: 'p-internet', contractId: 'c-internet', label: '월 이용료', amount: 38_500, frequency: 'monthly', dayOfMonth: 15, startsOn: '2024-07-01', isVariable: true }),
       ],
@@ -122,6 +128,7 @@ export function createMockRecords(): ContractRecord[] {
         terminationNoticeDays: 30,
         createdAt: '2026-01-03T00:00:00.000Z',
       }),
+      dates: [],
       payments: [
         payment({ id: 'p-gym', contractId: 'c-gym', label: '월 회비', amount: 55_000, frequency: 'monthly', dayOfMonth: 5, startsOn: '2026-01-01' }),
       ],
@@ -147,14 +154,16 @@ export function createMockRecords(): ContractRecord[] {
         id: 'c-car-loan',
         title: '자동차 할부',
         category: 'vehicle',
+        contractType: 'auto_installment',
         counterparty: '현대캐피탈',
         startDate: '2024-05-01',
         endDate: '2029-04-30',
         totalAmount: 40_980_000,
         createdAt: '2026-07-01T00:00:00.000Z',
       }),
+      dates: [],
       payments: [
-        payment({ id: 'p-car-loan', contractId: 'c-car-loan', label: '할부금', amount: 683_000, frequency: 'monthly', dayOfMonth: 10, startsOn: '2024-05-01' }),
+        payment({ id: 'p-car-loan', contractId: 'c-car-loan', kind: 'installment', label: '할부금', amount: 683_000, frequency: 'monthly', dayOfMonth: 10, startsOn: '2024-05-01' }),
       ],
       events: [],
       documents: [],
@@ -170,6 +179,7 @@ export function createMockRecords(): ContractRecord[] {
         endDate: '2027-02-28',
         createdAt: '2026-06-01T00:00:00.000Z',
       }),
+      dates: [],
       payments: [
         payment({ id: 'p-mobile', contractId: 'c-mobile', label: '월 요금', amount: 79_000, frequency: 'monthly', dayOfMonth: 20, startsOn: '2025-03-01', isVariable: true }),
       ],
@@ -189,6 +199,7 @@ export function createMockRecords(): ContractRecord[] {
         depositAmount: 300_000_000,
         createdAt: '2026-05-01T00:00:00.000Z',
       }),
+      dates: [],
       payments: [],
       events: [
         { id: 'e-jeonse-check', contractId: 'c-jeonse', eventType: 'custom', title: '집주인에게 재계약 여부 확인', eventDate: '2026-10-30', amount: null, source: 'user', notificationEnabled: true, completedAt: null },
@@ -206,6 +217,7 @@ export function createMockRecords(): ContractRecord[] {
         source: 'manual',
         createdAt: '2026-04-01T00:00:00.000Z',
       }),
+      dates: [],
       payments: [
         payment({ id: 'p-ott', contractId: 'c-ott', label: '월 구독료', amount: 17_000, frequency: 'monthly', dayOfMonth: 12, startsOn: '2023-02-12' }),
       ],

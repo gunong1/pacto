@@ -1,3 +1,4 @@
+import { countsAsSpending } from './contractTypes';
 import { monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from './dates';
 import { expandPayment, type PaymentOccurrence } from './schedule';
 import type { ContractCategory, ContractPayment, ContractRecord, ISODate } from './types';
@@ -19,11 +20,14 @@ export interface MonthSpending {
   byCategory: CategorySpending[];
   items: SpendingItem[];
   hasEstimated: boolean;
+  /** 이번 달 오가는 보증금(지출 합계 제외) */
+  depositTotal: number;
 }
 
+/** 기간 내 지출 결제 (보증금처럼 돌려받는 돈은 제외 — contractTypes.NON_SPENDING_PAYMENT_KINDS) */
 function occurrencesIn(records: ContractRecord[], start: ISODate, end: ISODate): SpendingItem[] {
   return records.flatMap(({ contract, payments }) =>
-    payments.flatMap((p) =>
+    payments.filter((p) => countsAsSpending(p.kind)).flatMap((p) =>
       expandPayment(p, contract, { start, end }).map((o) => ({
         ...o,
         contractTitle: contract.title,
@@ -47,6 +51,9 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth): MonthSp
       .sort((a, b) => b.amount - a.amount),
     items,
     hasEstimated: items.some((i) => i.estimated),
+    depositTotal: records
+      .flatMap(({ contract, payments }) => payments.filter((p) => !countsAsSpending(p.kind)).flatMap((p) => expandPayment(p, contract, { start, end })))
+      .reduce((sum, o) => sum + o.amount, 0),
   };
 }
 
@@ -72,8 +79,9 @@ const MONTHS_PER_PAYMENT: Record<ContractPayment['frequency'], number | null> = 
   one_time: null,
 };
 
-/** 결제 규칙의 월 환산액 (연납 1,368,000 → 114,000). 일시불은 0. */
+/** 결제 규칙의 월 환산액 (연납 1,368,000 → 114,000). 일시불·보증금은 0. 실제 월 지출과 섞지 않는 보조 지표. */
 export function paymentMonthlyEquivalent(payment: ContractPayment): number {
+  if (!countsAsSpending(payment.kind)) return 0;
   const months = MONTHS_PER_PAYMENT[payment.frequency];
   return months ? Math.round(payment.amount / months) : 0;
 }

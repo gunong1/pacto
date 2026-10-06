@@ -20,15 +20,16 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
     const result = await ai.extractContract({ files: [{ name: 'a.pdf', uri: 'file://a.pdf', mimeType: 'application/pdf', size: 1 }], documentIds: [], today: TODAY });
     for (const c of result.checks) expect(findBannedPhrases(c.description)).toEqual([]);
 
-    // 2) 확인 화면: 폼으로 변환 후 사용자가 결제일 수정
+    // 2) 확인 화면: 폼으로 변환 후 사용자가 결제일 수정 (설치비는 날짜가 없어 시작일 + 확인 필요)
     const model = toReviewModel(result);
-    expect([...model.flagged].sort()).toEqual(['contractDate', 'paymentDay', 'totalAmount']);
+    expect([...model.flagged].sort()).toEqual(['endDate', 'payments.0.amount', 'payments.1.startsOn'].sort());
+    expect(model.draft.contractDate).toBe('2026-10-04');
     const form = draftToForm(model.draft);
-    form.paymentDay = '12';
+    form.payments[0].dayOfMonth = '12';
     const parsed = contractFormSchema.parse(form);
     const draft = formToDraft(parsed);
-    expect(draft.paymentAmount).toBe(29_900);
-    expect(draft.paymentDay).toBe(12);
+    expect(draft.payments.map((p) => [p.kind, p.amount, p.dayOfMonth])).toEqual([['recurring_fee', 29_900, 12], ['setup_fee', 20_000, null]]);
+    expect(draft.details).toEqual({ commitmentMonths: 36 });
 
     // 3) 저장
     const before = await repo.list();
@@ -42,25 +43,31 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
     expect(after).toHaveLength(before.length + 1);
     expect(after[0].contract.id).toBe(saved.contract.id); // 최근 등록 맨 앞
 
-    // 4) 캘린더 반영: 10/12 결제는 시작일(10/10) 이후라 포함
-    const oct = scheduleForRange(after, { start: '2026-10-01', end: '2026-10-31' }, TODAY);
-    expect(oct.some((i) => i.contractId === saved.contract.id && i.type === 'payment' && i.date === '2026-10-12')).toBe(true);
-    expect(oct.some((i) => i.contractId === saved.contract.id && i.type === 'contract_start' && i.date === '2026-10-10')).toBe(true);
+    // 4) 캘린더 반영: 10/10 이용 시작 + 설치비, 10/12 렌탈료, 체결일(10/4)은 표시하지 않음
+    const oct = scheduleForRange(after, { start: '2026-10-01', end: '2026-10-31' }, TODAY).filter((i) => i.contractId === saved.contract.id);
+    expect(oct.map((i) => `${i.date} ${i.title}`)).toEqual(['2026-10-10 이용 시작', '2026-10-10 초기 설치비', '2026-10-12 월 렌탈료']);
 
-    // 5) 월 지출 반영
+    // 5) 월 지출 반영 (렌탈료 + 설치비)
     const diff = monthSpending(after, { year: 2026, month: 10 }).total - monthSpending(before, { year: 2026, month: 10 }).total;
-    expect(diff).toBe(29_900);
+    expect(diff).toBe(49_900);
   });
 
   test('직접 입력: 결제 없음 + 검증 오류', () => {
     const v = draftToForm({ ...EMPTY_DRAFT, title: '' });
     expect(contractFormSchema.safeParse(v).success).toBe(false);
     const ok = contractFormSchema.parse({ ...v, title: '주차장 임대' });
-    expect(formToDraft(ok).paymentAmount).toBeNull();
+    expect(formToDraft(ok).payments).toEqual([]);
     const bad = contractFormSchema.safeParse({ ...ok, startDate: '2026-05-01', endDate: '2026-04-01' });
     expect(bad.success).toBe(false);
-    const noFreq = contractFormSchema.safeParse({ ...ok, paymentAmount: '10,000' });
-    expect(noFreq.success).toBe(false);
+    // 결제 금액이 없으면 오류, 일시불은 결제일(또는 시작일) 필요
+    const pay = { kind: 'setup_fee' as const, label: '설치비', amount: '', frequency: 'one_time' as const, dayOfMonth: '', monthOfYear: '', startsOn: '', endsOn: '', installmentCount: '', isVariable: false };
+    expect(contractFormSchema.safeParse({ ...ok, payments: [pay] }).success).toBe(false);
+    expect(contractFormSchema.safeParse({ ...ok, payments: [{ ...pay, amount: '20,000' }] }).success).toBe(false);
+    expect(contractFormSchema.safeParse({ ...ok, startDate: '2026-11-01', payments: [{ ...pay, amount: '20,000' }] }).success).toBe(true);
+    // 유형별 정보 형식 검증 (대출 금리)
+    const loan = { ...ok, contractType: 'loan' as const, details: { interestRate: '4.5%' } };
+    expect(formToDraft(contractFormSchema.parse(loan)).details).toEqual({ interestRate: 4.5 });
+    expect(contractFormSchema.safeParse({ ...loan, details: { interestRate: '연 4.5' } }).success).toBe(false);
   });
 
   test('수정/상태 변경/AI 제안 적용/일정 추가', async () => {
@@ -75,7 +82,7 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
 
     // AI 제안(해지 통보기한) → 계약 정보 반영 → 처리할 계약에 등장
     const created = await repo.create({
-      draft: { ...EMPTY_DRAFT, title: '테스트 회원권', category: 'membership', startDate: '2025-11-01', endDate: '2026-10-31' },
+      draft: { ...EMPTY_DRAFT, title: '테스트 회원권', category: 'membership', contractType: 'recurring', startDate: '2025-11-01', endDate: '2026-10-31' },
       source: 'manual',
       documents: [],
       aiChecks: [

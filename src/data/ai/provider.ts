@@ -1,6 +1,6 @@
-import type { AiCheck, Confidence } from '@/domain/types';
+import type { AiCheck } from '@/domain/types';
 
-import type { ContractDraft } from '../repository';
+import type { AppExtractionResult } from '../../../supabase/functions/_shared/extraction';
 
 /**
  * AI 서비스 추상화 (ARCHITECTURE.md §2.2).
@@ -25,24 +25,19 @@ export interface ExtractInput {
   today: string;
 }
 
-export interface Extracted<T> {
-  value: T | null;
-  confidence: Confidence;
-  evidence?: { page: number; quote: string }[];
-}
-
-export type ExtractedFields = { [K in keyof ContractDraft]?: Extracted<ContractDraft[K]> };
-
-export type ExtractedCheck = Omit<AiCheck, 'id' | 'contractId' | 'status'>;
-
-export interface ExtractionResult {
-  fields: ExtractedFields;
-  checks: ExtractedCheck[];
-  provider: string;
-  promptVersion: string;
+/**
+ * AI 추출 결과 (초안). 형식은 서버 Edge Function과 같은 정의를 쓴다 (supabase/functions/_shared/extraction.ts).
+ * 계약 유형 분류(신뢰도·대안) → 날짜·금액을 의미와 함께 나열 → 유형별 속성 → 확인할 조항.
+ * 계약 정보로 바꾸는 일은 features/registration/extraction.ts(toReviewModel)가 하고, 사용자가 확인한 뒤 저장한다.
+ */
+export type ExtractionResult = AppExtractionResult & {
   /** 서버 분석 작업 id (analysis_jobs) */
   jobId?: string;
-}
+};
+
+export type { ExtractedDate, ExtractedPayment } from '../../../supabase/functions/_shared/extraction';
+
+export type ExtractedCheck = Omit<AiCheck, 'id' | 'contractId' | 'status'>;
 
 /** AI 처리(외부 전송) 동의가 필요함 */
 export class AIConsentRequiredError extends Error {}

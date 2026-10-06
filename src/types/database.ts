@@ -24,6 +24,25 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"contract_dates": {
+                  Row: {
+                    "contract_id": string,"created_at": string,"date": string,"id": string,"kind": Database["public"]['Enums']["contract_date_kind"],"label": string,"sort_order": number,"user_id": string
+                  }
+                  Insert: {
+                    "contract_id": string,"created_at"?: string,"date": string,"id"?: string,"kind"?: Database["public"]['Enums']["contract_date_kind"],"label": string,"sort_order"?: number,"user_id"?: string
+                  }
+                  Update: {
+                    "contract_id"?: string,"created_at"?: string,"date"?: string,"id"?: string,"kind"?: Database["public"]['Enums']["contract_date_kind"],"label"?: string,"sort_order"?: number,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "contract_dates_contract_id_fkey"
+      columns: ["contract_id"]
+isOneToOne: false
+      referencedRelation: "contracts"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"contract_documents": {
                   Row: {
                     "analysis_job_id": string | null,"contract_id": string | null,"created_at": string,"id": string,"mime_type": string,"original_filename": string | null,"page_count": number | null,"size_bytes": number,"sort_order": number,"storage_path": string,"user_id": string
@@ -70,13 +89,13 @@ isOneToOne: false
                   ]
                 },"contract_payments": {
                   Row: {
-                    "amount": number,"contract_id": string,"created_at": string,"currency": string,"day_of_month": number | null,"ends_on": string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id": string,"is_variable": boolean,"label": string,"month_of_year": number | null,"sort_order": number,"starts_on": string,"updated_at": string,"user_id": string
+                    "amount": number,"contract_id": string,"created_at": string,"currency": string,"day_of_month": number | null,"ends_on": string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id": string,"installment_count": number | null,"is_variable": boolean,"kind": Database["public"]['Enums']["payment_kind"],"label": string,"month_of_year": number | null,"sort_order": number,"starts_on": string,"updated_at": string,"user_id": string
                   }
                   Insert: {
-                    "amount": number,"contract_id": string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"ends_on"?: string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id"?: string,"is_variable"?: boolean,"label"?: string,"month_of_year"?: number | null,"sort_order"?: number,"starts_on": string,"updated_at"?: string,"user_id"?: string
+                    "amount": number,"contract_id": string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"ends_on"?: string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: Database["public"]['Enums']["payment_kind"],"label"?: string,"month_of_year"?: number | null,"sort_order"?: number,"starts_on": string,"updated_at"?: string,"user_id"?: string
                   }
                   Update: {
-                    "amount"?: number,"contract_id"?: string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"ends_on"?: string | null,"frequency"?: Database["public"]['Enums']["payment_frequency"],"id"?: string,"is_variable"?: boolean,"label"?: string,"month_of_year"?: number | null,"sort_order"?: number,"starts_on"?: string,"updated_at"?: string,"user_id"?: string
+                    "amount"?: number,"contract_id"?: string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"ends_on"?: string | null,"frequency"?: Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: Database["public"]['Enums']["payment_kind"],"label"?: string,"month_of_year"?: number | null,"sort_order"?: number,"starts_on"?: string,"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -89,13 +108,13 @@ isOneToOne: false
                   ]
                 },"contracts": {
                   Row: {
-                    "ai_checks": NonNullable<Json>,"analysis_job_id": string | null,"auto_renewal": boolean,"category": Database["public"]['Enums']["contract_category"],"contract_date": string | null,"counterparty": string | null,"created_at": string,"currency": string,"deposit_amount": number | null,"early_termination_terms": string | null,"end_date": string | null,"id": string,"lifecycle": Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on": string | null,"memo": string | null,"notifications_enabled": boolean,"penalty_terms": string | null,"renewal_period_months": number | null,"source": Database["public"]['Enums']["contract_source"],"start_date": string | null,"termination_notice_days": number | null,"title": string,"total_amount": number | null,"updated_at": string,"user_id": string
+                    "ai_checks": NonNullable<Json>,"analysis_job_id": string | null,"auto_renewal": boolean,"category": Database["public"]['Enums']["contract_category"],"contract_date": string | null,"contract_details": NonNullable<Json>,"contract_type": Database["public"]['Enums']["contract_type"],"counterparty": string | null,"created_at": string,"currency": string,"deposit_amount": number | null,"early_termination_terms": string | null,"end_date": string | null,"id": string,"lifecycle": Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on": string | null,"memo": string | null,"notifications_enabled": boolean,"penalty_terms": string | null,"renewal_period_months": number | null,"source": Database["public"]['Enums']["contract_source"],"start_date": string | null,"termination_notice_days": number | null,"title": string,"total_amount": number | null,"updated_at": string,"user_id": string
                   }
                   Insert: {
-                    "ai_checks"?: NonNullable<Json>,"analysis_job_id"?: string | null,"auto_renewal"?: boolean,"category"?: Database["public"]['Enums']["contract_category"],"contract_date"?: string | null,"counterparty"?: string | null,"created_at"?: string,"currency"?: string,"deposit_amount"?: number | null,"early_termination_terms"?: string | null,"end_date"?: string | null,"id"?: string,"lifecycle"?: Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on"?: string | null,"memo"?: string | null,"notifications_enabled"?: boolean,"penalty_terms"?: string | null,"renewal_period_months"?: number | null,"source"?: Database["public"]['Enums']["contract_source"],"start_date"?: string | null,"termination_notice_days"?: number | null,"title": string,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string
+                    "ai_checks"?: NonNullable<Json>,"analysis_job_id"?: string | null,"auto_renewal"?: boolean,"category"?: Database["public"]['Enums']["contract_category"],"contract_date"?: string | null,"contract_details"?: NonNullable<Json>,"contract_type"?: Database["public"]['Enums']["contract_type"],"counterparty"?: string | null,"created_at"?: string,"currency"?: string,"deposit_amount"?: number | null,"early_termination_terms"?: string | null,"end_date"?: string | null,"id"?: string,"lifecycle"?: Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on"?: string | null,"memo"?: string | null,"notifications_enabled"?: boolean,"penalty_terms"?: string | null,"renewal_period_months"?: number | null,"source"?: Database["public"]['Enums']["contract_source"],"start_date"?: string | null,"termination_notice_days"?: number | null,"title": string,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string
                   }
                   Update: {
-                    "ai_checks"?: NonNullable<Json>,"analysis_job_id"?: string | null,"auto_renewal"?: boolean,"category"?: Database["public"]['Enums']["contract_category"],"contract_date"?: string | null,"counterparty"?: string | null,"created_at"?: string,"currency"?: string,"deposit_amount"?: number | null,"early_termination_terms"?: string | null,"end_date"?: string | null,"id"?: string,"lifecycle"?: Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on"?: string | null,"memo"?: string | null,"notifications_enabled"?: boolean,"penalty_terms"?: string | null,"renewal_period_months"?: number | null,"source"?: Database["public"]['Enums']["contract_source"],"start_date"?: string | null,"termination_notice_days"?: number | null,"title"?: string,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string
+                    "ai_checks"?: NonNullable<Json>,"analysis_job_id"?: string | null,"auto_renewal"?: boolean,"category"?: Database["public"]['Enums']["contract_category"],"contract_date"?: string | null,"contract_details"?: NonNullable<Json>,"contract_type"?: Database["public"]['Enums']["contract_type"],"counterparty"?: string | null,"created_at"?: string,"currency"?: string,"deposit_amount"?: number | null,"early_termination_terms"?: string | null,"end_date"?: string | null,"id"?: string,"lifecycle"?: Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on"?: string | null,"memo"?: string | null,"notifications_enabled"?: boolean,"penalty_terms"?: string | null,"renewal_period_months"?: number | null,"source"?: Database["public"]['Enums']["contract_source"],"start_date"?: string | null,"termination_notice_days"?: number | null,"title"?: string,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -125,15 +144,23 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "owns_contract":
+            "contract_detail_spec":
+{ Args: { "t": Database["public"]['Enums']["contract_type"] }; Returns: {
+              "key": string,"options": (string)[],"value_type": string
+            }[]
+                           },
+"owns_contract":
 { Args: { "cid": string }; Returns: boolean
                            },
 "save_contract":
-{ Args: { "p_ai_checks"?: Json,"p_contract": Json,"p_contract_id"?: string,"p_document_ids"?: (string)[],"p_payment"?: Json }; Returns: string
+{ Args: { "p_ai_checks"?: Json,"p_contract": Json,"p_contract_id"?: string,"p_dates"?: Json,"p_document_ids"?: (string)[],"p_payments"?: Json }; Returns: string
+                           },
+"valid_contract_details":
+{ Args: { "d": Json,"t": Database["public"]['Enums']["contract_type"] }; Returns: boolean
                            }
           }
           Enums: {
-            "contract_category": "real_estate"|"vehicle"|"insurance"|"telecom"|"rental"|"finance"|"employment"|"business"|"membership"|"subscription"|"other","contract_event_type": "payment"|"contract_start"|"contract_end"|"renewal"|"termination_notice"|"custom","contract_lifecycle": "active"|"ended"|"cancelled","contract_source": "upload"|"manual","event_source": "system"|"ai"|"user","job_status": "queued"|"processing"|"succeeded"|"failed"|"expired","payment_frequency": "one_time"|"monthly"|"bimonthly"|"quarterly"|"semiannual"|"yearly"
+            "contract_category": "real_estate"|"vehicle"|"insurance"|"telecom"|"rental"|"finance"|"employment"|"business"|"membership"|"subscription"|"other","contract_date_kind": "installation"|"activation"|"move_in"|"balance_due"|"renewal"|"other","contract_event_type": "payment"|"contract_start"|"contract_end"|"renewal"|"termination_notice"|"custom","contract_lifecycle": "active"|"ended"|"cancelled","contract_source": "upload"|"manual","contract_type": "recurring"|"lease"|"auto_installment"|"loan"|"insurance"|"one_time"|"other","event_source": "system"|"ai"|"user","job_status": "queued"|"processing"|"succeeded"|"failed"|"expired","payment_frequency": "one_time"|"monthly"|"bimonthly"|"quarterly"|"semiannual"|"yearly","payment_kind": "recurring_fee"|"setup_fee"|"rent"|"maintenance_fee"|"deposit"|"installment"|"advance_payment"|"loan_repayment"|"interest"|"premium"|"down_payment"|"interim_payment"|"balance_payment"|"other"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -249,7 +276,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "contract_category": ["real_estate", "vehicle", "insurance", "telecom", "rental", "finance", "employment", "business", "membership", "subscription", "other"],"contract_event_type": ["payment", "contract_start", "contract_end", "renewal", "termination_notice", "custom"],"contract_lifecycle": ["active", "ended", "cancelled"],"contract_source": ["upload", "manual"],"event_source": ["system", "ai", "user"],"job_status": ["queued", "processing", "succeeded", "failed", "expired"],"payment_frequency": ["one_time", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]
+            "contract_category": ["real_estate", "vehicle", "insurance", "telecom", "rental", "finance", "employment", "business", "membership", "subscription", "other"],"contract_date_kind": ["installation", "activation", "move_in", "balance_due", "renewal", "other"],"contract_event_type": ["payment", "contract_start", "contract_end", "renewal", "termination_notice", "custom"],"contract_lifecycle": ["active", "ended", "cancelled"],"contract_source": ["upload", "manual"],"contract_type": ["recurring", "lease", "auto_installment", "loan", "insurance", "one_time", "other"],"event_source": ["system", "ai", "user"],"job_status": ["queued", "processing", "succeeded", "failed", "expired"],"payment_frequency": ["one_time", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"],"payment_kind": ["recurring_fee", "setup_fee", "rent", "maintenance_fee", "deposit", "installment", "advance_payment", "loan_repayment", "interest", "premium", "down_payment", "interim_payment", "balance_payment", "other"]
           }
         }
 } as const

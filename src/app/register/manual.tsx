@@ -23,7 +23,7 @@ export default function ManualEntryScreen() {
         <View style={{ paddingHorizontal: spacing.gutter, paddingTop: spacing.lg }}>
           <AppText variant="title2">계약 정보를 입력해주세요</AppText>
           <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
-            계약명만 있어도 저장할 수 있어요. 종료일과 결제 정보를 넣으면 일정과 지출을 관리해 드려요.
+            먼저 계약 유형을 골라주세요. 유형에 맞게 입력 항목이 바뀌어요. 계약명만 있어도 저장할 수 있어요.
           </AppText>
         </View>
       }

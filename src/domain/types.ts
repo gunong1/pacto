@@ -4,6 +4,10 @@
  * 날짜는 시간대 없는 로컬 날짜 문자열 'YYYY-MM-DD' (Asia/Seoul 기준), 금액은 원 단위 정수.
  */
 
+import type { ContractDateKind, ContractDetails, ContractType, PaymentKind } from './contractTypes';
+
+export type { ContractDateKind, ContractDetails, ContractType, PaymentKind } from './contractTypes';
+
 export type ISODate = string;
 
 export const CONTRACT_CATEGORIES = [
@@ -45,6 +49,9 @@ export type ContractEventType =
   | 'termination_notice'
   | 'custom';
 
+/** 캘린더 항목 종류: 저장된 일정 종류 + 주요 날짜(contract_dates) + 종료 전 확인 시점 */
+export type ScheduleItemType = ContractEventType | 'key_date' | 'prepare';
+
 export type EventSource = 'system' | 'ai' | 'user';
 
 export type ReviewSeverity = 'info' | 'check' | 'caution';
@@ -55,9 +62,14 @@ export interface Contract {
   id: string;
   title: string;
   category: ContractCategory;
+  /** 돈과 날짜가 움직이는 방식 (일정·지출 로직 선택) */
+  contractType: ContractType;
+  /** 유형별 추가 속성 (contractTypes.ts DETAIL_FIELDS) */
+  details: ContractDetails;
   counterparty: string | null;
   lifecycle: ContractLifecycle;
   lifecycleChangedOn: ISODate | null;
+  /** 계약 체결일 — 선택값, 기록용 (캘린더·알림에 쓰지 않음) */
   contractDate: ISODate | null;
   startDate: ISODate | null;
   endDate: ISODate | null;
@@ -80,6 +92,7 @@ export interface Contract {
 export interface ContractPayment {
   id: string;
   contractId: string;
+  kind: PaymentKind;
   label: string;
   amount: number;
   frequency: PaymentFrequency;
@@ -90,7 +103,18 @@ export interface ContractPayment {
   startsOn: ISODate;
   /** null이면 계약 종료일(자동갱신이면 갱신 회차 포함)까지. */
   endsOn: ISODate | null;
+  /** 총 회차 (할부·대출). 있으면 마지막 회차 이후 결제는 없다. */
+  installmentCount: number | null;
   isVariable: boolean;
+}
+
+/** 계약 유형별 주요 날짜 (설치일·입주일·잔금일·갱신일 …). 시작·종료·체결일은 Contract 필드. */
+export interface ContractDate {
+  id: string;
+  contractId: string;
+  kind: ContractDateKind;
+  label: string;
+  date: ISODate;
 }
 
 /** 사용자가 직접 추가한 일정. 시작/종료/해지통보/갱신 일정은 계약 정보에서 계산한다. */
@@ -147,6 +171,7 @@ export type AiCheckSuggestion =
 export interface ContractRecord {
   contract: Contract;
   payments: ContractPayment[];
+  dates: ContractDate[];
   events: ContractEvent[];
   documents: ContractDocument[];
   aiChecks: AiCheck[];

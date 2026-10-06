@@ -4,8 +4,8 @@ import type { AIProvider, ExtractInput, ExtractionResult } from './provider';
 
 /**
  * 실제 LLM 없이 등록 흐름을 검증하기 위한 mock.
- * 어떤 파일을 넣어도 같은 "공기청정기 렌탈" 계약을 추출한 것처럼 응답한다.
- * 일부 필드는 신뢰도 low/값 없음으로 두어 "확인 필요" UI를 확인할 수 있게 한다.
+ * 어떤 파일을 넣어도 같은 "공기청정기 렌탈" 계약(월 렌탈료 + 초기 설치비)을 추출한 것처럼 응답한다.
+ * 결제일 신뢰도 low, 설치비 날짜 없음 등으로 "확인 필요" UI를 확인할 수 있게 한다.
  */
 export class MockAIProvider implements AIProvider {
   readonly name = 'mock';
@@ -21,32 +21,47 @@ export class MockAIProvider implements AIProvider {
       });
     });
 
+    const signed = addDays(input.today, -1);
     const start = addDays(input.today, 5);
     const end = addDays(addMonths(start, 36), -1);
+    const f = <T>(value: T | null, confidence: 'high' | 'medium' | 'low' = 'high', quote?: string) => ({
+      value,
+      confidence,
+      ...(quote ? { evidence: [{ page: 1, quote }] } : {}),
+    });
 
     return {
       provider: this.name,
-      promptVersion: 'mock-1',
+      promptVersion: 'mock-3',
+      contractType: { value: 'recurring', confidence: 'high', alternatives: ['other'], reason: '매월 렌탈료를 내는 계약으로 기재되어 있습니다.' },
       fields: {
-        title: { value: '공기청정기 렌탈', confidence: 'high' },
-        category: { value: 'rental', confidence: 'high' },
-        counterparty: { value: '클린에어렌탈(주)', confidence: 'high', evidence: [{ page: 1, quote: '렌탈회사: 클린에어렌탈 주식회사' }] },
-        contractDate: { value: null, confidence: 'low' },
-        startDate: { value: start, confidence: 'high', evidence: [{ page: 1, quote: `렌탈 개시일: ${start}` }] },
-        endDate: { value: end, confidence: 'medium', evidence: [{ page: 1, quote: '의무사용기간: 개시일로부터 36개월' }] },
-        totalAmount: { value: null, confidence: 'low' },
-        paymentLabel: { value: '월 렌탈료', confidence: 'high' },
-        paymentAmount: { value: 29_900, confidence: 'high', evidence: [{ page: 1, quote: '월 렌탈료 29,900원 (VAT 포함)' }] },
-        paymentFrequency: { value: 'monthly', confidence: 'high' },
-        paymentDay: { value: 10, confidence: 'low', evidence: [{ page: 2, quote: '렌탈료는 매월 지정일(10일)에 자동이체된다' }] },
-        paymentVariable: { value: false, confidence: 'medium' },
-        autoRenewal: { value: true, confidence: 'medium', evidence: [{ page: 3, quote: '계약 만료 1개월 전까지 별도 의사표시가 없으면 12개월 단위로 연장된다' }] },
-        renewalPeriodMonths: { value: 12, confidence: 'medium' },
-        terminationNoticeDays: { value: 30, confidence: 'medium', evidence: [{ page: 3, quote: '계약 만료 1개월 전까지' }] },
-        depositAmount: { value: null, confidence: 'high' },
-        earlyTerminationTerms: { value: '의무사용기간 내 해지 시 위약금이 발생할 수 있습니다.', confidence: 'medium' },
-        penaltyTerms: { value: '잔여 렌탈료의 10%', confidence: 'medium', evidence: [{ page: 3, quote: '잔여 렌탈료의 10%를 위약금으로 납부한다' }] },
+        title: f('공기청정기 렌탈'),
+        category: f('rental'),
+        counterparty: f('클린에어렌탈(주)', 'high', '렌탈회사: 클린에어렌탈 주식회사'),
+        totalAmount: f(null, 'low'),
+        depositAmount: f(null, 'high'),
+        autoRenewal: f(true, 'medium', '계약 만료 1개월 전까지 별도 의사표시가 없으면 12개월 단위로 연장된다'),
+        renewalPeriodMonths: f(12, 'medium'),
+        terminationNoticeDays: f(30, 'medium', '계약 만료 1개월 전까지'),
+        earlyTerminationTerms: f('의무사용기간 내 해지 시 위약금이 발생할 수 있습니다.', 'medium'),
+        penaltyTerms: f('잔여 렌탈료의 10%', 'medium', '잔여 렌탈료의 10%를 위약금으로 납부한다'),
       },
+      dates: [
+        { date: signed, meaning: 'contract_signed', label: '계약 체결일', confidence: 'high' },
+        { date: start, meaning: 'service_start', label: '렌탈 개시일', confidence: 'high', evidence: [{ page: 1, quote: `렌탈 개시일: ${start}` }] },
+        { date: end, meaning: 'contract_end', label: '의무사용기간 종료', confidence: 'medium', evidence: [{ page: 1, quote: '의무사용기간: 개시일로부터 36개월' }] },
+      ],
+      payments: [
+        {
+          kind: 'recurring_fee', label: '월 렌탈료', amount: 29_900, frequency: 'monthly', dayOfMonth: 10, date: null, endDate: null, installmentCount: null, isVariable: false,
+          confidence: 'low', evidence: [{ page: 2, quote: '렌탈료는 매월 지정일(10일)에 자동이체된다' }],
+        },
+        {
+          kind: 'setup_fee', label: '초기 설치비', amount: 20_000, frequency: 'one_time', dayOfMonth: null, date: null, endDate: null, installmentCount: null, isVariable: false,
+          confidence: 'high', evidence: [{ page: 1, quote: '초기 설치비 20,000원 (1회)' }],
+        },
+      ],
+      details: { commitment_months: 36 },
       checks: [
         {
           severity: 'caution',

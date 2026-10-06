@@ -13,24 +13,19 @@ import { documentStore } from '@/data';
 import { AI_DISCLAIMER } from '@/domain/aiCopy';
 import { addMonths, formatDateKo } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
-import { CATEGORY_LABEL, EVENT_TYPE_LABEL, FREQUENCY_LABEL } from '@/domain/labels';
-import { formatWon, formatWonCompact } from '@/domain/money';
+import { CONTRACT_TYPE_LABEL } from '@/domain/contractTypes';
+import { coreInfo } from '@/domain/coreInfo';
+import { CATEGORY_LABEL, EVENT_TYPE_LABEL } from '@/domain/labels';
+import { formatWon } from '@/domain/money';
 import { contractSchedule, nextPayment } from '@/domain/schedule';
 import { contractMonthlyEquivalent } from '@/domain/spending';
 import { currentTerm, deriveStatus } from '@/domain/status';
-import { CATEGORY_PROFILES, isActionable, nextAction } from '@/domain/nextAction';
-import type { AiCheck, ContractPayment, ContractRecord } from '@/domain/types';
+import { endProfile, isActionable, nextAction } from '@/domain/nextAction';
+import type { AiCheck, ContractRecord } from '@/domain/types';
 import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
-
-function paymentRule(p: ContractPayment) {
-  if (p.frequency === 'one_time') return '일시불';
-  const day = p.dayOfMonth ? `${p.dayOfMonth}일` : '';
-  if (p.frequency === 'yearly' && p.monthOfYear) return `매년 ${p.monthOfYear}월 ${day}`;
-  return `${FREQUENCY_LABEL[p.frequency]} ${day}`.trim();
-}
 
 /**
  * 원본 계약서 열기 — 비공개 저장소의 짧은 Signed URL(2분)로만 연다. 공개 URL은 사용하지 않는다.
@@ -76,6 +71,7 @@ export default function ContractDetailScreen() {
       action: nextAction(record, today),
       next: nextPayment(record, today),
       monthly: contractMonthlyEquivalent(record),
+      core: coreInfo(record, today),
       schedule: contractSchedule(record, { start: today, end: addMonths(today, 12) }, today)
         .filter((i) => i.type !== 'payment')
         .sort((a, b) => a.date.localeCompare(b.date)),
@@ -123,7 +119,7 @@ export default function ContractDetailScreen() {
             <CategoryIcon category={c.category} size={44} />
             <View style={{ flex: 1 }}>
               <AppText variant="caption" color="textTertiary">
-                {[CATEGORY_LABEL[c.category], c.counterparty].filter(Boolean).join(' · ')}
+                {[CATEGORY_LABEL[c.category], CONTRACT_TYPE_LABEL[c.contractType], c.counterparty].filter(Boolean).join(' · ')}
               </AppText>
               <AppText variant="title2" testID="detail-title">
                 {c.title}
@@ -173,7 +169,7 @@ export default function ContractDetailScreen() {
               <DDay days={daysUntil(view.term.termEnd, today)} variant="display" />
               <View>
                 <AppText variant="body2Strong" color="textSecondary">
-                  {c.autoRenewal ? '자동갱신 예정' : CATEGORY_PROFILES[c.category].endLabel}
+                  {c.autoRenewal ? '자동갱신 예정' : endProfile(c).endLabel}
                 </AppText>
                 <AppText variant="body2" color="textTertiary">
                   {formatDateKo(view.term.termEnd)}
@@ -216,42 +212,45 @@ export default function ContractDetailScreen() {
 
         <SectionGap />
 
-        {/* 금액 · 결제 */}
-        <Section title="금액 · 다음 결제">
+        {/* 유형별 핵심 정보 — 공통 틀은 같고 유형(월 납입형·임대차·할부·대출·보험·일회성)에 따라 항목이 다르다 */}
+        <Section title="핵심 정보" caption={CONTRACT_TYPE_LABEL[c.contractType]} testID="detail-core">
           {live && view.next ? (
             <View style={styles.nextPay} testID="detail-next-payment">
               <View style={{ flex: 1 }}>
                 <AppText variant="caption" color="textTertiary">
                   다음 결제 · {view.next.label}
+                  {view.next.installment ? ` ${view.next.installment.no}/${view.next.installment.total}회` : ''}
                 </AppText>
                 <AppText variant="body2Strong">{formatDateKo(view.next.date, true)}</AppText>
               </View>
               <Amount value={view.next.amount} won variant="title3" />
             </View>
           ) : null}
-          {record.payments.map((p) => (
-            <KeyValueRow key={p.id} label={`${p.label} (${paymentRule(p)})`} value={`${formatWon(p.amount)}${p.isVariable ? ' 내외' : ''}`} emphasis />
+          {view.core.map((row) => (
+            <KeyValueRow key={row.key} label={row.label} value={row.value} emphasis={row.emphasis} testID={`core-${row.key}`} />
           ))}
-          {view.monthly > 0 && record.payments.some((p) => p.frequency !== 'monthly') ? <KeyValueRow label="월 환산" value={formatWon(view.monthly)} /> : null}
-          {c.totalAmount != null ? <KeyValueRow label="계약 총액" value={formatWon(c.totalAmount)} /> : null}
-          {c.depositAmount != null ? <KeyValueRow label="보증금" value={formatWonCompact(c.depositAmount)} emphasis /> : null}
-          {record.payments.length === 0 && c.totalAmount == null && c.depositAmount == null ? (
+          {view.monthly > 0 && record.payments.some((p) => p.frequency !== 'monthly' && p.frequency !== 'one_time') ? (
+            <KeyValueRow label="월 환산 (참고)" value={formatWon(view.monthly)} />
+          ) : null}
+          {view.core.length === 0 ? (
             <AppText variant="body2" color="textTertiary">
-              등록된 금액 정보가 없어요.
+              등록된 정보가 없어요. 수정에서 결제와 날짜를 추가해주세요.
             </AppText>
           ) : null}
         </Section>
 
         <SectionGap />
 
-        {/* 기간 · 갱신 · 해지 */}
-        <Section title="기간 · 갱신 · 해지">
-          {c.contractDate ? <KeyValueRow label="계약일" value={formatDateKo(c.contractDate)} /> : null}
-          <KeyValueRow label="계약 기간" value={`${c.startDate ? formatDateKo(c.startDate) : '-'} ~ ${c.endDate ? formatDateKo(c.endDate) : '종료일 없음'}`} />
-          <KeyValueRow label="자동갱신" value={c.autoRenewal ? `있음${c.renewalPeriodMonths ? ` · ${c.renewalPeriodMonths}개월` : ''}` : '없음'} />
-          <KeyValueRow label="해지 통보" value={c.terminationNoticeDays != null ? `종료 ${c.terminationNoticeDays}일 전까지` : '정보 없음'} />
-          {c.earlyTerminationTerms ? <KeyValueRow label="중도해지" value={c.earlyTerminationTerms} /> : null}
+        {/* 기록성 정보 */}
+        <Section title="계약 조건 · 기록">
+          {c.contractDate ? <KeyValueRow label="계약 체결일" value={formatDateKo(c.contractDate)} testID="detail-contract-date" /> : null}
+          {c.earlyTerminationTerms ? <KeyValueRow label={c.contractType === 'loan' ? '중도상환' : '중도해지'} value={c.earlyTerminationTerms} /> : null}
           {c.penaltyTerms ? <KeyValueRow label="위약금" value={c.penaltyTerms} /> : null}
+          {!c.contractDate && !c.earlyTerminationTerms && !c.penaltyTerms ? (
+            <AppText variant="body2" color="textTertiary">
+              기록된 조건이 없어요.
+            </AppText>
+          ) : null}
         </Section>
 
         <SectionGap />

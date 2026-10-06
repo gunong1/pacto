@@ -7,11 +7,12 @@ import { MonthGrid } from '@/components/pacto/MonthGrid';
 import { AppText } from '@/components/ui/AppText';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { formatDateKo, isValidISODate, monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from '@/domain/dates';
+import { countsAsSpending } from '@/domain/contractTypes';
 import { EVENT_TYPE_LABEL } from '@/domain/labels';
-import { formatKRW, formatWon } from '@/domain/money';
+import { formatKRW, formatWonCompact, formatWon } from '@/domain/money';
 import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
-import type { ContractEventType, ISODate } from '@/domain/types';
+import type { ISODate, ScheduleItemType } from '@/domain/types';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { colors, radius, spacing } from '@/theme';
 
@@ -35,7 +36,7 @@ export default function CalendarScreen() {
   const { items, markers, spending, payingContracts } = useMemo(() => {
     const list = records ?? [];
     const items = scheduleForRange(list, monthRange(ym), today);
-    const markers = new Map<ISODate, Set<ContractEventType>>();
+    const markers = new Map<ISODate, Set<ScheduleItemType>>();
     for (const i of items) {
       if (!markers.has(i.date)) markers.set(i.date, new Set());
       markers.get(i.date)!.add(i.type);
@@ -66,6 +67,11 @@ export default function CalendarScreen() {
           {payingContracts > 0 ? `${payingContracts}개 계약에서 결제 예정` : '결제 예정인 계약이 없어요'}
           {spending.hasEstimated ? ' · 변동 금액은 예상치' : ''}
         </AppText>
+        {spending.depositTotal > 0 ? (
+          <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }} testID="calendar-deposit-note">
+            보증금 {formatWonCompact(spending.depositTotal)}은 돌려받는 돈이라 지출 합계에서 제외했어요
+          </AppText>
+        ) : null}
       </View>
 
       <View style={styles.calendar}>
@@ -106,7 +112,7 @@ export default function CalendarScreen() {
                 key={i.key}
                 category={i.category}
                 title={i.contractTitle}
-                subtitle={`${i.title}${i.estimated ? ' (예상)' : ''}`}
+                subtitle={`${i.title}${i.estimated ? ' (예상)' : ''}${i.paymentKind && !countsAsSpending(i.paymentKind) ? ' · 지출 합계 제외' : ''}`}
                 right={i.amount != null ? <AppText variant="body2Strong" tabular>{formatWon(i.amount)}</AppText> : <TypeTag type={i.type} />}
                 onPress={() => router.push(`/contract/${i.contractId}`)}
               />
@@ -136,7 +142,7 @@ export default function CalendarScreen() {
   );
 }
 
-function TypeTag({ type }: { type: ContractEventType }) {
+function TypeTag({ type }: { type: ScheduleItemType }) {
   return (
     <View style={styles.tag}>
       <View style={[styles.dot, { backgroundColor: EVENT_COLOR[type] }]} />

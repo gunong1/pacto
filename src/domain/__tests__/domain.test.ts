@@ -90,7 +90,7 @@ describe('status', () => {
 describe('schedule', () => {
   const base = rec('c-water-purifier').contract;
   const p = (over: Partial<ContractPayment>): ContractPayment => ({
-    id: 'p', contractId: base.id, label: 'x', amount: 1000, frequency: 'monthly', dayOfMonth: null, monthOfYear: null, startsOn: '2026-01-31', endsOn: null, isVariable: false, ...over,
+    id: 'p', contractId: base.id, kind: 'recurring_fee', label: 'x', amount: 1000, frequency: 'monthly', dayOfMonth: null, monthOfYear: null, startsOn: '2026-01-31', endsOn: null, installmentCount: null, isVariable: false, ...over,
   });
 
   test('31일 결제는 짧은 달에 말일로', () => {
@@ -201,7 +201,7 @@ describe('다음 행동', () => {
     expect(gym).toMatchObject({ kind: 'termination_notice', date: '2026-12-01', days: 57, headline: '해지 통보기한이 57일 남았습니다.' });
     expect(gym.guidance).toContain('12월 1일까지 해지 의사를 전달해야');
 
-    expect(nextAction(rec('c-car-insurance'), TODAY)).toMatchObject({ kind: 'contract_end', label: '보험 만료', days: 87 });
+    expect(nextAction(rec('c-car-insurance'), TODAY)).toMatchObject({ kind: 'contract_end', label: '보험 만기', days: 87 });
     expect(nextAction(rec('c-internet'), TODAY)).toMatchObject({ kind: 'renewal', label: '자동갱신 예정', days: 268 });
     expect(nextAction(rec('c-mobile'), TODAY)).toMatchObject({ label: '약정 종료', days: 146 });
     expect(nextAction(rec('c-water-purifier'), TODAY)).toMatchObject({ label: '렌탈 계약 종료' });
