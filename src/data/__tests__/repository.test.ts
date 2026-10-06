@@ -60,7 +60,7 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
     const bad = contractFormSchema.safeParse({ ...ok, startDate: '2026-05-01', endDate: '2026-04-01' });
     expect(bad.success).toBe(false);
     // 결제 금액이 없으면 오류, 일시불은 결제일(또는 시작일) 필요
-    const pay = { kind: 'setup_fee' as const, direction: 'expense' as const, label: '설치비', amount: '', frequency: 'one_time' as const, dayOfMonth: '', monthOfYear: '', startsOn: '', endsOn: '', installmentCount: '', isVariable: false, components: [], businessDayRule: 'none' as const };
+    const pay = { kind: 'setup_fee' as const, direction: 'expense' as const, label: '설치비', amount: '', frequency: 'one_time' as const, dayOfMonth: '', monthOfYear: '', startsOn: '', endsOn: '', installmentCount: '', isVariable: false, components: [], businessDayRule: 'none' as const, obligation: 'confirmed' as const, conditionNote: '' };
     expect(contractFormSchema.safeParse({ ...ok, payments: [pay] }).success).toBe(false);
     expect(contractFormSchema.safeParse({ ...ok, payments: [{ ...pay, amount: '20,000' }] }).success).toBe(false);
     expect(contractFormSchema.safeParse({ ...ok, startDate: '2026-11-01', payments: [{ ...pay, amount: '20,000' }] }).success).toBe(true);

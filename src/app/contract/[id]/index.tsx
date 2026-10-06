@@ -6,14 +6,14 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { CategoryIcon, DDay, EVENT_COLOR, SourceBadge, StatusBadge } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { SwitchRow } from '@/components/ui/controls';
+import { Badge, SwitchRow } from '@/components/ui/controls';
 import { DateField } from '@/components/ui/DateField';
 import { Divider, EmptyState, KeyValueRow, Screen, Section, SectionGap } from '@/components/ui/layout';
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
 import { addDays, addMonths, formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
 import { contractTypeLabel, profileOf } from '@/domain/contractTypes';
-import { coreInfo, otherDetails } from '@/domain/coreInfo';
+import { coreInfo, extraCosts, otherDetails, type ExtraCostRow } from '@/domain/coreInfo';
 import { categoryLabel, EVENT_TYPE_LABEL } from '@/domain/labels';
 import { formatWon } from '@/domain/money';
 import { contractSchedule, nextPayment } from '@/domain/schedule';
@@ -52,6 +52,7 @@ export default function ContractDetailScreen() {
       monthly: contractMonthlyEquivalent(record),
       core: coreInfo(record, today),
       other: otherDetails(record),
+      extra: extraCosts(record),
       schedule: contractSchedule(record, { start: today, end: addMonths(today, 12) }, today)
         .filter((i) => i.type !== 'payment')
         .sort((a, b) => a.date.localeCompare(b.date)),
@@ -247,6 +248,20 @@ export default function ContractDetailScreen() {
             </AppText>
           ) : null}
         </Section>
+
+        {view.extra.length > 0 ? (
+          <>
+            <SectionGap />
+            <Section title="추가로 발생할 수 있는 비용" caption="상황이나 선택에 따라 생기는 돈이에요. 캘린더·지출에는 넣지 않았어요." testID="detail-extra-costs">
+              {view.extra.map((x, i) => (
+                <View key={x.key}>
+                  {i > 0 ? <Divider /> : null}
+                  <ExtraCost row={x} onActivate={(date) => actions.activateCost.mutate([x.paymentId, date])} />
+                </View>
+              ))}
+            </Section>
+          </>
+        ) : null}
 
         <SectionGap />
 
@@ -472,6 +487,47 @@ function AiSection({
 }
 
 /**
+ * 추가로 발생할 수 있는 비용 한 건 — 조건이 실제로 생기면 날짜를 정해 결제로 전환한다.
+ * 선택형: "이용 시작" (그날부터 정기 결제) / 조건부: "발생했어요" (그날 1회 결제)
+ */
+function ExtraCost({ row, onActivate }: { row: ExtraCostRow; onActivate: (date: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const date = normalizeDateInput(input);
+  const verb = row.obligation === 'optional' ? '이용 시작' : '발생했어요';
+  return (
+    <View style={styles.extra} testID={`extra-${row.paymentId}`}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <AppText variant="body2Strong">{row.label}</AppText>
+          <View style={{ alignSelf: 'flex-start' }}>
+            <Badge label={row.condition} tone="check" />
+          </View>
+        </View>
+        <AppText variant="body2Strong" tabular>
+          {row.value}
+        </AppText>
+      </View>
+      {open ? (
+        <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+          <DateField
+            label={row.obligation === 'optional' ? '이용 시작일 (이날부터 결제)' : '실제 지급 예정일'}
+            value={input}
+            onChangeText={setInput}
+            testID={`extra-${row.paymentId}-date`}
+          />
+          <Button label="결제로 등록 (캘린더·지출에 반영)" size="sm" disabled={!date} onPress={() => date && onActivate(date)} testID={`extra-${row.paymentId}-save`} />
+        </View>
+      ) : (
+        <View style={{ alignSelf: 'flex-start', marginTop: spacing.sm }}>
+          <Button label={verb} size="sm" variant="secondary" onPress={() => setOpen(true)} testID={`extra-${row.paymentId}-open`} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
  * 조건부 규칙 (예: 자진 퇴직 시 30일 전 통보) — 계약서만으로는 날짜가 없다.
  * 사용자가 기준일(예: 퇴직 예정일)을 입력하면 그때 기준일 − N일 일정을 만든다.
  */
@@ -503,6 +559,7 @@ function RuleScheduler({ check, onSchedule }: { check: AiCheck; onSchedule: (tit
 }
 
 const styles = StyleSheet.create({
+  extra: { paddingVertical: spacing.md },
   head: { paddingHorizontal: spacing.gutter, paddingTop: spacing.sm, paddingBottom: spacing.xl },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   ddayBlock: { marginTop: spacing.xl, flexDirection: 'row', alignItems: 'center', gap: spacing.lg },

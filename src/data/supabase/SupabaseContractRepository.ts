@@ -61,6 +61,8 @@ function toPayment(r: Row<'contract_payments'>): ContractPayment {
     isVariable: r.is_variable,
     components: Array.isArray(r.components) ? (r.components as unknown as ContractPayment['components']) : [],
     businessDayRule: r.business_day_rule as ContractPayment['businessDayRule'],
+    obligation: r.obligation as ContractPayment['obligation'],
+    conditionNote: r.condition_note,
   };
 }
 
@@ -179,6 +181,8 @@ function paymentsPayload(d: ContractDraft, today: ISODate): Json {
       is_variable: r.isVariable,
       components: r.components as unknown as Json,
       business_day_rule: r.businessDayRule,
+      obligation: r.obligation,
+      condition_note: r.conditionNote,
     };
   });
 }

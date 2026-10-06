@@ -1,4 +1,4 @@
-import { profileOf, type PaymentKind } from './contractTypes';
+import { isConfirmedPayment, profileOf, type PaymentKind } from './contractTypes';
 import { adjustToBusinessDay } from './businessDays';
 import { addDays, dateInMonth, parseISODate } from './dates';
 import { amountOn, amountPeriods, periodBoundaries } from './paymentRules';
@@ -84,6 +84,8 @@ export function expandPayment(
   range: DateRange,
   dates: ContractRecord['dates'] = [],
 ): PaymentOccurrence[] {
+  // 선택형·조건부·잠재·참고 금액은 결제가 아니다 — 사용자가 이용/발생으로 바꾸기 전까지 캘린더·지출·알림에 넣지 않는다
+  if (!isConfirmedPayment(payment)) return [];
   const rule = payment.businessDayRule ?? 'none';
   const margin = rule === 'none' ? 0 : 10;
   const nominal = expandNominal(payment, contract, { start: addDays(range.start, -margin), end: addDays(range.end, margin) });

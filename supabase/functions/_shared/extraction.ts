@@ -10,6 +10,7 @@
 import {
   AMOUNT_ROLES,
   BUSINESS_DAY_RULES,
+  PAYMENT_OBLIGATIONS,
   CHECK_BEHAVIORS,
   CATEGORY_CODES,
   CATEGORY_DEFS,
@@ -24,7 +25,7 @@ import {
   PAYMENT_KIND_DEFS,
 } from './contractRegistry.ts';
 
-export const PROMPT_VERSION = 'extract-v5';
+export const PROMPT_VERSION = 'extract-v6';
 
 export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export const FREQUENCIES = ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly', 'one_time'] as const;
@@ -142,7 +143,13 @@ export function extractionJsonSchema() {
         end_date: { type: ['string', 'null'], description: '정기 결제의 마지막 결제일 또는 납입기간 종료일. 명시된 경우만' },
         installment_count: { type: ['integer', 'null'], description: '총 납입 회차 (할부·대출). 명시된 경우만' },
         is_variable: { type: 'boolean', description: '사용량 등으로 매번 금액이 달라지는지' },
-        optional: { type: 'boolean', description: '"(선택)", "신청 시"처럼 신청한 경우에만 청구되는 항목이면 true' },
+        payment_obligation: {
+          type: 'string',
+          enum: [...PAYMENT_OBLIGATIONS],
+          description:
+            'confirmed: 지금 계약으로 지급 의무와 시점이 확정 / optional: 사용자가 선택(신청·이용)했을 때만 / conditional: 특정 상황(양도·해지·연체·파손·분실 등)이 생겼을 때만 / potential: 생길 수 있으나 미확정 / informational: 금액 정보일 뿐 현금흐름 아님',
+        },
+        condition: { type: ['string', 'null'], description: 'confirmed가 아니면 언제 내는 돈인지 짧게 (예: 회원권을 양도하는 경우, 락커를 이용하는 경우)' },
         business_day_rule: { type: 'string', enum: [...BUSINESS_DAY_RULES], description: '지급일이 휴일이면: previous 직전 영업일 / next 다음 영업일 / none 언급 없음' },
         confidence,
         source_type: sourceType,
@@ -227,7 +234,7 @@ export function extractionInstructions(today: string): string {
     '   임대차 보증금·전세금과 그 계약금·잔금은 kind=deposit, direction=neutral. 매매·용역은 사용자가 어느 쪽인지 보고 정하고, 알 수 없으면 confidence를 low로.',
     '   연납 보험료는 frequency=yearly, 1회 납입액 그대로. 일회성 계약의 계약금/중도금/잔금은 각각 따로, 날짜는 date에.',
     '   결제일이 적혀 있지 않으면 추측하지 말고 null. 다른 결제와 "함께 청구"되면 같은 day_of_month. 같은 돈을 두 번 넣지 않습니다.',
-    '   "(선택)", "신청 시" 항목은 optional=true.',
+    '   금액마다 payment_obligation을 판단합니다 (아래 원칙).',
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
     '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·해지·만기 조건(자동갱신, 연장 기간, 통보기한 일수, 중도해지·위약금).',
@@ -241,6 +248,12 @@ export function extractionInstructions(today: string): string {
     '- 금액의 role: 실제로 오가는 돈만 recurring_cashflow / one_time_cashflow / deposit. 다른 금액을 이루는 하위 항목은 component(part_of에 상위 금액 이름),',
     '  예) "월 임금 3,600,000원은 기본급 3,280,000원과 고정연장근로수당 320,000원으로 구성" → 월 임금 recurring_cashflow 1건 + 기본급·고정연장근로수당 component 2건 (별도 수입 아님).',
     '  차량가·총 대출한도처럼 오가는 돈이 아닌 금액은 reference.',
+    '- 금액의 의무 수준(payment_obligation): 금액이 적혀 있다는 이유만으로 결제가 아닙니다. 금액 발견 → 의미 → 실제 의무인지 → 조건이 있는지 순서로 판단합니다.',
+    '  confirmed만 캘린더·지출에 들어갑니다. "…하는 경우/…시/…할 때" 내는 돈은 조건부(conditional)이고, "(선택)·신청 시·이용 시" 비용은 사용자가 실제로 신청했다는 기재가 없으면 optional.',
+    '  예) 회원권 양도 시 수수료 30,000원 → conditional(condition=회원권을 양도하는 경우). 락커 이용 시 월 5,000원 → optional(condition=락커를 이용하는 경우).',
+    '  예) 초과주행료·차량 손상 비용·반납 지연 비용·중도해지수수료·중도상환수수료·연체이자·분실/파손비·미반환 비용·원상복구비·손해배상금·조건부 수당 → conditional.',
+    '  보험 특약의 선택 보험료는 가입했다는 기재가 없으면 optional.',
+    '- 이용 기간과 결제 주기는 다릅니다: "1년 회원권 660,000원(일시불)"은 one_time 1건이며 월 12회로 나누지 않습니다. 매월 낸다고 적혀 있을 때만 monthly.',
     '- 계약서에 없는 값을 계산해 만들지 않습니다: 월 임금만 있으면 연봉(annual_salary)을 넣지 않고, 기간만 있으면 다른 금액을 만들지 않습니다. 숫자 속성은 계약서에 적힌 경우만 explicit로.',
     '- 문맥으로 판단한 값(예: 기간이 정해져 있어 계약직으로 판단)은 source_type=inferred. 계약서에 그 단어가 직접 있으면 explicit.',
     '- 조건부 의무는 날짜로 바꾸지 않습니다: "근로자가 퇴직하고자 하는 경우 30일 전 통보"는 계약 종료일 기준 통보기한이 아닙니다 →',
@@ -316,8 +329,10 @@ export interface ExtractedPayment {
   endDate: string | null;
   installmentCount: number | null;
   isVariable: boolean;
-  /** 신청한 경우에만 청구되는 선택 항목 (예: 락커 이용료) */
-  optional: boolean;
+  /** 의무 수준 — confirmed만 캘린더·지출에 반영 */
+  obligation: (typeof PAYMENT_OBLIGATIONS)[number];
+  /** confirmed가 아니면 언제 내는 돈인지 */
+  conditionNote: string | null;
   /** 이 금액을 이루는 하위 항목 (합산하지 않는다) */
   components: ExtractedComponent[];
   businessDayRule: (typeof BUSINESS_DAY_RULES)[number];
@@ -401,6 +416,28 @@ function quoteOf(o: Record<string, unknown>): { evidence?: Evidence[] } {
 }
 
 const MAX_AMOUNT = 100_000_000_000;
+
+/** 상황이 생겼을 때만 내는 돈의 단서 (양도·분실·파손·연체·위약·중도해지·초과·원상복구·손해배상 …) */
+const CONDITIONAL_COST = /양도|명의\s*변경|분실|파손|훼손|손상|연체|지연\s*(?:손해|이자|료|비용)|반납\s*지연|위약|중도\s*해지|중도\s*상환|해지\s*수수료|초과\s*(?:주행|사용|이용)|원상\s*복구|손해\s*배상|미반환|재발급/;
+/** 선택했을 때만 내는 돈의 단서 */
+const OPTIONAL_STRONG = /\(선택\)|선택\s*사항|선택\s*시|신청\s*시|희망\s*시|원하는\s*경우|옵션|특약/;
+const OPTIONAL_WEAK = /이용\s*시|사용\s*시|이용하는\s*경우/;
+/** 이용 기간이 아니라 한 번에 내는 돈 */
+const LUMP_SUM = /일시불|일시납|선납|1회\s*(?:결제|납부)|한\s*번에/;
+
+/**
+ * 금액의 의무 수준 — 모델 판단을 쓰되, 확정(confirmed)으로 왔어도 조건·선택 단서가 있으면 낮춘다.
+ * 확정이 아닌 금액은 결제 일정·지출에 들어가지 않으므로 애매하면 사용자가 확인 화면에서 확정으로 바꾸게 한다.
+ */
+function obligationOf(p: Record<string, unknown>, label: string, quote: string): Pick<ExtractedPayment, 'obligation' | 'conditionNote'> {
+  let obligation = oneOf(PAYMENT_OBLIGATIONS, p.payment_obligation) ?? (p.optional === true ? 'optional' : 'confirmed');
+  if (obligation === 'confirmed') {
+    if (CONDITIONAL_COST.test(label) || /(양도|분실|파손|훼손|손상|연체|위약|중도\s*해지|중도\s*상환|초과|원상\s*복구|손해\s*배상|미반환)[^.]{0,20}(시|경우|때)/.test(quote)) obligation = 'conditional';
+    else if (OPTIONAL_STRONG.test(label) || OPTIONAL_STRONG.test(quote)) obligation = 'optional';
+  }
+  const condition = text(p.condition, 100);
+  return { obligation, conditionNote: obligation === 'confirmed' ? null : condition };
+}
 
 function cleanField(key: string, raw: unknown): unknown {
   if (raw === null || raw === undefined) return null;
@@ -539,13 +576,29 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
       endDate: !oneTime && validDate(p.end_date) ? p.end_date.trim() : null,
       installmentCount: oneTime ? null : toInt(p.installment_count, 1, 600),
       isVariable: p.is_variable === true,
-      optional: p.optional === true,
+      ...obligationOf(p, label, quoteOf(p).evidence?.[0]?.quote ?? ''),
       components: [],
       businessDayRule: oneTime ? 'none' : (oneOf(BUSINESS_DAY_RULES, p.business_day_rule) ?? 'none'),
       confidence: confidenceOf(p.confidence),
       sourceType: sourceOf(p.source_type),
       ...quoteOf(p),
     });
+  }
+  // 안전장치: "이용 시 월 5,000원"처럼 이용할 때만 내는 부가 비용 — 확정 결제가 따로 있으면 선택형으로 본다
+  for (const p of payments) {
+    const q = p.evidence?.[0]?.quote ?? '';
+    if (p.obligation === 'confirmed' && OPTIONAL_WEAK.test(`${p.label} ${q}`) && payments.some((x) => x !== p && x.obligation === 'confirmed' && x.direction === p.direction && !OPTIONAL_WEAK.test(`${x.label} ${x.evidence?.[0]?.quote ?? ''}`))) {
+      p.obligation = 'optional';
+    }
+    // 이용 기간(1년)을 결제 주기로 착각한 경우: "일시불·1회 결제"라고 적힌 금액은 한 번만
+    if (p.frequency !== 'one_time' && LUMP_SUM.test(`${p.label} ${q}`)) {
+      p.frequency = 'one_time';
+      p.dayOfMonth = null;
+      p.installmentCount = null;
+      p.endDate = null;
+      p.businessDayRule = 'none';
+      p.confidence = 'medium';
+    }
   }
   // 안전장치: role 없이 "…에 포함"·"…으로 구성"이라고 적힌 정기 금액이 같은 방향·주기의 더 큰 정기 금액과 함께 있으면 구성 항목으로 본다
   // (예: 월 임금 3,600,000 + "월 임금에 포함된" 고정연장근로수당 320,000 → 별도 수입이 아님)

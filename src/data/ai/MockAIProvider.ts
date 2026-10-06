@@ -53,11 +53,11 @@ export class MockAIProvider implements AIProvider {
       ],
       payments: [
         {
-          kind: 'recurring_fee', direction: 'expense', label: '월 렌탈료', amount: 29_900, frequency: 'monthly', dayOfMonth: 10, date: null, endDate: null, installmentCount: null, isVariable: false, optional: false, components: [], businessDayRule: 'none', sourceType: 'explicit',
+          kind: 'recurring_fee', direction: 'expense', label: '월 렌탈료', amount: 29_900, frequency: 'monthly', dayOfMonth: 10, date: null, endDate: null, installmentCount: null, isVariable: false, obligation: 'confirmed', conditionNote: null, components: [], businessDayRule: 'none', sourceType: 'explicit',
           confidence: 'low', evidence: [{ page: 2, quote: '렌탈료는 매월 지정일(10일)에 자동이체된다' }],
         },
         {
-          kind: 'setup_fee', direction: 'expense', label: '초기 설치비', amount: 20_000, frequency: 'one_time', dayOfMonth: null, date: null, endDate: null, installmentCount: null, isVariable: false, optional: false, components: [], businessDayRule: 'none', sourceType: 'explicit',
+          kind: 'setup_fee', direction: 'expense', label: '초기 설치비', amount: 20_000, frequency: 'one_time', dayOfMonth: null, date: null, endDate: null, installmentCount: null, isVariable: false, obligation: 'confirmed', conditionNote: null, components: [], businessDayRule: 'none', sourceType: 'explicit',
           confidence: 'high', evidence: [{ page: 1, quote: '초기 설치비 20,000원 (1회)' }],
         },
       ],

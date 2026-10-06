@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
   BUSINESS_DAY_RULES,
+  PAYMENT_OBLIGATIONS,
   CONTRACT_DATE_KINDS,
   DIRECTIONS,
   SOURCE_TYPES,
@@ -57,6 +58,8 @@ const paymentFormSchema = z.object({
   /** 금액 구성 (AI가 찾은 하위 항목, 표시용 — 합산하지 않음) */
   components: z.array(z.object({ label: z.string(), amount: z.number() })),
   businessDayRule: z.enum(BUSINESS_DAY_RULES),
+  obligation: z.enum(PAYMENT_OBLIGATIONS),
+  conditionNote: z.string(),
 });
 
 const dateFormSchema = z.object({
@@ -96,8 +99,8 @@ export const contractFormSchema = z
       ctx.addIssue({ code: 'custom', path: ['renewalPeriodMonths'], message: '갱신 주기를 입력해주세요' });
     }
     v.payments.forEach((p, i) => {
-      // 일시불은 결제일이 있어야 한다 (없으면 계약 시작일)
-      if (p.frequency === 'one_time' && !p.startsOn && !v.startDate) {
+      // 확정된 일시불은 결제일이 있어야 한다 (없으면 계약 시작일). 선택형·조건부는 발생할 때 날짜를 정한다
+      if (p.obligation === 'confirmed' && p.frequency === 'one_time' && !p.startsOn && !v.startDate) {
         ctx.addIssue({ code: 'custom', path: ['payments', i, 'startsOn'], message: '결제일을 입력해주세요' });
       }
       if (p.startsOn && p.endsOn && isValidISODate(p.startsOn) && isValidISODate(p.endsOn) && p.endsOn < p.startsOn) {
@@ -184,6 +187,8 @@ export function paymentToForm(p: PaymentDraft): PaymentFormValues {
     isVariable: p.isVariable,
     components: p.components,
     businessDayRule: p.businessDayRule,
+    obligation: p.obligation,
+    conditionNote: p.conditionNote ?? '',
   };
 }
 
@@ -237,6 +242,8 @@ export function formToDraft(v: ParsedContractForm): ContractDraft {
         isVariable: oneTime ? false : p.isVariable,
         components: p.components,
         businessDayRule: oneTime ? 'none' : p.businessDayRule,
+        obligation: p.obligation,
+        conditionNote: p.obligation === 'confirmed' ? null : p.conditionNote.trim() || null,
       };
     }),
     dates: v.dates.map((x): DateDraft => ({ kind: x.kind, label: x.label.trim(), date: x.date })),

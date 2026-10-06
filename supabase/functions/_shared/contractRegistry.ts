@@ -138,6 +138,15 @@ export type SourceType = (typeof SOURCE_TYPES)[number];
 /** 계약서 금액의 역할 — 실제 현금 흐름(결제)이 되는 것은 recurring·one_time·deposit 뿐 */
 export const AMOUNT_ROLES = ['recurring_cashflow', 'one_time_cashflow', 'deposit', 'component', 'total', 'reference'] as const;
 
+/**
+ * 금액의 의무 수준 — 계약서에 금액이 있다고 모두 결제가 되지 않는다. 캘린더·지출·알림에는 confirmed만.
+ * confirmed: 지급 의무·시점 확정 / optional: 사용자가 선택했을 때만 (락커 이용 시) /
+ * conditional: 특정 상황이 생겼을 때만 (양도 수수료·위약금·연체이자·파손비) / potential: 생길 수 있으나 미확정 /
+ * informational: 금액 정보일 뿐 현금흐름이 아님
+ */
+export const PAYMENT_OBLIGATIONS = ['confirmed', 'optional', 'conditional', 'potential', 'informational'] as const;
+export type PaymentObligation = (typeof PAYMENT_OBLIGATIONS)[number];
+
 /** 지급일이 휴일일 때 실제 지급일 규칙 */
 export const BUSINESS_DAY_RULES = ['none', 'previous', 'next'] as const;
 export type BusinessDayRule = (typeof BUSINESS_DAY_RULES)[number];

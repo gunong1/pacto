@@ -182,7 +182,8 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
       startsOn = firstPayment.date;
       used.add(firstPayment);
     }
-    if (!startsOn && p.frequency === 'one_time') {
+    const confirmed = p.obligation === 'confirmed';
+    if (!startsOn && p.frequency === 'one_time' && confirmed) {
       // 날짜가 없는 일회성 금액: 비워 두면 계약 시작일로 계산된다. 확정하지 않고 "확인 필요"로 보여준다
       flagged.add(`${path}.startsOn`);
       notes[`${path}.startsOn`] = draft.startDate
@@ -190,20 +191,23 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
         : '계약서에 날짜가 없어요. 날짜를 입력해주세요.';
     }
     let dayOfMonth = p.dayOfMonth;
-    if (p.frequency !== 'one_time' && dayOfMonth == null && !startsOn) {
+    if (p.frequency !== 'one_time' && dayOfMonth == null && !startsOn && p.obligation !== 'conditional') {
       // 같은 주기의 다른 결제에 결제일이 있으면 함께 청구되는 것으로 보고 그 날짜를 쓴다 (예: 락커 이용료 → 월 이용료 결제일)
       const sibling = result.payments.find((x) => x !== p && x.frequency === p.frequency && x.dayOfMonth != null);
       dayOfMonth = sibling?.dayOfMonth ?? null;
-      flagged.add(`${path}.dayOfMonth`);
+      if (confirmed) flagged.add(`${path}.dayOfMonth`);
       notes[`${path}.dayOfMonth`] = sibling
         ? `날짜가 따로 없어 ${withWa(sibling.label)} 같은 ${sibling.dayOfMonth}일로 넣었어요. 확인해주세요.`
         : '계약서에 날짜가 없어요. 시작일 기준으로 계산되니 실제 날짜를 확인해주세요.';
     }
     uncertain(`${path}.amount`, p.confidence);
     quote(`${path}.amount`, p.evidence);
-    if (p.optional) {
-      flagged.add(`${path}.amount`);
-      notes[`${path}.amount`] = '선택 항목이에요. 신청하지 않았다면 이 결제를 삭제해주세요.';
+    // 확정이 아닌 금액은 결제 일정·지출에 넣지 않는다 — 실제로 신청했거나 이미 생긴 일이면 "확정 결제"로 바꾸도록 안내
+    if (p.obligation === 'optional') {
+      flagged.add(`${path}.obligation`);
+      notes[`${path}.obligation`] = '선택 항목이에요. 신청(이용)한 경우에만 "확정 결제"로 바꿔주세요. 그 전에는 캘린더·지출에 넣지 않아요.';
+    } else if (p.obligation === 'conditional' || p.obligation === 'potential') {
+      notes[`${path}.obligation`] = '상황이 생겼을 때만 내는 돈이에요. 캘린더·지출에는 넣지 않고 계약 조건으로 보관해요.';
     }
     source(`${path}.amount`, p.sourceType);
     if (p.components.length > 0 && !notes[`${path}.amount`]) {
@@ -223,6 +227,8 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
       isVariable: p.isVariable,
       components: p.components.map((c) => ({ ...c })),
       businessDayRule: p.businessDayRule,
+      obligation: p.obligation,
+      conditionNote: p.conditionNote,
     };
     draft.payments.push(payment);
   });
@@ -263,9 +269,12 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
   if (!draft.title) flagged.add('title');
   if (!draft.counterparty) flagged.add('counterparty');
   if (!draft.startDate) flagged.add('startDate');
-  if (draft.payments.length === 0) {
+  if (!draft.payments.some((p) => p.obligation === 'confirmed')) {
     flagged.add('payments');
-    notes.payments = '계약서에서 금액 정보를 찾지 못했어요. 오가는 돈이 있으면 추가해주세요.';
+    notes.payments =
+      draft.payments.length === 0
+        ? '계약서에서 금액 정보를 찾지 못했어요. 오가는 돈이 있으면 추가해주세요.'
+        : '확정된 결제를 찾지 못했어요. 실제로 내는 돈이 있으면 "확정 결제"로 바꾸거나 추가해주세요.';
   }
   if (profileOf(type).hasRenewal && draft.autoRenewal && draft.terminationNoticeDays == null) flagged.add('terminationNoticeDays');
 

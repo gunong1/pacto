@@ -43,7 +43,7 @@ describe('Step 10 — 확장 가능한 계약 레지스트리', () => {
         counterparty: 'PACTO 주식회사',
         startDate: '2026-11-02',
         details: { employmentKind: 'permanent', probationMonths: 3, workHours: '09:00~18:00' },
-        payments: [{ kind: 'salary', direction: 'income', label: '월 급여', amount: 3_500_000, frequency: 'monthly', dayOfMonth: 25, monthOfYear: null, startsOn: null, endsOn: null, installmentCount: null, isVariable: false, components: [], businessDayRule: 'none' }],
+        payments: [{ kind: 'salary', direction: 'income', label: '월 급여', amount: 3_500_000, frequency: 'monthly', dayOfMonth: 25, monthOfYear: null, startsOn: null, endsOn: null, installmentCount: null, isVariable: false, components: [], businessDayRule: 'none', obligation: 'confirmed', conditionNote: null }],
         dates: [{ kind: 'hire', label: '입사일', date: '2026-11-02' }],
       },
       source: 'manual',

@@ -32,7 +32,7 @@ const draft: ContractDraft = {
   payments: [
     {
       kind: 'salary', direction: 'income', label: '월 임금', amount: 3_600_000, frequency: 'monthly', dayOfMonth: 25, monthOfYear: null,
-      startsOn: null, endsOn: null, installmentCount: null, isVariable: false, businessDayRule: 'previous',
+      startsOn: null, endsOn: null, installmentCount: null, isVariable: false, businessDayRule: 'previous', obligation: 'confirmed', conditionNote: null,
       components: [{ label: '기본급', amount: 3_280_000 }, { label: '고정연장근로수당', amount: 320_000 }],
     },
   ],

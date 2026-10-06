@@ -1,6 +1,6 @@
 import type {
   AiCheck,
-  BusinessDayRule,
+  BusinessDayRule, PaymentObligation,
   PaymentComponent,
   SourceType,
   ContractCategory,
@@ -40,6 +40,9 @@ export interface PaymentDraft {
   components: PaymentComponent[];
   /** 지급일이 휴일이면 직전/다음 영업일 */
   businessDayRule: BusinessDayRule;
+  /** 의무 수준 — confirmed만 캘린더·지출에 반영 */
+  obligation: PaymentObligation;
+  conditionNote: string | null;
 }
 
 /** 주요 날짜 한 건 (설치일·입주일·잔금일·갱신일 …) */

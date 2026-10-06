@@ -37,7 +37,7 @@ function contract(partial: Partial<Contract> & Pick<Contract, 'id' | 'title' | '
 }
 
 function payment(partial: Partial<ContractPayment> & Pick<ContractPayment, 'id' | 'contractId' | 'amount' | 'frequency' | 'startsOn'>): ContractPayment {
-  return { kind: 'recurring_fee', direction: 'expense', label: '납부금', dayOfMonth: null, monthOfYear: null, endsOn: null, installmentCount: null, isVariable: false, components: [], businessDayRule: 'none', ...partial };
+  return { kind: 'recurring_fee', direction: 'expense', label: '납부금', dayOfMonth: null, monthOfYear: null, endsOn: null, installmentCount: null, isVariable: false, components: [], businessDayRule: 'none', obligation: 'confirmed', conditionNote: null, ...partial };
 }
 
 export function createMockRecords(): ContractRecord[] {

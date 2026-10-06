@@ -29,6 +29,7 @@ import {
   type DetailValue,
   type PaymentKind,
   type SourceType,
+  OBLIGATION_LABEL,
 } from '@/domain/contractTypes';
 import { BUSINESS_DAY_RULE_LABEL } from '@/domain/businessDays';
 import { addMonths, formatDateKo } from '@/domain/dates';
@@ -104,6 +105,8 @@ function newPayment(kind: PaymentKind): PaymentFormValues {
     isVariable: false,
     components: [],
     businessDayRule: 'none',
+    obligation: 'confirmed',
+    conditionNote: '',
   };
 }
 
@@ -247,7 +250,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
       ) : null}
 
       <SectionGap />
-      <Section title="결제" caption="내는 돈을 모두 넣어주세요. 한 계약에 여러 건일 수 있어요 (예: 월 렌탈료 + 설치비)." testID="section-payments">
+      <Section title="결제" caption="오가는 돈을 넣어주세요. 실제로 내야 하는 '확정 결제'만 캘린더·지출에 들어가요. 양도 수수료·락커비처럼 상황이나 선택에 따라 내는 돈은 조건부·선택형으로." testID="section-payments">
         {flagged?.has('payments') && notes?.payments ? (
           <AppText variant="caption" color="check" style={{ marginBottom: spacing.md }}>
             {notes.payments}
@@ -262,7 +265,13 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             <View key={p.id} style={styles.card} testID={`payment-${i}`}>
               <View style={styles.cardHeader}>
                 <AppText variant="body2Strong">결제 {i + 1}</AppText>
-                {pv.direction === 'neutral' ? <Badge label="지출 합계 제외" /> : pv.direction === 'income' ? <Badge label="수입" tone="primary" /> : null}
+                {pv.obligation !== 'confirmed' ? (
+                  <Badge label={`${OBLIGATION_LABEL[pv.obligation]} · 캘린더·지출 제외`} tone="check" />
+                ) : pv.direction === 'neutral' ? (
+                  <Badge label="지출 합계 제외" />
+                ) : pv.direction === 'income' ? (
+                  <Badge label="수입" tone="primary" />
+                ) : null}
                 <View style={{ flex: 1 }} />
                 <Pressable onPress={() => payments.remove(i)} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={`결제 ${i + 1} 삭제`} testID={`payment-${i}-remove`}>
                   <Ionicons name="trash-outline" size={18} color={colors.textTertiary} />
@@ -289,6 +298,23 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                 )}
               />
               <View style={{ height: spacing.md }} />
+              <FormLabel label="이 돈을 내야 하나요?" flagged={flagged?.has(`${path}.obligation`)} />
+              <Controller
+                control={control}
+                name={`payments.${i}.obligation`}
+                render={({ field: f }) => <ChipGroup options={OBLIGATION_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-obligation`} />}
+              />
+              {hint(`${path}.obligation`) ? (
+                <AppText variant="caption" color={flagged?.has(`${path}.obligation`) ? 'check' : 'textTertiary'} style={{ marginTop: 6 }}>
+                  {hint(`${path}.obligation`)}
+                </AppText>
+              ) : null}
+              {pv.obligation !== 'confirmed' ? (
+                <View style={{ marginTop: spacing.md }}>
+                  {field(`payments.${i}.conditionNote`, '언제 내는 돈인가요?', { placeholder: '예: 회원권을 양도하는 경우', testID: `payment-${i}-conditionNote` })}
+                </View>
+              ) : null}
+              <View style={{ height: spacing.md }} />
               <View style={styles.row2}>
                 <View style={styles.col}>{field(`payments.${i}.label`, '항목 이름', { placeholder: '예: 월 렌탈료', testID: `payment-${i}-label` })}</View>
                 <View style={styles.col}>
@@ -299,7 +325,11 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
               <View style={{ height: spacing.sm }} />
               <Controller control={control} name={`payments.${i}.direction`} render={({ field: f }) => <ChipGroup options={DIRECTION_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-direction`} />} />
               <View style={{ height: spacing.md }} />
-              {oneTime ? (
+              {pv.obligation !== 'confirmed' ? (
+                <AppText variant="caption" color="textTertiary">
+                  결제일은 실제로 이용하거나 상황이 생겼을 때 계약 상세에서 정해요.
+                </AppText>
+              ) : oneTime ? (
                 date(`payments.${i}.startsOn`, '결제일', { hint: values.startDate ? '비워두면 계약 시작일' : undefined, testID: `payment-${i}-startsOn` })
               ) : (
                 <>
@@ -592,6 +622,15 @@ function FormDate({ control, name, label, flagged, hint, testID }: { control: Co
     />
   );
 }
+
+/** 확정 결제만 캘린더·지출에 반영된다 (잠재·참고 금액은 AI가 고른 경우에만 보이도록 뒤에) */
+const OBLIGATION_OPTIONS = [
+  { value: 'confirmed' as const, label: '확정 결제' },
+  { value: 'optional' as const, label: '선택형 (이용 시)' },
+  { value: 'conditional' as const, label: '조건부 (상황 발생 시)' },
+  { value: 'potential' as const, label: '발생 가능' },
+  { value: 'informational' as const, label: '참고 금액' },
+];
 
 const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
 

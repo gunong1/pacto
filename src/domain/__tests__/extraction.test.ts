@@ -9,11 +9,12 @@ import {
 } from '../../../supabase/functions/_shared/extraction.ts';
 import { buildOpenAIRequest, readOutputText } from '../../../supabase/functions/_shared/ai/openai.ts';
 import { MockExtractionProvider } from '../../../supabase/functions/_shared/ai/mock.ts';
-import { draftToRecord } from '@/data/draft';
+import { activateCost, draftToRecord } from '@/data/draft';
+import { coreInfo, extraCosts } from '@/domain/coreInfo';
 import { BANNED_AI_PHRASES, findBannedPhrases } from '@/domain/aiCopy';
 import { detailSchema } from '@/domain/contractTypes';
 import { scheduleForRange } from '@/domain/schedule';
-import { monthSpending } from '@/domain/spending';
+import { annualForecast, monthSpending } from '@/domain/spending';
 import { toReviewModel } from '@/features/registration/extraction';
 
 const TODAY = '2026-10-06';
@@ -65,7 +66,7 @@ const rental = () => ({
 
 describe('분석 v4 — 서버 스키마·프롬프트', () => {
   test('프롬프트 버전 · 분석 순서 · 표현 규칙', () => {
-    expect(PROMPT_VERSION).toBe('extract-v5');
+    expect(PROMPT_VERSION).toBe('extract-v6');
     const ins = extractionInstructions(TODAY);
     for (const s of ['1) category', '2) contract_type', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다']) expect(ins).toContain(s);
   });
@@ -293,13 +294,14 @@ describe('헬스장 샘플 계약서: 락커 이용료(선택, 결제일 없음 
     ],
   });
 
-  test('락커 이용료는 월 이용료와 같은 5일, 선택 항목은 확인 필요', () => {
+  test('락커 이용료는 선택형 — 결제 일정·지출에 넣지 않고, 이용하게 되면 쓸 결제일(월 이용료와 같은 5일)만 준비', () => {
     const m = review(gym());
-    expect(m.draft.payments.map((p) => [p.label, p.dayOfMonth])).toEqual([['월 이용료', 5], ['락커 이용료', 5]]);
-    expect(m.notes['payments.1.amount']).toContain('선택 항목');
-    expect(m.notes['payments.1.dayOfMonth']).toContain('월 이용료와 같은 5일');
+    expect(m.draft.payments.map((p) => [p.label, p.obligation, p.dayOfMonth])).toEqual([['월 이용료', 'confirmed', 5], ['락커 이용료', 'optional', 5]]);
+    expect(m.notes['payments.1.obligation']).toContain('선택 항목');
+    expect(m.flagged.has('payments.1.obligation')).toBe(true);
     expect(titlesOn(m, '2026-11-03')).toEqual(['이용 시작']);
-    expect(titlesOn(m, '2026-11-05')).toEqual(['락커 이용료', '월 이용료']);
+    expect(titlesOn(m, '2026-11-05')).toEqual(['월 이용료']);
+    expect(monthSpending([draftToRecord(m.draft, 'g', TODAY)], { year: 2026, month: 12 }).total).toBe(55_000);
   });
 
   test('같은 결제가 두 번 나와도 한 번만', () => {
@@ -321,7 +323,7 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
     const m = await employmentReview();
     expect(m.draft.payments).toHaveLength(1);
     expect(m.draft.payments[0]).toMatchObject({
-      label: '월 임금', amount: 3_600_000, direction: 'income', dayOfMonth: 25, businessDayRule: 'previous',
+      label: '월 임금', amount: 3_600_000, direction: 'income', dayOfMonth: 25, businessDayRule: 'previous', obligation: 'confirmed', conditionNote: null,
       components: [{ label: '기본급', amount: 3_280_000 }, { label: '고정연장근로수당', amount: 320_000 }],
     });
     expect(m.notes['payments.0.amount']).toContain('따로 더하지 않아요');
@@ -415,5 +417,98 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
     walk(extractionJsonSchema() as unknown as Record<string, unknown>, 0);
     expect(props).toBeLessThanOrEqual(100);
     expect(depth).toBeLessThanOrEqual(10);
+  });
+});
+
+/**
+ * 헬스장 1년권 — 금액이 적혀 있다고 모두 결제가 아니다.
+ * 1년 회원권 660,000원(일시불) = 확정 결제 1회 / 양도 수수료 30,000원 = 조건부 / 락커 월 5,000원 = 선택형
+ */
+describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
+  const gymReview = async () => {
+    const out = await new MockExtractionProvider().extract([{ mimeType: 'application/pdf', fileName: '헬스장_1년권_계약서.pdf', base64: '' }]);
+    return toReviewModel(toAppResult(out.json, 'mock'), ['doc-1']);
+  };
+  /** 회귀 5항목 — 캘린더(1년치)·지출 */
+  const verify = (m: ReturnType<typeof review>) => {
+    const r = draftToRecord(m.draft, 'gym', TODAY);
+    const year = scheduleForRange([r], { start: '2026-10-01', end: '2027-10-31' }, TODAY).filter((i) => i.type === 'payment');
+    // 1·3) 양도 수수료·락커비는 캘린더에 없음
+    expect(year.map((i) => i.title)).toEqual(['1년 회원권']);
+    // 4·5) 회원권 660,000원만 확정 결제, 한 번만 (월 12회로 나누지 않음)
+    expect(year.map((i) => [i.date, i.amount])).toEqual([['2026-10-06', 660_000]]);
+    // 2) 지출 합계: 결제한 달만 660,000, 이후 달은 0, 연간 660,000
+    expect(monthSpending([r], { year: 2026, month: 10 }).total).toBe(660_000);
+    for (let mo = 11; mo <= 12; mo++) expect(monthSpending([r], { year: 2026, month: mo }).total).toBe(0);
+    expect(monthSpending([r], { year: 2027, month: 6 }).total).toBe(0);
+    expect(annualForecast([r], TODAY)).toBe(660_000);
+    // 상세: 결제와 "추가로 발생할 수 있는 비용"을 나눠 보여줌
+    expect(extraCosts(r).map((x) => [x.label, x.value, x.obligation])).toEqual([
+      ['양도 수수료', '30,000원', 'conditional'],
+      ['락커 이용료', '월 5,000원', 'optional'],
+    ]);
+    return r;
+  };
+
+  test('mock 공급자(의미를 해석한 출력): 회원권 확정 1회 · 양도 수수료 조건부 · 락커 선택형', async () => {
+    const m = await gymReview();
+    const r = verify(m);
+    expect(extraCosts(r).map((x) => x.condition)).toEqual(['회원권을 양도하는 경우', '락커를 이용하는 경우']);
+    expect(coreInfo(r, TODAY).filter((x) => x.key.startsWith('pay:')).map((x) => x.label)).toEqual(['1년 회원권']);
+  });
+
+  test('잘못된 출력(모두 확정 결제 · 1년권을 월납으로)도 서버 안전장치가 바로잡음', () => {
+    const r = toAppResult(
+      output({
+        category: cls('membership'),
+        type: cls('recurring'),
+        fields: { title: f('헬스장 1년권'), counterparty: f('바디핏 피트니스') },
+        dates: [date('2026-10-06', 'contract_signed', '계약일'), date('2026-10-10', 'service_start', '이용 시작일'), date('2027-10-09', 'contract_end', '이용 종료일')],
+        payments: [
+          pay({ kind: 'recurring_fee', label: '1년 회원권', amount: 660000, frequency: 'monthly', day_of_month: 6, date: '2026-10-06', ...q('1년 회원권 660,000원 (계약 시 일시불 결제)') }),
+          pay({ kind: 'other', label: '양도 수수료', amount: 30000, frequency: 'one_time', date: '2026-10-06', ...q('회원권 양도 시 양도 수수료 30,000원을 부과한다.') }),
+          pay({ kind: 'recurring_fee', label: '락커 이용료', amount: 5000, frequency: 'monthly', ...q('락커 이용 시 월 5,000원') }),
+        ],
+      }),
+      'openai',
+    );
+    expect(r.payments.map((p) => [p.label, p.frequency, p.obligation])).toEqual([
+      ['1년 회원권', 'one_time', 'confirmed'],
+      ['양도 수수료', 'one_time', 'conditional'],
+      ['락커 이용료', 'monthly', 'optional'],
+    ]);
+    verify(toReviewModel(r, ['doc-1']));
+  });
+
+  test('다른 계약도 같은 원칙: 초과주행료·연체이자·파손비·원상복구비·중도상환수수료는 조건부, 특약 보험료는 선택형', () => {
+    const r = toAppResult(
+      output({
+        payments: [
+          pay({ kind: 'recurring_fee', label: '월 리스료', amount: 450000, frequency: 'monthly', day_of_month: 10 }),
+          pay({ kind: 'other', label: '초과주행료', amount: 150, frequency: 'one_time' }),
+          pay({ kind: 'other', label: '연체이자', amount: 12000, frequency: 'one_time' }),
+          pay({ kind: 'other', label: '제품 파손비', amount: 300000, frequency: 'one_time' }),
+          pay({ kind: 'other', label: '원상복구비', amount: 500000, frequency: 'one_time' }),
+          pay({ kind: 'other', label: '중도상환수수료', amount: 200000, frequency: 'one_time' }),
+          pay({ kind: 'premium', label: '운전자 특약 보험료', amount: 8000, frequency: 'monthly' }),
+        ],
+      }),
+      'openai',
+    );
+    expect(r.payments.map((p) => p.obligation)).toEqual(['confirmed', 'conditional', 'conditional', 'conditional', 'conditional', 'conditional', 'optional']);
+  });
+
+  test('조건이 실제로 생기면 결제로 전환: 양도 결정(2027-03-15) → 그날 30,000원 지출, 락커 이용(2026-11-01부터) → 월 5,000원', async () => {
+    const m = await gymReview();
+    const r = draftToRecord(m.draft, 'gym', TODAY);
+    const fee = r.payments.find((p) => p.label === '양도 수수료')!;
+    const locker = r.payments.find((p) => p.label === '락커 이용료')!;
+    const afterFee = draftToRecord(activateCost(r, fee.id, '2027-03-15'), 'gym', TODAY);
+    expect(monthSpending([afterFee], { year: 2027, month: 3 }).total).toBe(30_000);
+    expect(scheduleForRange([afterFee], { start: '2027-03-15', end: '2027-03-15' }, TODAY).map((i) => i.title)).toEqual(['양도 수수료']);
+    const afterLocker = draftToRecord(activateCost(r, locker.id, '2026-11-01'), 'gym', TODAY);
+    expect(monthSpending([afterLocker], { year: 2026, month: 11 }).total).toBe(5_000);
+    expect(monthSpending([afterLocker], { year: 2026, month: 10 }).total).toBe(660_000);
+    expect(extraCosts(afterLocker).map((x) => x.label)).toEqual(['양도 수수료']);
   });
 });

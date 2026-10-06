@@ -1,5 +1,5 @@
 import { BUSINESS_DAY_RULE_LABEL } from './businessDays';
-import { detailFields, profileOf, type PaymentKind, type SourceType } from './contractTypes';
+import { detailFields, isConfirmedPayment, OBLIGATION_LABEL, profileOf, type PaymentKind, type PaymentObligation, type SourceType } from './contractTypes';
 import { addDays, formatDateKo } from './dates';
 import { FREQUENCY_LABEL } from './labels';
 import { formatWon, formatWonCompact } from './money';
@@ -58,7 +58,9 @@ function detailText(record: ContractRecord, key: string): string | null {
 }
 
 export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] {
-  const { contract: c, payments, dates } = record;
+  const { contract: c, dates } = record;
+  // 핵심 정보의 결제는 지급 의무·시점이 확정된 것만 — 선택형·조건부 비용은 extraCosts()로 따로
+  const payments = record.payments.filter(isConfirmedPayment);
   const t = c.contractType;
   const profile = profileOf(t);
   const d = c.details;
@@ -80,7 +82,7 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   };
   const ofKind = (...kinds: PaymentKind[]) => payments.filter((p) => kinds.includes(p.kind));
   const payRow = (p: ContractPayment, emphasis = p.direction !== 'neutral') =>
-    add(`pay:${p.id}`, p.label, p.frequency === 'one_time' ? `${money(p)} · ${formatDateKo(p.startsOn)}` : `${money(p)} · ${paymentRule(p)}`, emphasis);
+    add(`pay:${p.id}`, p.label, p.frequency === 'one_time' ? `${money(p)} · ${formatDateKo(p.startsOn)}${oneTimeStatus(p, today)}` : `${money(p)} · ${paymentRule(p)}`, emphasis);
   const dateRow = (kind: string, label: string) => {
     const v = dates.find((x) => x.kind === kind)?.date;
     add(`dk:${kind}`, label, v ? formatDateKo(v) : null);
@@ -212,6 +214,41 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   // 유형 템플릿에 없는 이름의 날짜도 버리지 않고 보여준다
   for (const x of dates) if (!shown.has(`dk:${x.kind}`)) add(`date:${x.id}`, x.label, formatDateKo(x.date));
   return rows;
+}
+
+/** 일시불의 결제일이 지났으면 완료로 표시 (결제일 기준 — 실제 결제 여부는 사용자가 확인) */
+function oneTimeStatus(p: ContractPayment, today: ISODate): string {
+  if (p.startsOn > today) return '';
+  if (p.startsOn === today) return p.direction === 'income' ? ' · 오늘 지급' : ' · 오늘 결제';
+  return p.direction === 'income' ? ' · 지급 완료' : ' · 결제 완료';
+}
+
+export interface ExtraCostRow {
+  key: string;
+  paymentId: string;
+  label: string;
+  /** 금액과 주기 (예: "월 5,000원", "30,000원") */
+  value: string;
+  /** 언제 내는 돈인지 (예: "회원권을 양도하는 경우", "이용 선택 시") */
+  condition: string;
+  obligation: PaymentObligation;
+}
+
+/**
+ * "추가로 발생할 수 있는 비용" — 계약서에 금액은 있지만 지금 낼 의무가 확정되지 않은 돈.
+ * 선택형(락커 이용 시)·조건부(양도 시 수수료, 위약금, 연체이자)·잠재·참고 금액. 캘린더·지출에는 넣지 않는다.
+ */
+export function extraCosts(record: ContractRecord): ExtraCostRow[] {
+  return record.payments
+    .filter((p) => !isConfirmedPayment(p))
+    .map((p) => ({
+      key: `extra:${p.id}`,
+      paymentId: p.id,
+      label: p.label,
+      value: p.frequency === 'one_time' ? formatWon(p.amount) : `${FREQUENCY_LABEL[p.frequency] === '매월' ? '월' : FREQUENCY_LABEL[p.frequency]} ${formatWon(p.amount)}`,
+      condition: p.conditionNote ?? (p.obligation === 'optional' ? '이용 선택 시' : p.obligation === 'conditional' ? '해당 상황이 생기는 경우' : OBLIGATION_LABEL[p.obligation]),
+      obligation: p.obligation,
+    }));
 }
 
 /** 상세 "계약 조건 · 기록" — 핵심 정보에 넣지 않은 유형별 속성 (근무시간·휴가·해지환급·저작권 …) */

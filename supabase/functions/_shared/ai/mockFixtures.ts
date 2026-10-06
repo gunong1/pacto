@@ -3,7 +3,7 @@
 const q = (quote: string | null, page = 1) => ({ evidence_quote: quote, evidence_page: quote ? page : null });
 const f = (value: unknown, confidence = 'high', quote: string | null = null) => ({ value, confidence, ...q(quote) });
 const pay = (p: Record<string, unknown>) => ({
-  role: 'recurring_cashflow', part_of: null, day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, optional: false,
+  role: 'recurring_cashflow', part_of: null, day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, payment_obligation: 'confirmed', condition: null,
   business_day_rule: 'none', confidence: 'high', source_type: 'explicit', evidence_quote: null, ...p,
 });
 const detail = (key: string, value: string | number | boolean, quote: string | null, source_type = 'explicit') => ({
@@ -117,6 +117,53 @@ export function employmentOutput(title: string) {
       check({ severity: 'check', topic: 'renewal_terms', title: '갱신 별도 협의', description: '계약 만료 후 갱신 여부는 업무평가·조직운영 상황·당사자 협의에 따라 별도로 정하는 것으로 기재되어 있습니다.', evidence_quote: '계약기간 만료 후 갱신 여부는 업무평가, 조직운영 상황 및 당사자 협의에 따라 별도로 정한다.' }),
       check({ severity: 'check', topic: 'confidentiality', title: '비밀유지', description: '재직 중 및 퇴직 후에도 업무상 알게 된 비밀을 누설하지 않아야 하는 조건이 포함되어 있습니다.', evidence_quote: '근로자는 재직 중은 물론 퇴직 후에도 업무상 알게 된 회사의 비밀을 누설하여서는 아니 된다.', evidence_page: 2 }),
       check({ severity: 'check', topic: 'asset_return', title: '자산·자료 반환', description: '퇴직 시 회사 자산과 업무 자료를 반환하는 조건이 포함되어 있습니다.', evidence_quote: '근로자는 퇴직 시 회사로부터 지급받은 장비 및 업무 자료 일체를 반환하여야 한다.', evidence_page: 2 }),
+    ],
+  };
+}
+
+/**
+ * 헬스장 1년권 예시 — 금액마다 의무 수준을 판단한 출력.
+ * 1년 회원권 660,000원 일시불(확정) / 회원권 양도 시 수수료 30,000원(조건부) / 락커 이용 시 월 5,000원(선택형)
+ */
+export function gymYearOutput(title: string) {
+  const term = '이용기간: 2026년 10월 10일부터 2027년 10월 9일까지 (1년)';
+  return {
+    category: { value: 'membership', confidence: 'high', alternatives: [], reason: '헬스장 회원권 이용 계약으로 기재되어 있습니다.' },
+    contract_type: { value: 'recurring', confidence: 'medium', alternatives: ['one_time'], reason: '1년 이용권을 계약 시 한 번에 결제하는 것으로 기재되어 있습니다.' },
+    fields: {
+      title: f(title),
+      counterparty: f('바디핏 피트니스', 'high', '사업장: 바디핏 피트니스'),
+      totalAmount: f(660000, 'high', '1년 회원권 660,000원 (계약 시 일시불 결제)'),
+      depositAmount: f(null, 'high'),
+      autoRenewal: f(false, 'high', '이용기간 만료 시 계약은 종료되며 재등록은 별도로 한다.'),
+      renewalPeriodMonths: f(null, 'low'),
+      terminationNoticeDays: f(null, 'low'),
+      earlyTerminationTerms: f(null, 'low'),
+      penaltyTerms: f(null, 'low'),
+    },
+    dates: [
+      { date: '2026-10-06', meaning: 'contract_signed', label: '계약일', confidence: 'high', source_type: 'explicit', ...q('계약일: 2026년 10월 6일') },
+      { date: '2026-10-10', meaning: 'service_start', label: '이용 시작일', confidence: 'high', source_type: 'explicit', ...q(term) },
+      { date: '2027-10-09', meaning: 'contract_end', label: '이용 종료일', confidence: 'high', source_type: 'explicit', ...q(term) },
+    ],
+    payments: [
+      pay({ role: 'one_time_cashflow', kind: 'recurring_fee', direction: 'expense', label: '1년 회원권', amount: 660000, frequency: 'one_time', date: '2026-10-06', ...q('1년 회원권 660,000원 (계약 시 일시불 결제)') }),
+      pay({ role: 'one_time_cashflow', kind: 'other', direction: 'expense', label: '양도 수수료', amount: 30000, frequency: 'one_time', payment_obligation: 'conditional', condition: '회원권을 양도하는 경우', ...q('회원권 양도 시 양도 수수료 30,000원을 부과한다.') }),
+      pay({ kind: 'recurring_fee', direction: 'expense', label: '락커 이용료', amount: 5000, frequency: 'monthly', payment_obligation: 'optional', condition: '락커를 이용하는 경우', ...q('락커 이용 시 월 5,000원') }),
+    ],
+    details: [],
+    checks: [
+      check({
+        severity: 'check', topic: 'other', title: '회원권 양도 수수료', behavior: 'conditional_rule',
+        condition: '회원권을 다른 사람에게 양도하는 경우', action: '양도 수수료 30,000원 납부',
+        description: '회원권을 양도하는 경우 양도 수수료 30,000원이 부과되는 것으로 기재되어 있습니다.',
+        evidence_quote: '회원권 양도 시 양도 수수료 30,000원을 부과한다.',
+      }),
+      check({
+        severity: 'caution', topic: 'refund_limit', title: '환불 제한',
+        description: '이용 개시 후 환불 시 이용일수와 위약금을 공제하는 것으로 기재되어 있습니다.',
+        evidence_quote: '이용 개시 후 환불 시 이용일수에 해당하는 금액과 위약금(10%)을 공제한다.',
+      }),
     ],
   };
 }

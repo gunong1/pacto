@@ -23,7 +23,7 @@ const pay = (p: Partial<PaymentDraft> & Pick<PaymentDraft, 'kind' | 'label' | 'a
   installmentCount: null,
   isVariable: false,
   components: [],
-  businessDayRule: 'none',
+  businessDayRule: 'none', obligation: 'confirmed', conditionNote: null,
   ...p,
 });
 
@@ -287,7 +287,7 @@ describe('상세 화면 핵심 정보 — 유형별로 다른 항목', () => {
       payments: [pay({ kind: 'deposit', label: '계약금', amount: 20_000_000, frequency: 'one_time', startsOn: '2026-09-01' }), pay({ kind: 'deposit', label: '잔금', amount: 180_000_000, frequency: 'one_time', startsOn: '2026-11-01' })],
       dates: [{ kind: 'move_in', label: '입주일', date: '2026-11-01' }],
     });
-    expect(core(r)).toMatchObject({ '임대 형태': '전세', 보증금: '2억원', 계약금: '2,000만원 · 2026. 9. 1.', 잔금: '1억 8,000만원 · 2026. 11. 1.', 입주일: '2026. 11. 1.', '임대차 기간': '2026. 11. 1. ~ 2028. 10. 31.' });
+    expect(core(r)).toMatchObject({ '임대 형태': '전세', 보증금: '2억원', 계약금: '2,000만원 · 2026. 9. 1. · 결제 완료', 잔금: '1억 8,000만원 · 2026. 11. 1.', 입주일: '2026. 11. 1.', '임대차 기간': '2026. 11. 1. ~ 2028. 10. 31.' });
   });
 
   test('월세: 보증금·월세·관리비', () => {

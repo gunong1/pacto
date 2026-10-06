@@ -4,10 +4,10 @@
  * 날짜는 시간대 없는 로컬 날짜 문자열 'YYYY-MM-DD' (Asia/Seoul 기준), 금액은 원 단위 정수.
  */
 
-import type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, SourceType } from './contractTypes';
+import type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, PaymentObligation, SourceType } from './contractTypes';
 
 export { CONTRACT_CATEGORIES } from './contractTypes';
-export type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, SourceType } from './contractTypes';
+export type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, PaymentObligation, SourceType } from './contractTypes';
 
 /** 금액의 구성 항목 (예: 월 임금 = 기본급 + 고정연장근로수당). 표시용 — 합산하지 않는다 */
 export interface PaymentComponent {
@@ -110,6 +110,10 @@ export interface ContractPayment {
   components: PaymentComponent[];
   /** 지급일이 휴일이면: 직전 영업일(previous) / 다음 영업일(next) / 조정 없음(none) */
   businessDayRule: BusinessDayRule;
+  /** 의무 수준 — confirmed만 캘린더·지출·알림에 반영 */
+  obligation: PaymentObligation;
+  /** 언제 내는 돈인지 (예: 회원권을 양도하는 경우, 락커를 이용하는 경우) */
+  conditionNote: string | null;
 }
 
 /** 계약 유형별 주요 날짜 (설치일·입주일·잔금일·갱신일 …). 시작·종료·체결일은 Contract 필드. */

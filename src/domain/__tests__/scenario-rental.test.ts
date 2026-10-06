@@ -22,7 +22,7 @@ function rentalRecord(overrides: Partial<Record<string, string>> = {}): Contract
     startDate: '261012',
     endDate: '20291011',
     payments: [
-      { kind: 'recurring_fee' as const, direction: 'expense' as const, label: '월 렌탈료', amount: '29,900', frequency: 'monthly' as const, dayOfMonth: paymentDay, monthOfYear: '', startsOn: '', endsOn: '', installmentCount: '', isVariable: false, components: [], businessDayRule: 'none' as const },
+      { kind: 'recurring_fee' as const, direction: 'expense' as const, label: '월 렌탈료', amount: '29,900', frequency: 'monthly' as const, dayOfMonth: paymentDay, monthOfYear: '', startsOn: '', endsOn: '', installmentCount: '', isVariable: false, components: [], businessDayRule: 'none' as const, obligation: 'confirmed' as const, conditionNote: '' },
     ],
     autoRenewal: true,
     renewalPeriodMonths: '12',

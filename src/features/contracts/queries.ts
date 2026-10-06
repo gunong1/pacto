@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 
 import { contractRepository, documentStore } from '@/data';
 import type { PickedFile } from '@/data/ai/provider';
-import { recordToDraft } from '@/data/draft';
+import { activateCost, recordToDraft } from '@/data/draft';
 import type { ContractDraft, CreateContractInput, NewEventInput } from '@/data/repository';
 import { todayInSeoul } from '@/domain/dates';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
@@ -74,6 +74,12 @@ export function useContractActions(id: string) {
       const r = await contractRepository.get(id);
       if (!r) throw new Error('계약을 찾을 수 없어요.');
       return contractRepository.update(id, { ...recordToDraft(r), valueSources: { ...r.contract.valueSources, [path]: 'user_confirmed' } });
+    }),
+    /** 선택형·조건부 비용이 실제로 생김 (락커 이용 시작, 회원권 양도) → 그날부터 확정 결제 */
+    activateCost: useAction(async (paymentId: string, date: ISODate) => {
+      const r = await contractRepository.get(id);
+      if (!r) throw new Error('계약을 찾을 수 없어요.');
+      return contractRepository.update(id, activateCost(r, paymentId, date));
     }),
     /** 조건부 규칙: 사용자가 기준일(예: 퇴직 예정일)을 정하면 기준일 − N일 일정을 만든다 */
     scheduleRule: useAction(async (checkId: string, title: string, eventDate: ISODate) => {

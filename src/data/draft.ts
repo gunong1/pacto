@@ -102,6 +102,8 @@ export function draftToPayment(p: PaymentDraft, draft: Pick<ContractDraft, 'star
     isVariable: p.isVariable,
     components: p.components,
     businessDayRule: p.businessDayRule,
+    obligation: p.obligation ?? 'confirmed',
+    conditionNote: p.conditionNote ?? null,
   };
 }
 
@@ -163,9 +165,29 @@ export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payment
         isVariable: p.isVariable,
         components: p.components,
         businessDayRule: p.businessDayRule,
+        obligation: p.obligation,
+        conditionNote: p.conditionNote,
       }),
     ),
     dates: record.dates.map((d): DateDraft => ({ kind: d.kind, label: d.label, date: d.date })),
     valueSources: contract.valueSources,
   };
+}
+
+/**
+ * 선택형·조건부 비용을 실제 결제로 전환 (예: 락커 이용 시작, 회원권 양도 결정).
+ * 전환한 날부터 확정 결제가 되어 캘린더·지출·알림에 반영된다. 일시불은 그날 1회, 정기 결제는 그날부터 같은 날짜에.
+ */
+export function activateCost(record: ContractRecord, paymentId: string, date: string): ContractDraft {
+  const draft = recordToDraft(record);
+  const idx = record.payments.findIndex((p) => p.id === paymentId);
+  if (idx < 0) throw new Error('결제 항목을 찾을 수 없어요.');
+  const p = draft.payments[idx];
+  draft.payments[idx] = {
+    ...p,
+    obligation: 'confirmed',
+    startsOn: date,
+    dayOfMonth: p.frequency === 'one_time' ? null : (p.dayOfMonth ?? Number(date.slice(8, 10))),
+  };
+  return draft;
 }

@@ -1,3 +1,4 @@
+import { isConfirmedPayment } from './contractTypes';
 import { monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from './dates';
 import { expandPayment, type PaymentOccurrence } from './schedule';
 import type { ContractCategory, ContractPayment, ContractRecord, Direction, ISODate } from './types';
@@ -81,7 +82,7 @@ const MONTHS_PER_PAYMENT: Record<ContractPayment['frequency'], number | null> = 
 
 /** 결제 규칙의 월 환산액 (연납 1,368,000 → 114,000). 일시불·보증금은 0. 실제 월 지출과 섞지 않는 보조 지표. */
 export function paymentMonthlyEquivalent(payment: ContractPayment): number {
-  if (payment.direction !== 'expense') return 0;
+  if (payment.direction !== 'expense' || !isConfirmedPayment(payment)) return 0;
   const months = MONTHS_PER_PAYMENT[payment.frequency];
   return months ? Math.round(payment.amount / months) : 0;
 }

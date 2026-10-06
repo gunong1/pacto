@@ -9,6 +9,7 @@ import {
   PAYMENT_KIND_DEFS,
   type DetailInput,
   type Direction,
+  type PaymentObligation,
 } from '../../supabase/functions/_shared/contractRegistry';
 
 /**
@@ -27,8 +28,10 @@ export {
   BUSINESS_DAY_RULES,
   CHECK_BEHAVIORS,
   DIRECTIONS,
+  PAYMENT_OBLIGATIONS,
   SOURCE_TYPES,
   type BusinessDayRule,
+  type PaymentObligation,
   type CheckBehavior,
   type DetailInput,
   type Direction,
@@ -283,4 +286,18 @@ export function defaultTypeForCategory(category: string): ContractType {
     default:
       return 'other';
   }
+}
+
+/** 금액의 의무 수준 이름 */
+export const OBLIGATION_LABEL: Record<PaymentObligation, string> = {
+  confirmed: '확정 결제',
+  optional: '선택형',
+  conditional: '조건부',
+  potential: '발생 가능',
+  informational: '참고 금액',
+};
+
+/** 캘린더·지출·알림에 반영되는 금액 — 지급 의무와 시점이 확정된 것만 (선택·조건부·잠재·참고 금액은 계약 조건으로만) */
+export function isConfirmedPayment(p: { obligation?: PaymentObligation }): boolean {
+  return (p.obligation ?? 'confirmed') === 'confirmed';
 }

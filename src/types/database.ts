@@ -3,7 +3,25 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 export type Database = {
   
-  "public": {
+  "graphql_public": {
+          Tables: {
+            [_ in never]: never
+          }
+          Views: {
+            [_ in never]: never
+          }
+          Functions: {
+            "graphql":
+{ Args: { "extensions"?: Json,"operationName"?: string,"query"?: string,"variables"?: Json }; Returns: Json
+                           }
+          }
+          Enums: {
+            [_ in never]: never
+          }
+          CompositeTypes: {
+            [_ in never]: never
+          }
+        },"public": {
           Tables: {
             "analysis_jobs": {
                   Row: {
@@ -140,13 +158,13 @@ isOneToOne: false
                   ]
                 },"contract_payments": {
                   Row: {
-                    "amount": number,"business_day_rule": string,"components": NonNullable<Json>,"contract_id": string,"created_at": string,"currency": string,"day_of_month": number | null,"direction": string,"ends_on": string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id": string,"installment_count": number | null,"is_variable": boolean,"kind": string,"label": string,"month_of_year": number | null,"sort_order": number,"starts_on": string,"updated_at": string,"user_id": string
+                    "amount": number,"business_day_rule": string,"components": NonNullable<Json>,"condition_note": string | null,"contract_id": string,"created_at": string,"currency": string,"day_of_month": number | null,"direction": string,"ends_on": string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id": string,"installment_count": number | null,"is_variable": boolean,"kind": string,"label": string,"month_of_year": number | null,"obligation": string,"sort_order": number,"starts_on": string,"updated_at": string,"user_id": string
                   }
                   Insert: {
-                    "amount": number,"business_day_rule"?: string,"components"?: NonNullable<Json>,"contract_id": string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"direction"?: string,"ends_on"?: string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: string,"label"?: string,"month_of_year"?: number | null,"sort_order"?: number,"starts_on": string,"updated_at"?: string,"user_id"?: string
+                    "amount": number,"business_day_rule"?: string,"components"?: NonNullable<Json>,"condition_note"?: string | null,"contract_id": string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"direction"?: string,"ends_on"?: string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: string,"label"?: string,"month_of_year"?: number | null,"obligation"?: string,"sort_order"?: number,"starts_on": string,"updated_at"?: string,"user_id"?: string
                   }
                   Update: {
-                    "amount"?: number,"business_day_rule"?: string,"components"?: NonNullable<Json>,"contract_id"?: string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"direction"?: string,"ends_on"?: string | null,"frequency"?: Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: string,"label"?: string,"month_of_year"?: number | null,"sort_order"?: number,"starts_on"?: string,"updated_at"?: string,"user_id"?: string
+                    "amount"?: number,"business_day_rule"?: string,"components"?: NonNullable<Json>,"condition_note"?: string | null,"contract_id"?: string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"direction"?: string,"ends_on"?: string | null,"frequency"?: Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: string,"label"?: string,"month_of_year"?: number | null,"obligation"?: string,"sort_order"?: number,"starts_on"?: string,"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -361,7 +379,11 @@ export type CompositeTypes<
   : never
 
 export const Constants = {
-  "public": {
+  "graphql_public": {
+          Enums: {
+            
+          }
+        },"public": {
           Enums: {
             "contract_event_type": ["payment", "contract_start", "contract_end", "renewal", "termination_notice", "custom"],"contract_lifecycle": ["active", "ended", "cancelled"],"contract_source": ["upload", "manual"],"event_source": ["system", "ai", "user"],"job_status": ["queued", "processing", "succeeded", "failed", "expired"],"payment_frequency": ["one_time", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]
           }
