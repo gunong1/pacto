@@ -26,7 +26,7 @@ export const FREQUENCY_LABEL: Record<PaymentFrequency, string> = {
 };
 
 export const SEVERITY_LABEL: Record<ReviewSeverity, string> = {
-  info: '일반',
+  info: '핵심 정보',
   check: '확인 필요',
   caution: '주의 필요',
 };

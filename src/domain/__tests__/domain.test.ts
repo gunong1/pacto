@@ -90,7 +90,7 @@ describe('status', () => {
 describe('schedule', () => {
   const base = rec('c-water-purifier').contract;
   const p = (over: Partial<ContractPayment>): ContractPayment => ({
-    id: 'p', contractId: base.id, kind: 'recurring_fee', direction: 'expense', label: 'x', amount: 1000, frequency: 'monthly', dayOfMonth: null, monthOfYear: null, startsOn: '2026-01-31', endsOn: null, installmentCount: null, isVariable: false, ...over,
+    id: 'p', contractId: base.id, kind: 'recurring_fee', direction: 'expense', label: 'x', amount: 1000, frequency: 'monthly', dayOfMonth: null, monthOfYear: null, startsOn: '2026-01-31', endsOn: null, installmentCount: null, isVariable: false, components: [], businessDayRule: 'none', ...over,
   });
 
   test('31일 결제는 짧은 달에 말일로', () => {
@@ -204,7 +204,8 @@ describe('다음 행동', () => {
     expect(nextAction(rec('c-car-insurance'), TODAY)).toMatchObject({ kind: 'contract_end', label: '보험 만기', days: 87 });
     expect(nextAction(rec('c-internet'), TODAY)).toMatchObject({ kind: 'renewal', label: '자동갱신 예정', days: 268 });
     expect(nextAction(rec('c-mobile'), TODAY)).toMatchObject({ label: '약정 종료', days: 146 });
-    expect(nextAction(rec('c-water-purifier'), TODAY)).toMatchObject({ label: '렌탈 계약 종료' });
+    // 종료가 180일보다 멀면 아직 행동할 일이 아니라 다음 결제를 보여준다
+    expect(nextAction(rec('c-water-purifier'), TODAY)).toMatchObject({ label: '다음 결제' });
     // 종료일 없는 구독 → 다음 결제
     expect(nextAction(rec('c-ott'), TODAY)).toMatchObject({ kind: 'payment', date: '2026-10-12' });
   });

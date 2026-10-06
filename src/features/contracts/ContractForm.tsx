@@ -28,7 +28,9 @@ import {
   type DetailFieldSpec,
   type DetailValue,
   type PaymentKind,
+  type SourceType,
 } from '@/domain/contractTypes';
+import { BUSINESS_DAY_RULE_LABEL } from '@/domain/businessDays';
 import { addMonths, formatDateKo } from '@/domain/dates';
 import { categoryLabel, FREQUENCY_LABEL } from '@/domain/labels';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
@@ -100,6 +102,8 @@ function newPayment(kind: PaymentKind): PaymentFormValues {
     endsOn: '',
     installmentCount: '',
     isVariable: false,
+    components: [],
+    businessDayRule: 'none',
   };
 }
 
@@ -162,7 +166,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
               {footerNote}
             </AppText>
           ) : null}
-          <Button label={submitLabel} loading={submitting} onPress={handleSubmit((v) => onSubmit(formToDraft(v)))} testID="submit-contract" />
+          <Button label={submitLabel} loading={submitting} onPress={handleSubmit((v) => onSubmit(confirmEdited(formToDraft(v), defaultValues, getValues())))} testID="submit-contract" />
         </View>
       }>
       {header}
@@ -229,7 +233,14 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           <Section title={`${contractTypeLabel(type)} 정보`} testID="section-details">
             {type === 'lease' ? amount('depositAmount', '보증금') : null}
             {detailFields(type).map((spec) => (
-              <DetailInput key={`${type}-${spec.key}`} control={control} spec={spec} flagged={flagged?.has(`details.${spec.key}`)} />
+              <DetailInput
+                key={`${type}-${spec.key}`}
+                control={control}
+                spec={spec}
+                flagged={flagged?.has(`details.${spec.key}`)}
+                hint={hint(`details.${spec.key}`)}
+                source={values.valueSources?.[`details.${spec.key}`]}
+              />
             ))}
           </Section>
         </>
@@ -294,7 +305,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                 <>
                   <View style={styles.row2}>
                     <View style={styles.colNarrow}>
-                      {field(`payments.${i}.dayOfMonth`, '결제일', { keyboardType: 'number-pad', suffix: '일', maxLength: 2, testID: `payment-${i}-dayOfMonth`, flagged: flagged?.has(`${path}.dayOfMonth`), hint: hint(`${path}.dayOfMonth`) })}
+                      {field(`payments.${i}.dayOfMonth`, pv.direction === 'income' ? '지급일' : '결제일', { keyboardType: 'number-pad', suffix: '일', maxLength: 2, testID: `payment-${i}-dayOfMonth`, flagged: flagged?.has(`${path}.dayOfMonth`), hint: hint(`${path}.dayOfMonth`) })}
                     </View>
                     <View style={styles.col}>{date(`payments.${i}.startsOn`, '첫 결제일', { hint: '비워두면 시작일부터', testID: `payment-${i}-startsOn` })}</View>
                   </View>
@@ -302,9 +313,33 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                     <View style={styles.col}>{date(`payments.${i}.endsOn`, '마지막 결제일 (선택)', { hint: '비워두면 종료일까지', testID: `payment-${i}-endsOn` })}</View>
                     <View style={styles.colNarrow}>{field(`payments.${i}.installmentCount`, '총 회차', { keyboardType: 'number-pad', suffix: '회', maxLength: 3, testID: `payment-${i}-installmentCount` })}</View>
                   </View>
+                  <FormLabel label={pv.direction === 'income' ? '지급일이 휴일이면' : '결제일이 휴일이면'} />
+                  <Controller
+                    control={control}
+                    name={`payments.${i}.businessDayRule`}
+                    render={({ field: f }) => <ChipGroup options={BUSINESS_DAY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-businessDay`} />}
+                  />
+                  <View style={{ height: spacing.sm }} />
                   <Controller control={control} name={`payments.${i}.isVariable`} render={({ field: f }) => <SwitchRow label="금액이 매번 달라져요" description="통신비처럼 변동되는 금액은 예상치로 표시" value={f.value} onValueChange={f.onChange} />} />
                 </>
               )}
+              {pv.components && pv.components.length > 0 ? (
+                <View style={styles.components} testID={`payment-${i}-components`}>
+                  <AppText variant="captionStrong" color="textSecondary">
+                    {pv.label || '금액'} 구성 (따로 더하지 않아요)
+                  </AppText>
+                  {pv.components.map((c, j) => (
+                    <View key={`${c.label}-${j}`} style={styles.componentRow}>
+                      <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
+                        {c.label}
+                      </AppText>
+                      <AppText variant="caption" color="textSecondary" tabular>
+                        {formatWon(Number(c.amount) || 0)}
+                      </AppText>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           );
         })}
@@ -393,13 +428,13 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
 }
 
 /** 유형별 정보 한 칸 */
-function DetailInput({ control, spec, flagged }: { control: Control<ContractFormValues>; spec: DetailFieldSpec; flagged?: boolean }) {
+function DetailInput({ control, spec, flagged, hint, source }: { control: Control<ContractFormValues>; spec: DetailFieldSpec; flagged?: boolean; hint?: string; source?: SourceType }) {
   const name = `details.${spec.key}` as FieldName;
   if (spec.input === 'enum' || spec.input === 'boolean') {
     const options = spec.input === 'enum' ? [...(spec.options ?? [])] : [{ value: 'true', label: '예' }, { value: 'false', label: '아니오' }];
     return (
       <View style={{ marginBottom: spacing.lg }}>
-        <FormLabel label={spec.label} flagged={flagged} />
+        <FormLabel label={spec.label} flagged={flagged} source={source} />
         <Controller
           control={control}
           name={name}
@@ -407,6 +442,11 @@ function DetailInput({ control, spec, flagged }: { control: Control<ContractForm
             <ChipGroup options={options} value={String(f.value ?? '') || null} onChange={(v) => f.onChange(String(f.value) === v ? '' : v)} testIDPrefix={`detail-${spec.key}`} />
           )}
         />
+        {hint ? (
+          <AppText variant="caption" color={flagged ? 'check' : 'textTertiary'} style={{ marginTop: 6 }}>
+            {hint}
+          </AppText>
+        ) : null}
       </View>
     );
   }
@@ -414,7 +454,8 @@ function DetailInput({ control, spec, flagged }: { control: Control<ContractForm
     <FormText
       control={control}
       name={name}
-      label={spec.label}
+      label={source === 'inferred' ? `${spec.label} · AI 추정` : spec.label}
+      hint={hint}
       flagged={flagged}
       amount={spec.input === 'amount'}
       multiline={spec.input === 'text'}
@@ -431,7 +472,7 @@ function SchedulePreview({ values, today }: { values: ContractFormValues; today:
     const parsed = contractFormSchema.safeParse(values);
     if (!parsed.success) return null;
     const record = draftToRecord(formToDraft(parsed.data), 'preview', today);
-    const pays = record.payments.map((p) => ({ p, first: expandPayment(p, record.contract, { start: '1900-01-01', end: '2999-12-31' })[0] ?? null }));
+    const pays = record.payments.map((p) => ({ p, first: expandPayment(p, record.contract, { start: '1900-01-01', end: '2999-12-31' }, record.dates)[0] ?? null }));
     const items = contractSchedule(record, { start: today, end: addMonths(today, 36) }, today).filter((i) => i.type !== 'payment');
     return { items: items.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6), pays };
   }, [values, today]);
@@ -486,12 +527,23 @@ function PreviewRow({ color, title, sub }: { color: string; title: string; sub: 
   );
 }
 
-function FormLabel({ label, flagged }: { label: string; flagged?: boolean }) {
+/** AI가 추정한 값을 사용자가 고쳐 저장하면 그 값은 사용자가 확인한 값(user_confirmed) */
+function confirmEdited(draft: ContractDraft, before: ContractFormValues, after: ContractFormValues): ContractDraft {
+  const at = (o: unknown, path: string) => path.split('.').reduce<unknown>((v, k) => (v != null && typeof v === 'object' ? (v as Record<string, unknown>)[k] : undefined), o);
+  const sources = { ...draft.valueSources };
+  for (const [path, src] of Object.entries(sources)) {
+    if (src === 'inferred' && JSON.stringify(at(before, path) ?? '') !== JSON.stringify(at(after, path) ?? '')) sources[path] = 'user_confirmed';
+  }
+  return { ...draft, valueSources: sources };
+}
+
+function FormLabel({ label, flagged, source }: { label: string; flagged?: boolean; source?: SourceType }) {
   return (
     <View style={styles.label}>
       <AppText variant="captionStrong" color="textSecondary">
         {label}
       </AppText>
+      {source === 'inferred' ? <Badge label="AI 추정" tone="check" /> : null}
       {flagged ? <Badge label="확인 필요" tone="check" /> : null}
     </View>
   );
@@ -541,7 +593,11 @@ function FormDate({ control, name, label, flagged, hint, testID }: { control: Co
   );
 }
 
+const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
+
 const styles = StyleSheet.create({
+  components: { marginTop: spacing.md, padding: spacing.md, gap: 4, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
+  componentRow: { flexDirection: 'row', alignItems: 'center' },
   row2: { flexDirection: 'row', gap: spacing.md },
   col: { flex: 1 },
   colNarrow: { width: 110 },

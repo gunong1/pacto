@@ -32,7 +32,7 @@ export class MockAIProvider implements AIProvider {
 
     return {
       provider: this.name,
-      promptVersion: 'mock-4',
+      promptVersion: 'mock-5',
       category: { value: 'rental', confidence: 'high', alternatives: [], reason: '공기청정기 렌탈 계약으로 기재되어 있습니다.' },
       contractType: { value: 'recurring', confidence: 'high', alternatives: ['other'], reason: '매월 렌탈료를 내는 계약으로 기재되어 있습니다.' },
       fields: {
@@ -47,21 +47,22 @@ export class MockAIProvider implements AIProvider {
         penaltyTerms: f('잔여 렌탈료의 10%', 'medium', '잔여 렌탈료의 10%를 위약금으로 납부한다'),
       },
       dates: [
-        { date: signed, meaning: 'contract_signed', label: '계약 체결일', confidence: 'high' },
-        { date: start, meaning: 'service_start', label: '렌탈 개시일', confidence: 'high', evidence: [{ page: 1, quote: `렌탈 개시일: ${start}` }] },
-        { date: end, meaning: 'contract_end', label: '의무사용기간 종료', confidence: 'medium', evidence: [{ page: 1, quote: '의무사용기간: 개시일로부터 36개월' }] },
+        { date: signed, meaning: 'contract_signed', label: '계약 체결일', confidence: 'high', sourceType: 'explicit' },
+        { date: start, meaning: 'service_start', label: '렌탈 개시일', confidence: 'high', sourceType: 'explicit', evidence: [{ page: 1, quote: `렌탈 개시일: ${start}` }] },
+        { date: end, meaning: 'contract_end', label: '의무사용기간 종료', confidence: 'medium', sourceType: 'explicit', evidence: [{ page: 1, quote: '의무사용기간: 개시일로부터 36개월' }] },
       ],
       payments: [
         {
-          kind: 'recurring_fee', direction: 'expense', label: '월 렌탈료', amount: 29_900, frequency: 'monthly', dayOfMonth: 10, date: null, endDate: null, installmentCount: null, isVariable: false, optional: false,
+          kind: 'recurring_fee', direction: 'expense', label: '월 렌탈료', amount: 29_900, frequency: 'monthly', dayOfMonth: 10, date: null, endDate: null, installmentCount: null, isVariable: false, optional: false, components: [], businessDayRule: 'none', sourceType: 'explicit',
           confidence: 'low', evidence: [{ page: 2, quote: '렌탈료는 매월 지정일(10일)에 자동이체된다' }],
         },
         {
-          kind: 'setup_fee', direction: 'expense', label: '초기 설치비', amount: 20_000, frequency: 'one_time', dayOfMonth: null, date: null, endDate: null, installmentCount: null, isVariable: false, optional: false,
+          kind: 'setup_fee', direction: 'expense', label: '초기 설치비', amount: 20_000, frequency: 'one_time', dayOfMonth: null, date: null, endDate: null, installmentCount: null, isVariable: false, optional: false, components: [], businessDayRule: 'none', sourceType: 'explicit',
           confidence: 'high', evidence: [{ page: 1, quote: '초기 설치비 20,000원 (1회)' }],
         },
       ],
-      details: { commitment_months: { value: 36, confidence: 'high', evidence: [{ page: 1, quote: '의무사용기간: 개시일로부터 36개월' }] } },
+      references: [],
+      details: { commitment_months: { value: 36, confidence: 'high', sourceType: 'explicit', evidence: [{ page: 1, quote: '의무사용기간: 개시일로부터 36개월' }] } },
       checks: [
         {
           severity: 'caution',
@@ -72,6 +73,8 @@ export class MockAIProvider implements AIProvider {
           evidenceQuote: '계약 만료 1개월 전까지 별도 의사표시가 없으면 12개월 단위로 연장된다.',
           evidencePage: 3,
           evidenceFileIndex: 0,
+          behavior: 'fixed_event',
+          rule: null,
           relatedDate: null,
           suggestion: { kind: 'set_termination_notice', terminationNoticeDays: 30, autoRenewal: true, renewalPeriodMonths: 12 },
         },
@@ -84,6 +87,8 @@ export class MockAIProvider implements AIProvider {
           evidenceQuote: '의무사용기간 내 해지 시 잔여 렌탈료의 10%를 위약금으로 납부한다.',
           evidencePage: 3,
           evidenceFileIndex: 0,
+          behavior: 'conditional_rule',
+          rule: { condition: '의무사용기간 내 해지하는 경우', action: '잔여 렌탈료의 10% 위약금', offsetDays: null },
           relatedDate: null,
           suggestion: null,
         },
@@ -96,6 +101,8 @@ export class MockAIProvider implements AIProvider {
           evidenceQuote: '계약 종료 시 제품을 반환하지 않으면 잔존가액을 청구할 수 있다.',
           evidencePage: 3,
           evidenceFileIndex: 0,
+          behavior: 'info',
+          rule: null,
           relatedDate: null,
           suggestion: null,
         },

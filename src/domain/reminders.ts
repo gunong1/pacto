@@ -80,7 +80,7 @@ export function upcomingReminders(records: ContractRecord[], today: ISODate, hor
     }
 
     for (const p of record.payments) {
-      for (const o of expandPayment(p, contract, { start: today, end: addDays(until, REMINDER_RULES.paymentDaysBefore) })) {
+      for (const o of expandPayment(p, contract, { start: today, end: addDays(until, REMINDER_RULES.paymentDaysBefore) }, record.dates)) {
         const fireOn = addDays(o.date, -REMINDER_RULES.paymentDaysBefore);
         if (!inWindow(fireOn)) continue;
         out.push({

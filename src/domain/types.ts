@@ -4,10 +4,16 @@
  * 날짜는 시간대 없는 로컬 날짜 문자열 'YYYY-MM-DD' (Asia/Seoul 기준), 금액은 원 단위 정수.
  */
 
-import type { ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind } from './contractTypes';
+import type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, SourceType } from './contractTypes';
 
 export { CONTRACT_CATEGORIES } from './contractTypes';
-export type { ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind } from './contractTypes';
+export type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, SourceType } from './contractTypes';
+
+/** 금액의 구성 항목 (예: 월 임금 = 기본급 + 고정연장근로수당). 표시용 — 합산하지 않는다 */
+export interface PaymentComponent {
+  label: string;
+  amount: number;
+}
 
 export type ISODate = string;
 
@@ -53,6 +59,11 @@ export interface Contract {
   contractType: ContractType;
   /** 유형별 추가 속성 (contractTypes.ts DETAIL_FIELDS) */
   details: ContractDetails;
+  /**
+   * 값별 출처 — 'details.employmentKind': 'inferred' 처럼. 없으면 사용자가 입력했거나 계약서 명시값.
+   * 추정(inferred)·계산(calculated) 값은 명시값처럼 보이지 않게 화면에서 구분한다.
+   */
+  valueSources: Record<string, SourceType>;
   counterparty: string | null;
   lifecycle: ContractLifecycle;
   lifecycleChangedOn: ISODate | null;
@@ -95,6 +106,10 @@ export interface ContractPayment {
   /** 총 회차 (할부·대출). 있으면 마지막 회차 이후 결제는 없다. */
   installmentCount: number | null;
   isVariable: boolean;
+  /** 금액 구성 (표시용, 합산하지 않음) */
+  components: PaymentComponent[];
+  /** 지급일이 휴일이면: 직전 영업일(previous) / 다음 영업일(next) / 조정 없음(none) */
+  businessDayRule: BusinessDayRule;
 }
 
 /** 계약 유형별 주요 날짜 (설치일·입주일·잔금일·갱신일 …). 시작·종료·체결일은 Contract 필드. */
@@ -152,6 +167,10 @@ export interface AiCheck {
   evidenceDocumentId?: string | null;
   /** 이 조항과 관련해 계약서에 명시된 날짜 */
   relatedDate?: string | null;
+  /** 정보 / 날짜가 정해진 일 / 조건부 의무 (조건부는 기준 날짜를 정하기 전까지 일정·다음 행동이 되지 않는다) */
+  behavior?: CheckBehavior;
+  /** 조건부 의무: 어떤 경우에(condition) 무엇을(action) 기준일 며칠 전에(offsetDays) */
+  rule?: { condition: string; action: string; offsetDays: number | null } | null;
   /** 이 체크를 일정 관리로 연결하는 제안. */
   suggestion: AiCheckSuggestion | null;
   status: 'new' | 'acknowledged' | 'dismissed';

@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 
 import { contractRepository, documentStore } from '@/data';
 import type { PickedFile } from '@/data/ai/provider';
+import { recordToDraft } from '@/data/draft';
 import type { ContractDraft, CreateContractInput, NewEventInput } from '@/data/repository';
 import { todayInSeoul } from '@/domain/dates';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
@@ -68,6 +69,17 @@ export function useContractActions(id: string) {
     setEventCompleted: useAction((eventId: string, done: boolean) => contractRepository.setEventCompleted(id, eventId, done)),
     applyAiSuggestion: useAction((checkId: string) => contractRepository.applyAiSuggestion(id, checkId)),
     setAiCheckStatus: useAction((checkId: string, status: AiCheck['status']) => contractRepository.setAiCheckStatus(id, checkId, status)),
+    /** AI가 추정한 값을 사용자가 계약서와 비교해 확인 → user_confirmed */
+    confirmValue: useAction(async (path: string) => {
+      const r = await contractRepository.get(id);
+      if (!r) throw new Error('계약을 찾을 수 없어요.');
+      return contractRepository.update(id, { ...recordToDraft(r), valueSources: { ...r.contract.valueSources, [path]: 'user_confirmed' } });
+    }),
+    /** 조건부 규칙: 사용자가 기준일(예: 퇴직 예정일)을 정하면 기준일 − N일 일정을 만든다 */
+    scheduleRule: useAction(async (checkId: string, title: string, eventDate: ISODate) => {
+      await contractRepository.addEvent(id, { title, eventDate, eventType: 'custom' });
+      return contractRepository.setAiCheckStatus(id, checkId, 'acknowledged');
+    }),
   };
 }
 

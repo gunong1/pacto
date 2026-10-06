@@ -108,12 +108,15 @@ export function ListRow({ title, subtitle, left, right, onPress, chevron, testID
   );
 }
 
-export function KeyValueRow({ label, value, emphasis, testID }: { label: string; value: React.ReactNode; emphasis?: boolean; testID?: string }) {
+export function KeyValueRow({ label, value, emphasis, badge, testID }: { label: string; value: React.ReactNode; emphasis?: boolean; badge?: React.ReactNode; testID?: string }) {
   return (
     <View style={styles.kv} testID={testID}>
-      <AppText variant="body2" color="textTertiary" style={styles.kvLabel}>
-        {label}
-      </AppText>
+      <View style={styles.kvLabel}>
+        <AppText variant="body2" color="textTertiary">
+          {label}
+        </AppText>
+        {badge ? <View style={{ marginTop: 4, alignSelf: 'flex-start' }}>{badge}</View> : null}
+      </View>
       {typeof value === 'string' ? (
         <AppText variant={emphasis ? 'body2Strong' : 'body2'} tabular align="right" style={styles.kvValue}>
           {value}

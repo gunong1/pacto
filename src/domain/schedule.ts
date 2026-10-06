@@ -1,5 +1,7 @@
 import { profileOf, type PaymentKind } from './contractTypes';
+import { adjustToBusinessDay } from './businessDays';
 import { addDays, dateInMonth, parseISODate } from './dates';
+import { amountOn, amountPeriods, periodBoundaries } from './paymentRules';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
 import type {
   Contract,
@@ -25,8 +27,14 @@ const FREQUENCY_STEP_MONTHS: Record<Exclude<ContractPayment['frequency'], 'one_t
 };
 
 export interface PaymentOccurrence {
+  /** 실제 예정일 (휴일 조정 반영) */
   date: ISODate;
+  /** 계약서상 지급일 (조정 전) */
+  nominalDate: ISODate;
+  /** 그 회차 금액 (수습기간 등 기간별 금액 반영) */
   amount: number;
+  /** 기간별 금액이 적용된 이유: '수습기간 90%' (PACTO 계산) */
+  amountNote: string | null;
   paymentId: string;
   contractId: string;
   kind: PaymentKind;
@@ -64,8 +72,32 @@ export function lastInstallmentDate(payment: ContractPayment): ISODate | null {
   return dateInMonth(Math.floor(idx / 12), (idx % 12) + 1, day);
 }
 
-/** 결제 규칙을 조회 범위 안의 실제 결제일 목록으로 전개한다. 일시불은 startsOn이 결제일. */
+/**
+ * 결제 규칙을 조회 범위 안의 실제 결제 목록으로 전개한다. 일시불은 startsOn이 결제일.
+ * - 계약서상 지급일(nominal)에서 휴일 규칙으로 실제 예정일(date)을 구하고, 범위는 실제 예정일로 판단한다
+ * - 금액은 계약 조건(수습기간 등)의 기간별 금액을 반영한다 (paymentRules.ts)
+ * @param dates 계약의 주요 날짜 (입사일 등 — 기간별 금액 계산에 사용)
+ */
 export function expandPayment(
+  payment: ContractPayment,
+  contract: Contract,
+  range: DateRange,
+  dates: ContractRecord['dates'] = [],
+): PaymentOccurrence[] {
+  const rule = payment.businessDayRule ?? 'none';
+  const margin = rule === 'none' ? 0 : 10;
+  const nominal = expandNominal(payment, contract, { start: addDays(range.start, -margin), end: addDays(range.end, margin) });
+  const periods = amountPeriods({ contract, dates }, payment);
+  return nominal
+    .map((o) => {
+      const { amount, note } = amountOn(periods, payment, o.nominalDate);
+      return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote: note };
+    })
+    .filter((o) => o.date >= range.start && o.date <= range.end);
+}
+
+/** 계약서상 지급일 기준 전개 (휴일 조정·기간별 금액 전) */
+function expandNominal(
   payment: ContractPayment,
   contract: Contract,
   range: DateRange,
@@ -87,7 +119,9 @@ export function expandPayment(
     const no = step ? Math.round((monthIndex(d.year, d.month) - firstIdx) / step) + 1 : 1;
     return {
       date,
+      nominalDate: date,
       amount: payment.amount,
+      amountNote: null,
       paymentId: payment.id,
       contractId: contract.id,
       kind: payment.kind,
@@ -167,13 +201,13 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
   const inRange = (d: ISODate | null | undefined): d is ISODate => !!d && d >= range.start && d <= range.end;
 
   for (const p of record.payments) {
-    for (const o of expandPayment(p, contract, range)) {
+    for (const o of expandPayment(p, contract, range, record.dates)) {
       items.push({
         ...base,
         key: `pay:${p.id}:${o.date}`,
         date: o.date,
         type: 'payment',
-        title: o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label,
+        title: `${o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label}${o.amountNote ? ` (${o.amountNote})` : ''}`,
         paymentKind: p.kind,
         direction: p.direction,
         amount: o.amount,
@@ -193,6 +227,13 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
   for (const d of record.dates) {
     if (!inRange(d.date)) continue;
     items.push({ ...base, ...plain, key: `date:${d.id}`, date: d.date, type: 'key_date', title: d.label });
+  }
+
+  // 기간의 끝 (수습기간 종료 예정 등) — 계약 조건에서 계산
+  if (contract.lifecycle === 'active') {
+    for (const b of periodBoundaries(record)) {
+      if (inRange(b.date)) items.push({ ...base, ...plain, key: `${b.key}:${contract.id}`, date: b.date, type: 'key_date', title: b.label });
+    }
   }
 
   if (contract.lifecycle === 'active') {
@@ -272,7 +313,7 @@ export function scheduleForRange(records: ContractRecord[], range: DateRange, to
 /** 계약의 다음 결제 (오늘 포함, 최대 13개월 앞까지 탐색). */
 export function nextPayment(record: ContractRecord, today: ISODate): PaymentOccurrence | null {
   const range = { start: today, end: addDays(today, 400) };
-  const all = record.payments.flatMap((p) => expandPayment(p, record.contract, range));
+  const all = record.payments.flatMap((p) => expandPayment(p, record.contract, range, record.dates));
   all.sort((a, b) => a.date.localeCompare(b.date));
   return all[0] ?? null;
 }

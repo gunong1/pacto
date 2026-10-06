@@ -22,7 +22,18 @@ import {
  * 유형은 관리 방식을 고르는 기준일 뿐, 실제 계약서 내용보다 우선하지 않는다 — 일정·지출은 저장된 결제·날짜에서 만든다.
  */
 
-export { DIRECTIONS, type DetailInput, type Direction } from '../../supabase/functions/_shared/contractRegistry';
+export {
+  AMOUNT_ROLES,
+  BUSINESS_DAY_RULES,
+  CHECK_BEHAVIORS,
+  DIRECTIONS,
+  SOURCE_TYPES,
+  type BusinessDayRule,
+  type CheckBehavior,
+  type DetailInput,
+  type Direction,
+  type SourceType,
+} from '../../supabase/functions/_shared/contractRegistry';
 
 export type ContractCategory = (typeof CATEGORY_DEFS)[number]['code'];
 export type ContractType = (typeof CONTRACT_TYPE_DEFS)[number]['code'];

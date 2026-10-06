@@ -1,5 +1,8 @@
 import type {
   AiCheck,
+  BusinessDayRule,
+  PaymentComponent,
+  SourceType,
   ContractCategory,
   ContractDateKind,
   ContractDetails,
@@ -33,6 +36,10 @@ export interface PaymentDraft {
   /** 총 회차 (할부·대출) */
   installmentCount: number | null;
   isVariable: boolean;
+  /** 금액 구성 (표시용, 합산하지 않음) */
+  components: PaymentComponent[];
+  /** 지급일이 휴일이면 직전/다음 영업일 */
+  businessDayRule: BusinessDayRule;
 }
 
 /** 주요 날짜 한 건 (설치일·입주일·잔금일·갱신일 …) */
@@ -63,6 +70,8 @@ export interface ContractDraft {
   memo: string | null;
   payments: PaymentDraft[];
   dates: DateDraft[];
+  /** 값별 출처 (AI 추정·PACTO 계산 구분, 사용자가 고치면 user_confirmed) */
+  valueSources: Record<string, SourceType>;
 }
 
 /** 계약에 연결할 원본 문서. id가 있으면 이미 업로드된 문서(contract_documents)를 연결한다. */

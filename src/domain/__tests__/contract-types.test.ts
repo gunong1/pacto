@@ -22,6 +22,8 @@ const pay = (p: Partial<PaymentDraft> & Pick<PaymentDraft, 'kind' | 'label' | 'a
   endsOn: null,
   installmentCount: null,
   isVariable: false,
+  components: [],
+  businessDayRule: 'none',
   ...p,
 });
 
@@ -379,7 +381,7 @@ describe('8. 근로계약: 급여는 수입(지출과 섞지 않음), 근로 시
     expect(on(r, '2026-10-20')).toEqual([]);
   });
   test('상세: 회사·고용 형태·급여(+)·연봉·근로 기간·수습', () => {
-    expect(core(r)).toMatchObject({ 회사: 'PACTO 주식회사', '고용 형태': '계약직', '월 급여': '+3,500,000원 · 매월 25일', 연봉: '42,000,000원', '근로 기간': '2026. 11. 2. ~ 2027. 11. 1.', 수습기간: '3개월' });
+    expect(core(r)).toMatchObject({ 회사: 'PACTO 주식회사', '고용 형태': '계약직', '월 급여': '+3,500,000원 · 매월 25일', 연봉: '42,000,000원', '근로 기간': '2026. 11. 2. ~ 2027. 11. 1.', 수습기간: '2026. 11. 2. ~ 2027. 2. 1. (3개월)' });
   });
 });
 

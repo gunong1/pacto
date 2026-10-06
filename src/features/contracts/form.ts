@@ -2,8 +2,10 @@ import { z } from 'zod';
 
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
+  BUSINESS_DAY_RULES,
   CONTRACT_DATE_KINDS,
   DIRECTIONS,
+  SOURCE_TYPES,
   CONTRACT_TYPES,
   detailFields,
   detailSchema,
@@ -52,6 +54,9 @@ const paymentFormSchema = z.object({
   endsOn: optionalDate,
   installmentCount: optionalInt(1, 600, '1~600 사이로 입력해주세요'),
   isVariable: z.boolean(),
+  /** 금액 구성 (AI가 찾은 하위 항목, 표시용 — 합산하지 않음) */
+  components: z.array(z.object({ label: z.string(), amount: z.number() })),
+  businessDayRule: z.enum(BUSINESS_DAY_RULES),
 });
 
 const dateFormSchema = z.object({
@@ -80,6 +85,8 @@ export const contractFormSchema = z
     earlyTerminationTerms: z.string().max(500),
     penaltyTerms: z.string().max(500),
     memo: z.string().max(2000),
+    /** 값별 출처 (화면에는 배지로만 표시) */
+    valueSources: z.record(z.string(), z.enum(SOURCE_TYPES)),
   })
   .superRefine((v, ctx) => {
     if (v.startDate && v.endDate && isValidISODate(v.startDate) && isValidISODate(v.endDate) && v.endDate < v.startDate) {
@@ -175,6 +182,8 @@ export function paymentToForm(p: PaymentDraft): PaymentFormValues {
     endsOn: str(p.endsOn),
     installmentCount: num(p.installmentCount),
     isVariable: p.isVariable,
+    components: p.components,
+    businessDayRule: p.businessDayRule,
   };
 }
 
@@ -198,6 +207,7 @@ export function draftToForm(d: ContractDraft): ContractFormValues {
     earlyTerminationTerms: str(d.earlyTerminationTerms),
     penaltyTerms: str(d.penaltyTerms),
     memo: str(d.memo),
+    valueSources: d.valueSources,
   };
 }
 
@@ -225,6 +235,8 @@ export function formToDraft(v: ParsedContractForm): ContractDraft {
         endsOn: oneTime ? null : nullable(p.endsOn),
         installmentCount: oneTime ? null : intOrNull(p.installmentCount),
         isVariable: oneTime ? false : p.isVariable,
+        components: p.components,
+        businessDayRule: oneTime ? 'none' : p.businessDayRule,
       };
     }),
     dates: v.dates.map((x): DateDraft => ({ kind: x.kind, label: x.label.trim(), date: x.date })),
@@ -236,5 +248,6 @@ export function formToDraft(v: ParsedContractForm): ContractDraft {
     earlyTerminationTerms: nullable(v.earlyTerminationTerms),
     penaltyTerms: nullable(v.penaltyTerms),
     memo: nullable(v.memo),
+    valueSources: v.valueSources,
   };
 }

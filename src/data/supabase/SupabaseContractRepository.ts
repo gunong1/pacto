@@ -59,6 +59,8 @@ function toPayment(r: Row<'contract_payments'>): ContractPayment {
     endsOn: r.ends_on,
     installmentCount: r.installment_count,
     isVariable: r.is_variable,
+    components: Array.isArray(r.components) ? (r.components as unknown as ContractPayment['components']) : [],
+    businessDayRule: r.business_day_rule as ContractPayment['businessDayRule'],
   };
 }
 
@@ -101,6 +103,7 @@ function toContract(r: Row<'contracts'>): Contract {
     category: r.category as Contract['category'],
     contractType: r.contract_type as Contract['contractType'],
     details: detailsFromDb(r.contract_type, r.contract_details),
+    valueSources: (r.value_sources && typeof r.value_sources === 'object' && !Array.isArray(r.value_sources) ? r.value_sources : {}) as Contract['valueSources'],
     counterparty: r.counterparty,
     lifecycle: r.lifecycle,
     lifecycleChangedOn: r.lifecycle_changed_on,
@@ -142,6 +145,7 @@ function contractPayload(d: ContractDraft, extra: Record<string, unknown> = {}):
     category: d.category,
     contract_type: d.contractType,
     contract_details: detailsToDb(d.contractType, d.details),
+    value_sources: d.valueSources,
     counterparty: d.counterparty,
     contract_date: d.contractDate,
     start_date: d.startDate,
@@ -173,6 +177,8 @@ function paymentsPayload(d: ContractDraft, today: ISODate): Json {
       ends_on: r.endsOn,
       installment_count: r.installmentCount,
       is_variable: r.isVariable,
+      components: r.components as unknown as Json,
+      business_day_rule: r.businessDayRule,
     };
   });
 }

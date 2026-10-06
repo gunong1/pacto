@@ -8,6 +8,9 @@
 // 분야·유형·속성·결제 의미·날짜 의미·체크 주제 목록은 공용 레지스트리(contractRegistry.ts)에서 온다.
 
 import {
+  AMOUNT_ROLES,
+  BUSINESS_DAY_RULES,
+  CHECK_BEHAVIORS,
   CATEGORY_CODES,
   CATEGORY_DEFS,
   CHECK_TOPIC_CODES,
@@ -21,7 +24,7 @@ import {
   PAYMENT_KIND_DEFS,
 } from './contractRegistry.ts';
 
-export const PROMPT_VERSION = 'extract-v4';
+export const PROMPT_VERSION = 'extract-v5';
 
 export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export const FREQUENCIES = ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly', 'one_time'] as const;
@@ -50,6 +53,8 @@ export const DATE_MEANINGS = [
   'other',
 ] as const;
 const CONFIDENCE = ['high', 'medium', 'low'] as const;
+/** 모델이 줄 수 있는 출처 (계산·사용자 확인은 앱이 붙인다) */
+const MODEL_SOURCES = ['explicit', 'inferred'] as const;
 const SEVERITY = ['info', 'check', 'caution'] as const;
 
 /** 법적 판단·단정 표현 금지 목록 (앱 src/domain/aiCopy.ts와 동일) */
@@ -68,7 +73,10 @@ export const FIELDS: Record<string, { type: FieldType; desc: string }> = {
   depositAmount: { type: 'integer', desc: '보증금·전세금 총액(원). 명시된 경우만' },
   autoRenewal: { type: 'boolean', desc: '만료 시 자동으로 연장되는 조건이 있는지 (묵시적 갱신 포함). 언급이 없으면 null' },
   renewalPeriodMonths: { type: 'integer', desc: '자동 연장 시 연장 기간(개월)' },
-  terminationNoticeDays: { type: 'integer', desc: '종료·해지하려면 종료 며칠 전까지 알려야 하는지(일). 1개월 전이면 30' },
+  terminationNoticeDays: {
+    type: 'integer',
+    desc: '계약 종료일(만료일) 기준으로 며칠 전까지 해지·갱신 거절을 알려야 하는지(일). 1개월 전이면 30. 자진 퇴직·중도 해지처럼 사용자가 정한 날 기준 통보는 넣지 않는다 (checks의 conditional_rule)',
+  },
   earlyTerminationTerms: { type: 'string', desc: '중도해지(중도상환) 조건 요약 (한 문장)' },
   penaltyTerms: { type: 'string', desc: '위약금 조건 요약 (한 문장)' },
 };
@@ -82,6 +90,7 @@ const evidenceFull = {
   evidence_file: { type: ['integer', 'null'], description: '근거가 있는 파일 번호(1부터, 첨부 순서). 파일이 하나면 1' },
 };
 const confidence = { type: 'string', enum: [...CONFIDENCE] };
+const sourceType = { type: 'string', enum: [...MODEL_SOURCES], description: 'explicit: 계약서에 그대로 적힌 값 / inferred: 문맥으로 판단한 값' };
 const strictObject = (properties: Record<string, unknown>) => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties });
 const classification = (codes: readonly string[], desc: string) =>
   strictObject({
@@ -109,6 +118,7 @@ export function extractionJsonSchema() {
         meaning: { type: 'string', enum: [...DATE_MEANINGS] },
         label: { type: 'string', description: '계약서에서 이 날짜를 부르는 이름 (예: 렌탈 개시일, 잔금일, 입사일)' },
         confidence,
+        source_type: sourceType,
         ...evidence,
       }),
     },
@@ -116,6 +126,12 @@ export function extractionJsonSchema() {
       type: 'array',
       description: '계약에서 오가는 돈을 모두 (정기 결제·급여·대금·일회성 비용·보증금·계약금·중도금·잔금 …)',
       items: strictObject({
+        role: {
+          type: 'string',
+          enum: [...AMOUNT_ROLES],
+          description: '실제로 오가는 돈(recurring_cashflow·one_time_cashflow·deposit)인지, 다른 금액의 구성 항목(component)·합계(total)·참고 금액(reference)인지',
+        },
+        part_of: { type: ['string', 'null'], description: 'component일 때 이 금액이 속한 금액의 label (예: 월 임금)' },
         kind: { type: 'string', enum: [...PAYMENT_KIND_CODES] },
         direction: { type: 'string', enum: [...DIRECTIONS], description: '사용자 기준: 내는 돈 expense / 받는 돈 income / 돌려받는 보증금 등 neutral' },
         label: { type: 'string', description: '계약서의 항목 이름 (예: 월 렌탈료, 초기 설치비, 월 급여, 잔금)' },
@@ -127,7 +143,9 @@ export function extractionJsonSchema() {
         installment_count: { type: ['integer', 'null'], description: '총 납입 회차 (할부·대출). 명시된 경우만' },
         is_variable: { type: 'boolean', description: '사용량 등으로 매번 금액이 달라지는지' },
         optional: { type: 'boolean', description: '"(선택)", "신청 시"처럼 신청한 경우에만 청구되는 항목이면 true' },
+        business_day_rule: { type: 'string', enum: [...BUSINESS_DAY_RULES], description: '지급일이 휴일이면: previous 직전 영업일 / next 다음 영업일 / none 언급 없음' },
         confidence,
+        source_type: sourceType,
         ...evidence,
       }),
     },
@@ -140,6 +158,7 @@ export function extractionJsonSchema() {
         number_value: { type: ['number', 'null'], description: '금액(원)·개월·년·금리(%) 숫자' },
         boolean_value: { type: ['boolean', 'null'] },
         confidence,
+        source_type: sourceType,
         ...evidence,
       }),
     },
@@ -152,7 +171,15 @@ export function extractionJsonSchema() {
         title: { type: 'string', description: '짧은 이름 (예: 자동갱신, 중도해지 위약금)' },
         description: { type: 'string', description: '계약서에 무엇이 어떻게 적혀 있는지 1~2문장. 판단하지 않고 전달만' },
         confidence,
-        related_date: { type: ['string', 'null'], description: '이 조항과 관련해 챙길 날짜가 계약서에 명시돼 있으면 YYYY-MM-DD' },
+        behavior: {
+          type: 'string',
+          enum: [...CHECK_BEHAVIORS],
+          description: 'info: 알아둘 정보 / fixed_event: 계약서 기준으로 날짜가 정해지는 일 / conditional_rule: 어떤 상황이 생길 때만 생기는 의무 (날짜를 만들지 않음)',
+        },
+        condition: { type: ['string', 'null'], description: 'conditional_rule의 조건 (예: 근로자가 자진 퇴직하려는 경우)' },
+        action: { type: ['string', 'null'], description: 'conditional_rule에서 해야 할 일 (예: 희망 퇴직일 30일 전에 회사에 통보)' },
+        offset_days: { type: ['integer', 'null'], description: 'conditional_rule에서 기준일 며칠 전인지 (예: 30)' },
+        related_date: { type: ['string', 'null'], description: 'fixed_event이고 챙길 날짜가 계약서에 명시돼 있으면 YYYY-MM-DD. conditional_rule은 null' },
         ...evidenceFull,
       }),
     },
@@ -206,10 +233,25 @@ export function extractionInstructions(today: string): string {
     '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·해지·만기 조건(자동갱신, 연장 기간, 통보기한 일수, 중도해지·위약금).',
     '9) checks — PACTO 계약 체크: 사용자가 놓치기 쉬운, 확인이 필요한 조항을 찾습니다. 주제(topic):',
     topicGuide(),
-    '   severity: 놓치면 계약이 연장되거나 비용이 생기는 조항(자동갱신·통보기한·위약금·환불 제한·연체 등)은 caution,',
-    '   조건을 확인하면 좋은 조항은 check, 단순 안내는 info. 확신이 낮으면 confidence를 low로.',
+    '   severity와 behavior는 아래 의미 해석 원칙을 따릅니다. 확신이 낮으면 confidence를 low로.',
     '   각 항목에는 근거가 된 원문 문장(evidence_quote), 쪽(evidence_page), 파일 번호(evidence_file)를 반드시 넣습니다. 근거가 없는 조항은 넣지 않습니다.',
-    '   관련해 챙길 날짜가 계약서에 명시돼 있으면 related_date에 넣습니다.',
+    '   계약서 기준으로 날짜가 정해지는 일(fixed_event)이고 그 날짜가 명시돼 있을 때만 related_date에 넣습니다.',
+    '',
+    '의미 해석 원칙 (가장 중요): 숫자와 날짜를 발견했다고 곧바로 결제·일정으로 만들지 않습니다. 의미를 먼저 판단합니다.',
+    '- 금액의 role: 실제로 오가는 돈만 recurring_cashflow / one_time_cashflow / deposit. 다른 금액을 이루는 하위 항목은 component(part_of에 상위 금액 이름),',
+    '  예) "월 임금 3,600,000원은 기본급 3,280,000원과 고정연장근로수당 320,000원으로 구성" → 월 임금 recurring_cashflow 1건 + 기본급·고정연장근로수당 component 2건 (별도 수입 아님).',
+    '  차량가·총 대출한도처럼 오가는 돈이 아닌 금액은 reference.',
+    '- 계약서에 없는 값을 계산해 만들지 않습니다: 월 임금만 있으면 연봉(annual_salary)을 넣지 않고, 기간만 있으면 다른 금액을 만들지 않습니다. 숫자 속성은 계약서에 적힌 경우만 explicit로.',
+    '- 문맥으로 판단한 값(예: 기간이 정해져 있어 계약직으로 판단)은 source_type=inferred. 계약서에 그 단어가 직접 있으면 explicit.',
+    '- 조건부 의무는 날짜로 바꾸지 않습니다: "근로자가 퇴직하고자 하는 경우 30일 전 통보"는 계약 종료일 기준 통보기한이 아닙니다 →',
+    '  checks에 behavior=conditional_rule, condition=자진 퇴직하려는 경우, action=희망 퇴직일 30일 전에 회사에 통보, offset_days=30, related_date=null.',
+    '  fields.terminationNoticeDays는 "계약 만료 N일 전까지 해지(갱신 거절) 통보"처럼 종료일 기준일 때만 넣습니다.',
+    '- 기간 조건(수습기간 N개월, 수습 중 임금 N%)은 속성(probation_months, probation_pay_rate)으로 넣습니다. 시작일만 따로 일정(related_date)으로 만들지 않습니다.',
+    '- 지급일이 휴일일 때 규칙("휴일이면 직전 영업일")은 business_day_rule로.',
+    '- 자동갱신이 아니고 갱신을 별도 협의로 정하면 autoRenewal=false, 갱신 조건은 renewal_terms 속성(해당 유형) 또는 checks(topic=renewal_terms).',
+    '- checks의 severity: info = 핵심 정보(알아두면 되는 계약 정보: 급여일·근로시간·계약기간·수습기간 사실),',
+    '  check = 확인 필요(사용자가 조건을 알고 있어야 하는 내용: 회사의 근무장소·업무 변경 가능, 수습 중 임금 감액, 월 임금에 고정수당 포함, 퇴직 사전통보, 갱신 별도 협의, 비밀유지, 자산 반환),',
+    '  caution = 주의 필요(책임·비용·권리 제한이 큰 조건: 위약금·손해배상 범위·환불 제한·일방적 변경·연체이율 등). 일반 정보를 모두 확인 필요로 올리지 않습니다.',
     '',
     '공통 규칙:',
     '- 계약서에 적힌 내용만 사용합니다. 유형 템플릿에 맞추려고 없는 정보를 만들지 않습니다 (임대차라도 월세가 없을 수 있고, 보험이 월납이 아닐 수 있고, 근로계약이 기간 없이 체결될 수 있음).',
@@ -227,6 +269,7 @@ export function extractionInstructions(today: string): string {
 // ===== 검증 + 앱 형식 변환 =====
 
 type Confidence = (typeof CONFIDENCE)[number];
+type ModelSource = (typeof MODEL_SOURCES)[number];
 
 export interface Evidence {
   page: number;
@@ -251,7 +294,14 @@ export interface ExtractedDate {
   meaning: (typeof DATE_MEANINGS)[number];
   label: string;
   confidence: Confidence;
+  sourceType: ModelSource;
   evidence?: Evidence[];
+}
+
+/** 실제로 오가지 않는 금액 — 구성 항목은 상위 결제에 붙이고, 합계·참고 금액은 따로 보여준다 */
+export interface ExtractedComponent {
+  label: string;
+  amount: number;
 }
 
 export interface ExtractedPayment {
@@ -268,13 +318,18 @@ export interface ExtractedPayment {
   isVariable: boolean;
   /** 신청한 경우에만 청구되는 선택 항목 (예: 락커 이용료) */
   optional: boolean;
+  /** 이 금액을 이루는 하위 항목 (합산하지 않는다) */
+  components: ExtractedComponent[];
+  businessDayRule: (typeof BUSINESS_DAY_RULES)[number];
   confidence: Confidence;
+  sourceType: ModelSource;
   evidence?: Evidence[];
 }
 
 export interface ExtractedDetail {
   value: string | number | boolean;
   confidence: Confidence;
+  sourceType: ModelSource;
   evidence?: Evidence[];
 }
 
@@ -288,6 +343,10 @@ export interface ExtractedCheck {
   evidencePage: number | null;
   /** 근거 파일 순서(0부터) — 앱이 보관된 원본 id로 바꾼다 */
   evidenceFileIndex: number | null;
+  /** info: 알아둘 정보 / fixed_event: 날짜가 정해지는 일 / conditional_rule: 조건이 생길 때만 생기는 의무 */
+  behavior: (typeof CHECK_BEHAVIORS)[number];
+  /** conditional_rule — 사용자가 기준일(예: 퇴직 예정일)을 입력하면 기준일 − offsetDays 일정을 만든다 */
+  rule: { condition: string; action: string; offsetDays: number | null } | null;
   relatedDate: string | null;
   suggestion:
     | null
@@ -301,6 +360,8 @@ export interface AppExtractionResult {
   fields: Record<string, Extracted>;
   dates: ExtractedDate[];
   payments: ExtractedPayment[];
+  /** 합계·참고 금액 (결제·지출에 넣지 않음) */
+  references: (ExtractedComponent & { role: 'total' | 'reference' })[];
   /** 유형별 속성 (DB 키 snake_case) — 앱이 선택된 유형의 스키마로 다시 검증한다 */
   details: Record<string, ExtractedDetail>;
   checks: ExtractedCheck[];
@@ -386,6 +447,11 @@ function confidenceOf(v: unknown): Confidence {
   return oneOf(CONFIDENCE, v) ?? 'low';
 }
 
+/** 출처를 모르면 계약서에 적힌 값으로 보지 않는다 */
+function sourceOf(v: unknown): ModelSource {
+  return oneOf(MODEL_SOURCES, v) ?? 'inferred';
+}
+
 function classify<T extends string>(raw: unknown, codes: readonly T[], fallback: T): Classification<T> {
   const o = isObj(raw) ? raw : {};
   const value = oneOf(codes, o.value);
@@ -433,16 +499,30 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
       meaning: oneOf(DATE_MEANINGS, d.meaning) ?? 'other',
       label: text(d.label, 40) ?? '날짜',
       confidence: confidenceOf(d.confidence),
+      sourceType: sourceOf(d.source_type),
       ...quoteOf(d),
     }));
 
-  // 5·6) 결제 (금액·주기가 틀린 항목은 버림, 같은 돈 중복 제거)
+  // 5·6) 금액 — 의미(role)를 먼저 본다. 실제로 오가는 돈만 결제로, 구성 항목은 상위 결제에, 합계·참고 금액은 따로.
   const payments: ExtractedPayment[] = [];
+  const pendingComponents: { label: string; amount: number; partOf: string | null; direction: string | null; frequency: string | null }[] = [];
+  const references: AppExtractionResult['references'] = [];
   for (const p of Array.isArray(output.payments) ? output.payments : []) {
     if (!isObj(p) || payments.length >= 20) continue;
     const amount = toInt(p.amount, 0, MAX_AMOUNT);
+    if (amount === null) continue;
+    const role = oneOf(AMOUNT_ROLES, p.role);
+    const label = text(p.label, 40) ?? '결제';
+    if (role === 'component') {
+      pendingComponents.push({ label, amount, partOf: text(p.part_of, 40), direction: oneOf(DIRECTIONS, p.direction), frequency: oneOf(FREQUENCIES, p.frequency) });
+      continue;
+    }
+    if (role === 'total' || role === 'reference') {
+      references.push({ label, amount, role });
+      continue;
+    }
     const frequency = oneOf(FREQUENCIES, p.frequency);
-    if (amount === null || frequency === null) continue;
+    if (frequency === null) continue;
     const oneTime = frequency === 'one_time';
     const kind = oneOf(PAYMENT_KIND_CODES, p.kind) ?? 'other';
     const date = validDate(p.date) ? p.date.trim() : null;
@@ -451,7 +531,7 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
     payments.push({
       kind,
       direction: oneOf(DIRECTIONS, p.direction) ?? kindDefault,
-      label: text(p.label, 40) ?? '결제',
+      label,
       amount,
       frequency,
       dayOfMonth: oneTime ? null : toInt(p.day_of_month, 1, 31),
@@ -460,23 +540,53 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
       installmentCount: oneTime ? null : toInt(p.installment_count, 1, 600),
       isVariable: p.is_variable === true,
       optional: p.optional === true,
+      components: [],
+      businessDayRule: oneTime ? 'none' : (oneOf(BUSINESS_DAY_RULES, p.business_day_rule) ?? 'none'),
       confidence: confidenceOf(p.confidence),
+      sourceType: sourceOf(p.source_type),
       ...quoteOf(p),
     });
   }
+  // 안전장치: role 없이 "…에 포함"·"…으로 구성"이라고 적힌 정기 금액이 같은 방향·주기의 더 큰 정기 금액과 함께 있으면 구성 항목으로 본다
+  // (예: 월 임금 3,600,000 + "월 임금에 포함된" 고정연장근로수당 320,000 → 별도 수입이 아님)
+  for (const p of [...payments]) {
+    if (p.frequency === 'one_time' || !p.evidence?.some((e) => /포함|구성/.test(e.quote))) continue;
+    const parent = payments.find((x) => x !== p && x.direction === p.direction && x.frequency === p.frequency && x.amount > p.amount);
+    if (!parent) continue;
+    payments.splice(payments.indexOf(p), 1);
+    pendingComponents.push({ label: p.label, amount: p.amount, partOf: parent.label, direction: p.direction, frequency: p.frequency });
+  }
+  // 구성 항목 → 상위 결제 (part_of 이름 → 같은 방향·주기의 정기 금액 → 더 큰 금액 순). 상위를 못 찾으면 참고 금액으로
+  for (const c of pendingComponents) {
+    const recurring = payments.filter((x) => x.frequency !== 'one_time' && x.amount > c.amount);
+    const parent =
+      recurring.find((x) => c.partOf && (x.label.includes(c.partOf) || c.partOf.includes(x.label))) ??
+      recurring.find((x) => (!c.direction || x.direction === c.direction) && (!c.frequency || x.frequency === c.frequency)) ??
+      null;
+    if (parent && parent.components.length < 10 && !parent.components.some((x) => x.label === c.label)) parent.components.push({ label: c.label, amount: c.amount });
+    else if (!parent) references.push({ label: c.label, amount: c.amount, role: 'reference' });
+  }
 
-  // 7) 유형별 속성
+  // 7) 유형별 속성 — 숫자 속성은 계약서에 적힌 경우만 (추정·계산한 연봉 같은 값은 버린다)
+  const monthlyAmounts = new Set(payments.filter((p) => p.frequency === 'monthly').map((p) => p.amount));
   const details: Record<string, ExtractedDetail> = {};
   for (const d of Array.isArray(output.details) ? output.details : []) {
     if (!isObj(d) || typeof d.key !== 'string' || details[d.key]) continue;
     const value = cleanDetail(d.key, d);
-    if (value !== null) details[d.key] = { value, confidence: confidenceOf(d.confidence), ...quoteOf(d) };
+    if (value === null) continue;
+    const sourceType = sourceOf(d.source_type);
+    const def = DETAIL_FIELD_DEFS.find((x) => x.db === d.key);
+    const numeric = def?.input === 'amount' || def?.input === 'integer' || def?.input === 'percent';
+    if (numeric && sourceType === 'inferred') continue;
+    // 연 단위 금액이 월 금액과 같으면 월 금액을 잘못 옮긴 값 (예: 연봉 = 월 임금 3,600,000)
+    if (/^annual_/.test(d.key) && typeof value === 'number' && monthlyAmounts.has(value)) continue;
+    details[d.key] = { value, confidence: confidenceOf(d.confidence), sourceType, ...quoteOf(d) };
   }
 
   // 9) PACTO 계약 체크 (원문 근거가 없는 항목은 신뢰도 low)
-  const notice = fields.terminationNoticeDays.value as number | null;
   const auto = fields.autoRenewal.value as boolean | null;
   const months = fields.renewalPeriodMonths.value as number | null;
+  const knownDates = new Set(dates.map((d) => d.date));
   const checks: ExtractedCheck[] = (output.checks as unknown[])
     .filter(isObj)
     .slice(0, 12)
@@ -485,8 +595,12 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
       const title = neutralize(text(c.title, 40) ?? '확인할 조항', '확인할 조항');
       const description = neutralize(text(c.description, 300) ?? '', '계약서의 해당 조항을 확인해주세요.') || '계약서의 해당 조항을 확인해주세요.';
       const evidenceQuote = text(c.evidence_quote, 200);
-      const relatedDate = validDate(c.related_date) ? c.related_date.trim() : null;
       const fileNo = toInt(c.evidence_file, 1, 50);
+      const offsetDays = toInt(c.offset_days, 0, 365);
+      const conditional = CHECK_TOPIC_DEFS.find((t) => t.code === topic)?.conditional === true || c.behavior === 'conditional_rule';
+      const behavior: ExtractedCheck['behavior'] = conditional ? 'conditional_rule' : (oneOf(CHECK_BEHAVIORS, c.behavior) ?? 'info');
+      // 조건부 의무는 날짜를 만들지 않는다
+      const relatedDate = !conditional && validDate(c.related_date) ? c.related_date.trim() : null;
       return {
         severity: oneOf(SEVERITY, c.severity) ?? 'info',
         topic,
@@ -496,16 +610,34 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
         evidenceQuote,
         evidencePage: typeof c.evidence_page === 'number' && c.evidence_page >= 1 ? Math.round(c.evidence_page) : null,
         evidenceFileIndex: fileNo === null ? null : fileNo - 1,
+        behavior,
+        rule: conditional
+          ? { condition: neutralize(text(c.condition, 100) ?? title, title), action: neutralize(text(c.action, 150) ?? description, description), offsetDays }
+          : null,
         relatedDate,
-        // 24) 관리로 연결: 자동갱신·통보기한 → 해지 통보기한 일정, 명시된 날짜 → 캘린더 일정 제안
-        suggestion:
-          (topic === 'auto_renewal' || topic === 'notice_deadline') && notice !== null
-            ? { kind: 'set_termination_notice' as const, terminationNoticeDays: notice, autoRenewal: auto ?? topic === 'auto_renewal', renewalPeriodMonths: months }
-            : relatedDate
-              ? { kind: 'add_event' as const, eventType: 'custom' as const, title, eventDate: relatedDate }
-              : null,
+        suggestion: null as ExtractedCheck['suggestion'],
       };
     });
 
-  return { category, contractType, fields, dates, payments, details, checks, provider, promptVersion: PROMPT_VERSION };
+  // 8) 종료일 기준 통보기한 — 자동갱신이 아니고 같은 일수의 조건부 통보(예: 자진 퇴직 30일 전)가 있으면 그 조항을 잘못 옮긴 값
+  let notice = fields.terminationNoticeDays.value as number | null;
+  const noticeQuote = fields.terminationNoticeDays.evidence?.[0]?.quote ?? '';
+  const sameClause = (c: ExtractedCheck) => c.rule?.offsetDays === notice || (!!noticeQuote && !!c.evidenceQuote && (c.evidenceQuote.includes(noticeQuote) || noticeQuote.includes(c.evidenceQuote)));
+  if (notice !== null && auto !== true && checks.some((c) => c.behavior === 'conditional_rule' && sameClause(c))) {
+    fields.terminationNoticeDays = { value: null, confidence: 'low' };
+    notice = null;
+  }
+  // 24) 관리로 연결: 자동갱신·통보기한 → 해지 통보기한 일정, 계약서에 명시된 (다른 데서 이미 관리하지 않는) 날짜 → 캘린더 일정 제안
+  for (const c of checks) {
+    if (c.behavior === 'conditional_rule') continue;
+    if ((c.topic === 'auto_renewal' || c.topic === 'notice_deadline') && notice !== null) {
+      c.behavior = 'fixed_event';
+      c.suggestion = { kind: 'set_termination_notice', terminationNoticeDays: notice, autoRenewal: auto ?? c.topic === 'auto_renewal', renewalPeriodMonths: months };
+    } else if (c.relatedDate && !knownDates.has(c.relatedDate)) {
+      c.behavior = 'fixed_event';
+      c.suggestion = { kind: 'add_event', eventType: 'custom', title: c.title, eventDate: c.relatedDate };
+    }
+  }
+
+  return { category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION };
 }

@@ -102,11 +102,13 @@ export const DETAIL_FIELD_DEFS: readonly {
   { type: 'employment', key: 'jobTitle', db: 'job_title', label: '직무', input: 'text' },
   { type: 'employment', key: 'annualSalary', db: 'annual_salary', label: '연봉', input: 'amount', suffix: '원' },
   { type: 'employment', key: 'probationMonths', db: 'probation_months', label: '수습기간', input: 'integer', suffix: '개월' },
+  { type: 'employment', key: 'probationPayRate', db: 'probation_pay_rate', label: '수습기간 임금 비율', input: 'percent', suffix: '%' },
   { type: 'employment', key: 'workHours', db: 'work_hours', label: '근무시간', input: 'text' },
   { type: 'employment', key: 'workDays', db: 'work_days', label: '근무일', input: 'text' },
   { type: 'employment', key: 'holidays', db: 'holidays', label: '휴일', input: 'text' },
   { type: 'employment', key: 'leaveTerms', db: 'leave_terms', label: '휴가 관련 조건', input: 'text' },
   { type: 'employment', key: 'severanceTerms', db: 'severance_terms', label: '퇴직 관련 조건', input: 'text' },
+  { type: 'employment', key: 'renewalTerms', db: 'renewal_terms', label: '갱신 관련 조건', input: 'text' },
   // 용역·프리랜서
   {
     type: 'service', key: 'userRole', db: 'user_role', label: '나의 역할', input: 'enum',
@@ -125,6 +127,28 @@ export const DETAIL_FIELD_DEFS: readonly {
   // 일회성
   { type: 'one_time', key: 'subject', db: 'subject', label: '계약 대상', input: 'text' },
 ];
+
+/**
+ * 값의 출처 — 계약서에 직접 적힌 값인지, AI가 문맥으로 추론했는지, PACTO가 계산했는지, 사용자가 확인했는지.
+ * 추정·계산 값은 명시값처럼 보이지 않게 화면에서 구분한다.
+ */
+export const SOURCE_TYPES = ['explicit', 'inferred', 'calculated', 'user_confirmed'] as const;
+export type SourceType = (typeof SOURCE_TYPES)[number];
+
+/** 계약서 금액의 역할 — 실제 현금 흐름(결제)이 되는 것은 recurring·one_time·deposit 뿐 */
+export const AMOUNT_ROLES = ['recurring_cashflow', 'one_time_cashflow', 'deposit', 'component', 'total', 'reference'] as const;
+
+/** 지급일이 휴일일 때 실제 지급일 규칙 */
+export const BUSINESS_DAY_RULES = ['none', 'previous', 'next'] as const;
+export type BusinessDayRule = (typeof BUSINESS_DAY_RULES)[number];
+
+/**
+ * 계약 체크의 성격 — 일정으로 바꿀 수 있는지.
+ * info: 알아둘 정보 / fixed_event: 계약서 기준으로 날짜가 정해지는 일 (계약 종료 기준 통보기한, 명시된 지급일 등)
+ * conditional_rule: 어떤 상황이 생겼을 때만 생기는 의무 (자진 퇴직 시 30일 전 통보 등) — 사용자가 기준 날짜를 정하기 전까지 일정·다음 행동으로 만들지 않는다
+ */
+export const CHECK_BEHAVIORS = ['info', 'fixed_event', 'conditional_rule'] as const;
+export type CheckBehavior = (typeof CHECK_BEHAVIORS)[number];
 
 /** 결제 방향 — 사용자 기준 */
 export const DIRECTIONS = ['expense', 'income', 'neutral'] as const;
@@ -170,29 +194,38 @@ export const DATE_KIND_DEFS = [
  * PACTO 계약 체크 주제 (주의할 조항 · 확인이 필요한 조건).
  * types: 이 주제를 특히 살펴볼 유형 (비어 있으면 모든 유형 공통). 법적 판단이 아니라 확인을 돕는 분류다.
  */
-export const CHECK_TOPIC_DEFS: readonly { code: string; label: string; types: readonly string[] }[] = [
+/**
+ * 계약 체크 주제. conditional: 어떤 상황이 생길 때만 생기는 의무(퇴직 사전통보·중도해지 위약금·연체·중도상환 …) —
+ * 모델이 날짜로 바꿔 오더라도 서버가 조건부 규칙으로 되돌린다 (계약서 기준 날짜를 만들지 않음).
+ */
+export const CHECK_TOPIC_DEFS: readonly { code: string; label: string; types: readonly string[]; conditional?: boolean }[] = [
   { code: 'auto_renewal', label: '자동갱신', types: [] },
-  { code: 'early_termination', label: '중도해지·위약금', types: [] },
+  { code: 'early_termination', label: '중도해지·위약금', types: [], conditional: true },
   { code: 'refund_limit', label: '환불 제한', types: [] },
   { code: 'unilateral_change', label: '일방적 변경', types: [] },
   { code: 'damages', label: '손해배상', types: [] },
   { code: 'termination_right', label: '계약해지 권한', types: [] },
   { code: 'deposit_return', label: '보증금·금액 반환', types: [] },
-  { code: 'overdue', label: '연체', types: [] },
+  { code: 'overdue', label: '연체', types: [], conditional: true },
   { code: 'dispute', label: '관할·분쟁', types: [] },
   { code: 'notice_deadline', label: '통보기한', types: [] },
+  { code: 'renewal_terms', label: '갱신 조건', types: [] },
   { code: 'wage', label: '급여·지급일', types: ['employment'] },
   { code: 'working_hours', label: '근로시간·휴일', types: ['employment'] },
   { code: 'probation', label: '수습기간', types: ['employment'] },
   { code: 'confidentiality', label: '비밀유지', types: ['employment', 'service'] },
   { code: 'non_compete', label: '경업금지', types: ['employment'] },
+  { code: 'work_change', label: '근무장소·업무 변경', types: ['employment'] },
+  { code: 'fixed_overtime', label: '고정연장근로수당', types: ['employment'] },
+  { code: 'resignation_notice', label: '퇴직 사전통보', types: ['employment'], conditional: true },
+  { code: 'asset_return', label: '자산·자료 반환', types: ['employment', 'recurring', 'service'] },
   { code: 'restoration', label: '원상복구', types: ['lease'] },
   { code: 'repair', label: '수선 책임', types: ['lease'] },
   { code: 'maintenance_fee', label: '관리비', types: ['lease'] },
   { code: 'variable_rate', label: '변동금리', types: ['loan'] },
-  { code: 'acceleration', label: '기한이익 상실', types: ['loan', 'installment'] },
+  { code: 'acceleration', label: '기한이익 상실', types: ['loan', 'installment'], conditional: true },
   { code: 'maturity_extension', label: '만기연장', types: ['loan'] },
-  { code: 'prepayment', label: '중도상환', types: ['loan', 'installment'] },
+  { code: 'prepayment', label: '중도상환', types: ['loan', 'installment'], conditional: true },
   { code: 'collateral', label: '담보', types: ['installment', 'loan'] },
   { code: 'ownership', label: '소유권', types: ['installment', 'recurring', 'sale'] },
   { code: 'premium_change', label: '보험료 변경', types: ['insurance'] },

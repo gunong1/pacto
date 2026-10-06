@@ -1,4 +1,4 @@
-/* 계약서 분석 v4 — 서버(Edge Function) 공용 로직 + 앱 변환(toReviewModel) 검증 */
+/* 계약서 분석 v5 — 서버(Edge Function) 공용 로직 + 앱 변환(toReviewModel) 검증 */
 import {
   BANNED_PHRASES as SERVER_BANNED,
   extractionInstructions,
@@ -22,12 +22,13 @@ const f = (value: unknown, confidence = 'high', quote: string | null = null) => 
 const cls = (value: string, confidence = 'high', alternatives: string[] = [], reason = '') => ({ value, confidence, alternatives, reason });
 const date = (d: string, meaning: string, label: string, confidence = 'high') => ({ date: d, meaning, label, confidence, ...q() });
 const pay = (p: Record<string, unknown>) => ({ direction: 'expense', day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, optional: false, confidence: 'high', ...q(), ...p });
-const det = (key: string, v: string | number | boolean, confidence = 'high') => ({
+const det = (key: string, v: string | number | boolean, confidence = 'high', source_type = 'explicit') => ({
   key,
   text_value: typeof v === 'string' ? v : null,
   number_value: typeof v === 'number' ? v : null,
   boolean_value: typeof v === 'boolean' ? v : null,
   confidence,
+  source_type,
   ...q(),
 });
 const check = (c: Record<string, unknown>) => ({ severity: 'check', topic: 'other', title: '조항', description: '기재되어 있습니다.', confidence: 'high', related_date: null, evidence_quote: '원문', evidence_page: 1, evidence_file: 1, ...c });
@@ -64,7 +65,7 @@ const rental = () => ({
 
 describe('분석 v4 — 서버 스키마·프롬프트', () => {
   test('프롬프트 버전 · 분석 순서 · 표현 규칙', () => {
-    expect(PROMPT_VERSION).toBe('extract-v4');
+    expect(PROMPT_VERSION).toBe('extract-v5');
     const ins = extractionInstructions(TODAY);
     for (const s of ['1) category', '2) contract_type', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다']) expect(ins).toContain(s);
   });
@@ -121,7 +122,7 @@ describe('분석 v4 — 서버 스키마·프롬프트', () => {
     expect(r.category).toMatchObject({ value: 'other', confidence: 'low' });
     expect(r.contractType).toMatchObject({ value: 'other', confidence: 'low', alternatives: ['loan'], reason: '계약서 내용을 바탕으로 분류했어요.' });
     expect(r.fields.renewalPeriodMonths).toMatchObject({ value: null, confidence: 'low' });
-    expect(r.dates).toEqual([{ date: '2026-03-01', meaning: 'other', label: '기타', confidence: 'high' }]);
+    expect(r.dates).toEqual([{ date: '2026-03-01', meaning: 'other', label: '기타', confidence: 'high', sourceType: 'inferred' }]); // 출처를 모르면 추정으로
     expect(r.payments.map((p) => [p.kind, p.direction, p.amount])).toEqual([['salary', 'income', 3000000]]);
     expect(Object.keys(r.details)).toEqual(['principal']);
     expect(r.checks[0].description).toBe('계약서의 해당 조항을 확인해주세요.');
@@ -303,5 +304,116 @@ describe('헬스장 샘플 계약서: 락커 이용료(선택, 결제일 없음 
 
   test('같은 결제가 두 번 나와도 한 번만', () => {
     expect(toAppResult(output(gym(true)), 'openai').payments.map((p) => p.label)).toEqual(['월 이용료', '락커 이용료']);
+  });
+});
+
+/**
+ * 근로계약서 (주식회사 네오링크 · 박민준) — 숫자·날짜의 의미를 먼저 해석한다.
+ * 1) mock 공급자 근로 예시(의미를 해석한 출력) 2) 실제로 관찰된 잘못된 출력(v4 형태)도 서버 안전장치가 바로잡는지
+ */
+describe('분석 v5 — 의미 해석 (근로계약)', () => {
+  const employmentReview = async () => {
+    const out = await new MockExtractionProvider().extract([{ mimeType: 'application/pdf', fileName: '근로계약서.pdf', base64: '' }]);
+    return toReviewModel(toAppResult(out.json, 'mock'), ['doc-1']);
+  };
+
+  test('월 임금 1건 + 구성 항목(합산 안 함) · 직전 영업일 · 연봉 없음 · 고용 형태는 추정', async () => {
+    const m = await employmentReview();
+    expect(m.draft.payments).toHaveLength(1);
+    expect(m.draft.payments[0]).toMatchObject({
+      label: '월 임금', amount: 3_600_000, direction: 'income', dayOfMonth: 25, businessDayRule: 'previous',
+      components: [{ label: '기본급', amount: 3_280_000 }, { label: '고정연장근로수당', amount: 320_000 }],
+    });
+    expect(m.notes['payments.0.amount']).toContain('따로 더하지 않아요');
+    expect(m.draft.details.annualSalary).toBeUndefined();
+    expect(m.draft.details).toMatchObject({ probationMonths: 3, probationPayRate: 90, employmentKind: 'fixed_term' });
+    expect(m.draft.valueSources['details.employmentKind']).toBe('inferred');
+    expect(m.flagged.has('details.employmentKind')).toBe(true);
+    expect(m.draft.valueSources['details.probationPayRate']).toBe('explicit');
+    expect(m.draft.autoRenewal).toBe(false);
+    expect(m.draft.terminationNoticeDays).toBeNull();
+  });
+
+  test('퇴직 사전통보는 조건부 규칙 (날짜·제안 없음), 수습 체크는 이미 있는 날짜로 일정 제안을 만들지 않음', async () => {
+    const m = await employmentReview();
+    const resign = m.checks.find((c) => c.topic === 'resignation_notice')!;
+    expect(resign).toMatchObject({ behavior: 'conditional_rule', relatedDate: null, suggestion: null, rule: { offsetDays: 30 } });
+    expect(m.checks.find((c) => c.topic === 'probation')!.suggestion).toBeNull();
+    expect(m.checks.every((c) => c.suggestion === null)).toBe(true);
+    // 계약 체크 분류: 급여일은 핵심 정보, 나머지 7개는 확인 필요, 주의 필요 없음
+    expect(m.checks.map((c) => c.severity)).toEqual(['info', 'check', 'check', 'check', 'check', 'check', 'check', 'check']);
+    expect(m.checks.map((c) => c.topic)).toEqual(expect.arrayContaining(['work_change', 'fixed_overtime', 'probation', 'resignation_notice', 'renewal_terms', 'confidentiality', 'asset_return']));
+  });
+
+  test('관리 데이터: 2027-08-31 통보기한 없음, 수습 중 3,240,000 → 이후 3,600,000, 휴일 지급일 조정', async () => {
+    const m = await employmentReview();
+    const r = draftToRecord(m.draft, 'e', TODAY);
+    const on = (d: string) => scheduleForRange([r], { start: d, end: d }, TODAY).map((i) => `${i.title}${i.amount != null ? ` ${i.amount}` : ''}`);
+    expect(on('2027-08-31')).toEqual([]);
+    expect(on('2026-10-23')).toEqual(['월 임금 (수습기간 90%) 3240000']);
+    expect(on('2026-12-31')).toEqual(['수습기간 종료 예정']);
+    expect(on('2027-01-25')).toEqual(['월 임금 3600000']);
+    expect(monthSpending([r], { year: 2027, month: 1 })).toMatchObject({ incomeTotal: 3_600_000, total: 0 });
+  });
+
+  test('잘못된 출력(관찰된 v4 형태)도 서버가 바로잡음: 수당 별도 수입·연봉=월 임금·퇴직 통보를 종료일 통보기한으로', () => {
+    const wage = '월 임금은 3,600,000원으로 하며, 기본급 3,280,000원과 고정연장근로수당 320,000원으로 구성한다.';
+    const resignQuote = '근로자가 퇴직하고자 하는 경우 30일 전에 회사에 통보하여야 한다.';
+    const r = toAppResult(
+      output({
+        category: cls('employment'),
+        type: cls('employment'),
+        fields: { counterparty: f('주식회사 네오링크'), autoRenewal: f(false), terminationNoticeDays: f(30, 'medium', resignQuote) },
+        dates: [date('2026-10-01', 'contract_start', '근로 시작'), date('2027-09-30', 'contract_end', '근로 종료')],
+        payments: [
+          pay({ kind: 'salary', direction: 'income', label: '월 임금', amount: 3600000, frequency: 'monthly', day_of_month: 25, ...q(wage) }),
+          pay({ kind: 'salary', direction: 'income', label: '고정연장근로수당', amount: 320000, frequency: 'monthly', day_of_month: 25, ...q('고정연장근로수당 320,000원은 월 임금에 포함된다.') }),
+        ],
+        details: [det('annual_salary', 3600000), det('probation_months', 3), det('employment_kind', 'fixed_term', 'high', 'inferred')],
+        checks: [
+          check({ topic: 'resignation_notice', title: '퇴직 통보', evidence_quote: resignQuote, related_date: '2027-08-31' }),
+          check({ topic: 'probation', title: '수습기간', related_date: '2026-10-01' }),
+        ],
+      }),
+      'openai',
+    );
+    expect(r.payments.map((p) => [p.label, p.amount])).toEqual([['월 임금', 3600000]]);
+    expect(r.payments[0].components).toEqual([{ label: '고정연장근로수당', amount: 320000 }]);
+    expect(r.details.annual_salary).toBeUndefined();
+    expect(r.details.probation_months?.value).toBe(3);
+    expect(r.fields.terminationNoticeDays.value).toBeNull();
+    expect(r.checks[0]).toMatchObject({ behavior: 'conditional_rule', relatedDate: null, suggestion: null });
+    expect(r.checks[1].suggestion).toBeNull(); // 2026-10-01은 이미 근로 시작일
+    const m = toReviewModel(r, ['doc-1']);
+    const rec = draftToRecord(m.draft, 'n', TODAY);
+    expect(scheduleForRange([rec], { start: '2027-08-31', end: '2027-08-31' }, TODAY)).toEqual([]);
+  });
+
+  test('자동갱신 계약의 종료일 기준 통보기한은 유지 (조건부 규칙과 일수가 달라도)', () => {
+    const r = toAppResult(output({ ...rental(), checks: [...rental().checks, check({ topic: 'early_termination', behavior: 'conditional_rule', offset_days: 30 })] }), 'openai');
+    expect(r.fields.terminationNoticeDays.value).toBe(30);
+    expect(r.checks.find((c) => c.topic === 'auto_renewal')!.suggestion).toMatchObject({ kind: 'set_termination_notice', terminationNoticeDays: 30 });
+  });
+
+  test('합계·참고 금액은 결제가 아니라 참고로', () => {
+    const r = toAppResult(output({ payments: [pay({ role: 'reference', kind: 'other', label: '차량가', amount: 30000000, frequency: 'one_time' }), pay({ kind: 'installment', label: '월 할부금', amount: 500000, frequency: 'monthly' })] }), 'openai');
+    expect(r.payments.map((p) => p.label)).toEqual(['월 할부금']);
+    expect(r.references).toEqual([{ label: '차량가', amount: 30000000, role: 'reference' }]);
+  });
+
+  test('스키마 크기 제한 (속성 100개 이하, 중첩 5단계 이하)', () => {
+    let props = 0;
+    let depth = 0;
+    const walk = (s: Record<string, unknown>, d: number) => {
+      depth = Math.max(depth, d);
+      if (s.properties) for (const v of Object.values(s.properties as Record<string, Record<string, unknown>>)) {
+        props++;
+        walk(v, d + 1);
+      }
+      if (s.items) walk(s.items as Record<string, unknown>, d + 1);
+    };
+    walk(extractionJsonSchema() as unknown as Record<string, unknown>, 0);
+    expect(props).toBeLessThanOrEqual(100);
+    expect(depth).toBeLessThanOrEqual(10);
   });
 });

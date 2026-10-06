@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/controls';
 import { formatDDay } from '@/domain/dday';
 import { categoryLabel, SEVERITY_LABEL, STATUS_LABEL } from '@/domain/labels';
 import { formatKRW, formatWon } from '@/domain/money';
+import type { SourceType } from '@/domain/contractTypes';
 import type { ContractCategory, ContractStatus, ReviewSeverity, ScheduleItemType } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
 
@@ -30,6 +31,13 @@ export function Amount({ value, variant = 'body2Strong', won, color }: { value: 
 export function StatusBadge({ status }: { status: ContractStatus }) {
   const tone = status === 'ending_soon' ? 'caution' : status === 'renewal_due' ? 'check' : status === 'active' ? 'primary' : 'neutral';
   return <Badge label={STATUS_LABEL[status]} tone={tone} />;
+}
+
+/** 값의 출처 배지 — AI 추정(계약서에 그대로 적힌 값이 아님) / PACTO 계산(계약 조건으로 계산한 값). 명시·사용자 확인 값은 배지 없음 */
+export function SourceBadge({ source }: { source?: SourceType }) {
+  if (source === 'inferred') return <Badge label="AI 추정" tone="check" />;
+  if (source === 'calculated') return <Badge label="PACTO 계산" />;
+  return null;
 }
 
 export function SeverityLabel({ severity }: { severity: ReviewSeverity }) {

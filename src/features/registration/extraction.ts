@@ -10,7 +10,9 @@ import {
   type ContractDateKind,
   type ContractType,
   type DetailValue,
+  type SourceType,
 } from '@/domain/contractTypes';
+import { formatWon } from '@/domain/money';
 import { addDays, diffDays } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
 
@@ -95,6 +97,8 @@ export interface ReviewModel {
   allDetails: Record<string, DetailValue>;
   /** PACTO 계약 체크 (원문 근거 문서 id 연결) */
   checks: ReviewCheck[];
+  /** 결제로 만들지 않은 합계·참고 금액 (예: 차량가) — 확인용으로만 보여준다 */
+  references: { label: string; amount: number }[];
 }
 
 /**
@@ -109,6 +113,16 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
   };
   const uncertain = (path: string, c: Confidence) => {
     if (c !== 'high') flagged.add(path);
+  };
+  // 값별 출처 — 계약서 명시(explicit) / AI 추정(inferred). 추정값은 계약서와 비교하도록 "확인 필요"
+  const valueSources: Record<string, SourceType> = {};
+  const source = (path: string, s: SourceType | undefined) => {
+    if (!s) return;
+    valueSources[path] = s;
+    if (s === 'inferred') {
+      flagged.add(path);
+      notes[path] ??= '계약서에 그대로 적힌 값이 아니라 AI가 문맥으로 추정한 값이에요.';
+    }
   };
 
   // 1·2) 분야·유형 — 확정하지 않고 사용자가 바꿀 수 있게 제안으로
@@ -142,6 +156,7 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     draft[field] = d.date;
     uncertain(field, d.confidence);
     quote(field, d.evidence);
+    source(field, d.sourceType);
   };
   // 체결일은 계약서에 명확히 있을 때만 (다른 날짜로 대신하지 않는다)
   assignDate('contractDate', pick(['contract_signed']));
@@ -190,6 +205,10 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
       flagged.add(`${path}.amount`);
       notes[`${path}.amount`] = '선택 항목이에요. 신청하지 않았다면 이 결제를 삭제해주세요.';
     }
+    source(`${path}.amount`, p.sourceType);
+    if (p.components.length > 0 && !notes[`${path}.amount`]) {
+      notes[`${path}.amount`] = `${p.components.map((c) => `${c.label} ${formatWon(c.amount)}`).join(' + ')}로 구성된 금액이에요 (따로 더하지 않아요).`;
+    }
     const payment: PaymentDraft = {
       kind: p.kind,
       direction: p.direction,
@@ -202,6 +221,8 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
       endsOn: p.endDate,
       installmentCount: p.installmentCount,
       isVariable: p.isVariable,
+      components: p.components.map((c) => ({ ...c })),
+      businessDayRule: p.businessDayRule,
     };
     draft.payments.push(payment);
   });
@@ -217,6 +238,7 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     if (dates.some((x) => x.kind === kind && x.date === d.date)) continue;
     uncertain(`dates.${dates.length}`, d.confidence);
     quote(`dates.${dates.length}`, d.evidence);
+    source(`dates.${dates.length}`, d.sourceType);
     dates.push({ kind, label: d.label, date: d.date });
   }
   draft.dates = dates;
@@ -231,8 +253,11 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
       uncertain(`details.${key}`, d.confidence);
       quote(`details.${key}`, d.evidence);
     }
+    // 유형을 바꿔도 출처가 따라가도록 모든 속성의 출처를 남긴다 (저장 시 없는 속성의 출처는 무시됨)
+    source(`details.${key}`, d.sourceType);
   }
   draft.details = cleanDetails(type, allDetails);
+  draft.valueSources = valueSources;
 
   // 값이 없으면 "확인 필요"
   if (!draft.title) flagged.add('title');
@@ -255,10 +280,12 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     evidencePage: c.evidencePage,
     evidenceDocumentId: c.evidenceFileIndex != null ? (documentIds[c.evidenceFileIndex] ?? documentIds[0] ?? null) : (documentIds[0] ?? null),
     relatedDate: c.relatedDate,
+    behavior: c.behavior,
+    rule: c.rule,
     suggestion: c.suggestion,
   }));
 
-  return { draft, flagged, evidence, notes, categorySuggestion, typeSuggestion, allDetails, checks };
+  return { draft, flagged, evidence, notes, categorySuggestion, typeSuggestion, allDetails, checks, references: (result.references ?? []).map(({ label, amount }) => ({ label, amount })) };
 }
 
 /** 해지 통보기한 날짜 (계약 체크 카드에 "언제까지"를 보여주기 위해) */

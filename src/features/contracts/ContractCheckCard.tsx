@@ -21,7 +21,7 @@ export function ContractCheckCard({
   action,
   testID,
 }: {
-  check: Pick<AiCheck, 'severity' | 'topic' | 'title' | 'description' | 'confidence' | 'evidenceQuote' | 'evidencePage'>;
+  check: Pick<AiCheck, 'severity' | 'topic' | 'title' | 'description' | 'confidence' | 'evidenceQuote' | 'evidencePage' | 'behavior' | 'rule'>;
   /** 이 조항에서 계산된 챙길 날짜 (예: 해지 통보기한) */
   deadline?: { label: string; date: string } | null;
   onOpenOriginal?: () => void;
@@ -44,6 +44,19 @@ export function ContractCheckCard({
       <AppText variant="body2" color="textSecondary" style={{ marginTop: 4 }}>
         {check.description}
       </AppText>
+      {check.behavior === 'conditional_rule' && check.rule ? (
+        <View style={styles.rule} testID={testID ? `${testID}-rule` : undefined}>
+          <AppText variant="caption" color="textSecondary">
+            <AppText variant="captionStrong">조건</AppText> {check.rule.condition}
+          </AppText>
+          <AppText variant="caption" color="textSecondary">
+            <AppText variant="captionStrong">할 일</AppText> {check.rule.action}
+          </AppText>
+          <AppText variant="small" color="textTertiary">
+            조건이 생길 때만 적용돼요. 계약서만으로는 날짜가 정해지지 않아 일정을 만들지 않았어요.
+          </AppText>
+        </View>
+      ) : null}
       {low ? (
         <AppText variant="caption" color="check" style={{ marginTop: 4 }}>
           자동으로 찾은 내용이 정확하지 않을 수 있어요. 원문과 비교해주세요.
@@ -87,6 +100,7 @@ export function ContractCheckCard({
 const styles = StyleSheet.create({
   card: { paddingVertical: spacing.md },
   head: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  rule: { marginTop: spacing.sm, padding: spacing.sm, gap: 2, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
   quote: { marginTop: spacing.sm, paddingLeft: spacing.md, borderLeftWidth: 2, borderLeftColor: colors.border },
   open: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, alignSelf: 'flex-start' },
   deadline: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.cautionSoft },

@@ -5,9 +5,10 @@ import { StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { Divider, Section } from '@/components/ui/layout';
+import { Divider, KeyValueRow, Section } from '@/components/ui/layout';
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
 import { profileOf } from '@/domain/contractTypes';
+import { formatWon } from '@/domain/money';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
 import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm } from '@/features/contracts/form';
@@ -82,6 +83,16 @@ export default function ReviewScreen() {
 
   const trailing = (
     <View style={styles.trailing}>
+      {model.references.length > 0 ? (
+        <Section title="결제에 넣지 않은 금액" caption="계약서에 있지만 실제로 오가는 돈이 아니라고 본 금액이에요 (합계·참고 금액)" testID="review-references">
+          {model.references.map((r, i) => (
+            <KeyValueRow key={`${r.label}-${i}`} label={r.label} value={formatWon(r.amount)} />
+          ))}
+          <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.sm }}>
+            실제로 내거나 받는 돈이면 위 결제에 추가해주세요.
+          </AppText>
+        </Section>
+      ) : null}
       <Section title={CHECK_SECTION_TITLE} caption="계약서에서 놓치기 쉬운, 확인이 필요한 조건이에요" testID="review-checks">
         {model.checks.length === 0 ? (
           <AppText variant="body2" color="textTertiary">

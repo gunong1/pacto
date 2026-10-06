@@ -22,6 +22,7 @@ export const EMPTY_DRAFT: ContractDraft = {
   memo: null,
   payments: [],
   dates: [],
+  valueSources: {},
 };
 
 /** 새 계약의 기본값 (draft 적용 전). */
@@ -32,6 +33,7 @@ export function blankContract(id: string, source: Contract['source'], now: strin
     category: 'other',
     contractType: 'other',
     details: {},
+    valueSources: {},
     counterparty: null,
     lifecycle: 'active',
     lifecycleChangedOn: null,
@@ -62,6 +64,7 @@ export function applyDraftToContract(contract: Contract, draft: ContractDraft): 
     category: draft.category,
     contractType: draft.contractType,
     details: draft.details,
+    valueSources: draft.valueSources,
     counterparty: draft.counterparty,
     contractDate: draft.contractDate,
     startDate: draft.startDate,
@@ -97,6 +100,8 @@ export function draftToPayment(p: PaymentDraft, draft: Pick<ContractDraft, 'star
     endsOn: oneTime ? null : p.endsOn,
     installmentCount: oneTime ? null : p.installmentCount,
     isVariable: p.isVariable,
+    components: p.components,
+    businessDayRule: p.businessDayRule,
   };
 }
 
@@ -156,8 +161,11 @@ export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payment
         endsOn: p.endsOn,
         installmentCount: p.installmentCount,
         isVariable: p.isVariable,
+        components: p.components,
+        businessDayRule: p.businessDayRule,
       }),
     ),
     dates: record.dates.map((d): DateDraft => ({ kind: d.kind, label: d.label, date: d.date })),
+    valueSources: contract.valueSources,
   };
 }

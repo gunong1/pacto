@@ -27,9 +27,9 @@ export interface MonthSpending {
 
 /** 기간 내 결제 (기본: 지출만 — 수입·보증금(중립)은 제외) */
 function occurrencesIn(records: ContractRecord[], start: ISODate, end: ISODate, direction: Direction = 'expense'): SpendingItem[] {
-  return records.flatMap(({ contract, payments }) =>
+  return records.flatMap(({ contract, payments, dates }) =>
     payments.filter((p) => p.direction === direction).flatMap((p) =>
-      expandPayment(p, contract, { start, end }).map((o) => ({
+      expandPayment(p, contract, { start, end }, dates).map((o) => ({
         ...o,
         contractTitle: contract.title,
         category: contract.category,

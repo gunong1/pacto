@@ -1,3 +1,4 @@
+import { profileOf } from './contractTypes';
 import { addDays, addMonths } from './dates';
 import { daysUntil } from './dday';
 import type { Contract, ContractStatus, ISODate } from './types';
@@ -39,9 +40,14 @@ export interface NoticeDeadline {
   passed: boolean;
 }
 
-/** 해지 통보기한 = 현재 회차 종료일 − 통보일수. */
+/**
+ * 해지(종료) 통보기한 = 현재 회차 종료일 − 통보일수.
+ * 계약 종료일 기준 통보(갱신 거절·만료 전 해지 통보)인 경우에만 만든다 — 자동갱신 계약이거나 갱신·종료 통보를 관리하는 유형.
+ * "자진 퇴직 시 30일 전 통보"처럼 조건부 의무는 종료일에서 빼서 날짜를 만들면 안 된다 (계약 체크의 조건부 규칙으로 관리).
+ */
 export function terminationNoticeDeadline(contract: Contract, today: ISODate): NoticeDeadline | null {
   if (contract.terminationNoticeDays == null || contract.lifecycle !== 'active') return null;
+  if (!contract.autoRenewal && !profileOf(contract.contractType).hasRenewal) return null;
   const term = currentTerm(contract, today);
   if (!term) return null;
   const date = addDays(term.termEnd, -contract.terminationNoticeDays);

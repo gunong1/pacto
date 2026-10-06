@@ -1,15 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
-import { Amount, CategoryIcon, DDay, EVENT_COLOR, StatusBadge } from '@/components/pacto';
+import { CategoryIcon, DDay, EVENT_COLOR, SourceBadge, StatusBadge } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { SwitchRow } from '@/components/ui/controls';
+import { DateField } from '@/components/ui/DateField';
 import { Divider, EmptyState, KeyValueRow, Screen, Section, SectionGap } from '@/components/ui/layout';
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
-import { addDays, addMonths, formatDateKo } from '@/domain/dates';
+import { addDays, addMonths, formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
 import { contractTypeLabel, profileOf } from '@/domain/contractTypes';
 import { coreInfo, otherDetails } from '@/domain/coreInfo';
@@ -68,6 +69,11 @@ export default function ContractDetailScreen() {
     if (ok) remove.mutate(c.id, { onSuccess: () => router.back(), onError: (e) => notify('계약 삭제', e instanceof Error ? e.message : '삭제하지 못했어요.') });
   };
 
+  const confirmInferred = async (label: string, path: string) => {
+    const ok = await confirm('AI 추정 값 확인', `'${label}' 값은 AI가 문맥으로 추정한 값이에요. 계약서와 같은지 확인하셨나요?\n다르면 '수정'에서 고쳐주세요.`, '계약서와 같아요');
+    if (ok) actions.confirmValue.mutate([path]);
+  };
+
   const changeLifecycle = async () => {
     if (live) {
       const ok = await confirm('해지 처리', `'${c.title}' 계약을 해지된 계약으로 표시할까요?\n오늘 이후 결제와 일정이 지출·캘린더에서 빠집니다.`, '해지 처리');
@@ -111,7 +117,7 @@ export default function ContractDetailScreen() {
           {live && view.action ? (
             <View style={isActionable(view.action) ? styles.action : styles.actionNeutral} testID="detail-next-action">
               <AppText variant="captionStrong" color={isActionable(view.action) ? 'primary' : 'textSecondary'} testID="detail-next-title">
-                {isActionable(view.action) ? '다음 행동' : '다음 결제'}
+                {isActionable(view.action) ? '다음 행동' : view.action.label}
               </AppText>
               <AppText variant="title3" style={{ marginTop: 6 }} testID="detail-next-headline">
                 {view.action.headline}
@@ -197,17 +203,41 @@ export default function ContractDetailScreen() {
             <View style={styles.nextPay} testID="detail-next-payment">
               <View style={{ flex: 1 }}>
                 <AppText variant="caption" color="textTertiary">
-                  다음 결제 · {view.next.label}
+                  {view.next.direction === 'income' ? '다음 지급' : '다음 결제'} · {view.next.label}
+                  {view.next.amountNote ? ` (${view.next.amountNote})` : ''}
                   {view.next.installment ? ` ${view.next.installment.no}/${view.next.installment.total}회` : ''}
                 </AppText>
                 <AppText variant="body2Strong">{formatDateKo(view.next.date, true)}</AppText>
               </View>
-              <Amount value={view.next.amount} won variant="title3" />
+              <AppText variant="title3" tabular color={view.next.direction === 'income' ? 'positive' : 'text'}>
+                {view.next.direction === 'income' ? '+' : ''}
+                {formatWon(view.next.amount)}
+              </AppText>
             </View>
           ) : null}
           {view.core.map((row) => (
-            <KeyValueRow key={row.key} label={row.label} value={row.value} emphasis={row.emphasis} testID={`core-${row.key}`} />
+            <KeyValueRow
+              key={row.key}
+              label={row.label}
+              value={row.value}
+              emphasis={row.emphasis}
+              testID={`core-${row.key}`}
+              badge={
+                row.source === 'inferred' && row.key.startsWith('d:') ? (
+                  <Pressable onPress={() => confirmInferred(row.label, `details.${row.key.slice(2)}`)} accessibilityRole="button" testID={`confirm-${row.key}`}>
+                    <SourceBadge source="inferred" />
+                  </Pressable>
+                ) : (
+                  <SourceBadge source={row.source} />
+                )
+              }
+            />
           ))}
+          {view.core.some((r) => r.source === 'inferred' || r.source === 'calculated') ? (
+            <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.sm }}>
+              AI 추정: 계약서에 그대로 적힌 값이 아니라 문맥으로 판단한 값이에요. 눌러서 확인할 수 있어요.{'\n'}PACTO 계산: 계약 조건으로 계산한 값이에요.
+            </AppText>
+          ) : null}
           {view.monthly > 0 && record.payments.some((p) => p.frequency !== 'monthly' && p.frequency !== 'one_time') ? (
             <KeyValueRow label="월 환산 (참고)" value={formatWon(view.monthly)} />
           ) : null}
@@ -333,7 +363,13 @@ export default function ContractDetailScreen() {
 
         {/* 자동 정리 정보 — 보조 영역 */}
         <SectionGap />
-        <AiSection record={record} today={today} onApply={(checkId) => actions.applyAiSuggestion.mutate([checkId])} onAck={(checkId) => actions.setAiCheckStatus.mutate([checkId, 'acknowledged'])} />
+        <AiSection
+          record={record}
+          today={today}
+          onApply={(checkId) => actions.applyAiSuggestion.mutate([checkId])}
+          onAck={(checkId) => actions.setAiCheckStatus.mutate([checkId, 'acknowledged'])}
+          onScheduleRule={(checkId, title, date) => actions.scheduleRule.mutate([checkId, title, date])}
+        />
 
         <View style={styles.footerActions}>
           <Button label={live ? '해지 처리' : '진행중으로 되돌리기'} variant={live ? 'danger' : 'secondary'} size="md" onPress={changeLifecycle} testID="lifecycle-button" />
@@ -345,7 +381,19 @@ export default function ContractDetailScreen() {
 }
 
 /** PACTO 계약 체크 — 확인이 필요한 조항 + 원문 근거 + 관리 연결(해지 통보기한·명시된 날짜를 캘린더에) */
-function AiSection({ record, today, onApply, onAck }: { record: ContractRecord; today: string; onApply: (id: string) => void; onAck: (id: string) => void }) {
+function AiSection({
+  record,
+  today,
+  onApply,
+  onAck,
+  onScheduleRule,
+}: {
+  record: ContractRecord;
+  today: string;
+  onApply: (id: string) => void;
+  onAck: (id: string) => void;
+  onScheduleRule: (id: string, title: string, date: string) => void;
+}) {
   const c = record.contract;
   const checks = record.aiChecks.filter((x) => x.status !== 'dismissed');
   const notice = terminationNoticeDeadline(c, today);
@@ -388,6 +436,7 @@ function AiSection({ record, today, onApply, onAck }: { record: ContractRecord; 
                 onOpenOriginal={doc ? () => openOriginal(doc, x.evidencePage) : undefined}
                 action={
                   <>
+                    {x.behavior === 'conditional_rule' && x.rule ? <RuleScheduler check={x} onSchedule={(title, date) => onScheduleRule(x.id, title, date)} /> : null}
                     {s ? (
                       applied ? (
                         <View style={styles.applied}>
@@ -419,6 +468,37 @@ function AiSection({ record, today, onApply, onAck }: { record: ContractRecord; 
         <Ionicons name="chevron-forward" size={16} color={colors.textDisabled} />
       </Pressable>
     </Section>
+  );
+}
+
+/**
+ * 조건부 규칙 (예: 자진 퇴직 시 30일 전 통보) — 계약서만으로는 날짜가 없다.
+ * 사용자가 기준일(예: 퇴직 예정일)을 입력하면 그때 기준일 − N일 일정을 만든다.
+ */
+function RuleScheduler({ check, onSchedule }: { check: AiCheck; onSchedule: (title: string, date: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const rule = check.rule!;
+  const base = normalizeDateInput(input);
+  const target = base ? addDays(base, -(rule.offsetDays ?? 0)) : null;
+  if (!open) return <Button label="기준 날짜 입력" size="sm" variant="secondary" onPress={() => setOpen(true)} testID={`rule-${check.id}-open`} />;
+  return (
+    <View style={{ width: '100%', gap: spacing.sm }} testID={`rule-${check.id}`}>
+      <DateField label="기준 날짜 (예: 희망 퇴직일)" value={input} onChangeText={setInput} testID={`rule-${check.id}-date`} />
+      {target ? (
+        <AppText variant="body2" color="textSecondary" testID={`rule-${check.id}-result`}>
+          기한 <AppText variant="body2Strong">{formatDateKo(target, true)}</AppText>
+          {rule.offsetDays ? ` (기준일 ${rule.offsetDays}일 전)` : ''} · {rule.action}
+        </AppText>
+      ) : null}
+      <Button
+        label="캘린더에 추가"
+        size="sm"
+        disabled={!target}
+        onPress={() => target && onSchedule(`${check.title} 기한`, target)}
+        testID={`rule-${check.id}-add`}
+      />
+    </View>
   );
 }
 

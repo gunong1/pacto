@@ -63,6 +63,9 @@ export function endProfile(contract: Contract): CategoryProfile {
   return { endLabel: p.endEvent, endGuidance: p.endGuidance };
 }
 
+/** 종료·만기를 "다음 행동"으로 올리기 시작하는 시점 (일). 유형별로 더 짧게 정할 수 있다 (할부·대출 90일) */
+export const END_ACTION_WINDOW_DAYS = 180;
+
 const KIND_PRIORITY: Record<NextActionKind, number> = {
   termination_notice: 0,
   custom: 1,
@@ -108,7 +111,8 @@ export function actionCandidates(record: ContractRecord, today: ISODate): NextAc
         headline: remaining('자동갱신 예정일', days, '까지'),
         guidance: `${monthDay(addDays(i.date, 1))}부터 같은 조건으로 연장될 예정이에요. 계속 이용할지 확인해주세요.`,
       });
-    } else if (i.type === 'contract_end' && typeProfile.deferEndUntilDays != null && days > typeProfile.deferEndUntilDays) {
+    } else if (i.type === 'contract_end' && days > (typeProfile.deferEndUntilDays ?? END_ACTION_WINDOW_DAYS)) {
+      // 종료·만기가 멀면 아직 행동할 일이 아니다 — 다음 결제·지급을 보여준다
       // 할부·대출은 만기가 멀면 매달 납입이 더 중요한 일이라 "다음 결제"를 보여준다
       continue;
     } else if (i.type === 'contract_end') {
@@ -161,9 +165,9 @@ export function nextAction(record: ContractRecord, today: ISODate): NextAction |
     kind: 'payment',
     date: pay.date,
     days,
-    label: '다음 결제',
-    headline: days === 0 ? '오늘 결제일입니다.' : `다음 결제일까지 ${days}일 남았습니다.`,
-    guidance: `${monthDay(pay.date)}에 ${pay.label} ${formatWon(pay.amount)}이 결제될 예정이에요.`,
+    label: pay.direction === 'income' ? '다음 지급' : '다음 결제',
+    headline: pay.direction === 'income' ? (days === 0 ? '오늘 지급 예정일입니다.' : `다음 지급일까지 ${days}일 남았습니다.`) : days === 0 ? '오늘 결제일입니다.' : `다음 결제일까지 ${days}일 남았습니다.`,
+    guidance: `${monthDay(pay.date)}에 ${pay.label} ${formatWon(pay.amount)}${pay.amountNote ? `(${pay.amountNote})` : ''}이 ${pay.direction === 'income' ? '지급' : '결제'}될 예정이에요.`,
   };
 }
 
