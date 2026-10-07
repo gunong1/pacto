@@ -69,6 +69,8 @@ export interface ProtectDiagnostics {
   /** 보호본 재추출(pdf.js) 텍스트 길이, 남은 원문 수, 놓친 Level 1 수와 종류 */
   verifyTextLength: number;
   verifyLeakCount: number;
+  /** 가렸는데 보호본에서 다시 추출된 값의 종류 */
+  verifyLeakTypes: string[];
   verifyMissedCount: number;
   verifyMissedTypes: string[];
 }
@@ -85,7 +87,7 @@ function emptyDiagnostics(): ProtectDiagnostics {
     failureStage: null, errorCode: null, pageCount: 0, textItemCount: 0, visibleGlyphCount: 0, invisibleGlyphCount: 0, undecodableCount: 0,
     imageCount: 0, widgetCount: 0, scanPageCount: 0, fonts: [], extractedTextLength: 0, lineCount: 0, bboxCount: 0, detected: {},
     detectedSensitiveCount: 0, maskedCount: 0, removedGlyphCount: 0, boxCount: 0, derivativeBytes: 0, verifyTextLength: 0,
-    verifyLeakCount: 0, verifyMissedCount: 0, verifyMissedTypes: [],
+    verifyLeakCount: 0, verifyLeakTypes: [], verifyMissedCount: 0, verifyMissedTypes: [],
   };
 }
 
@@ -197,7 +199,7 @@ export async function protectPdf(bytes: Uint8Array, prevStates: ReadonlyMap<stri
 
   // 탐지 (원문 값은 secret 배열에만, 이 함수 밖으로 나가지 않는다)
   const regions: ProtectedRegion[] = [];
-  const secret: { value: string; hidden: string[]; masked: boolean; hideGlyphs: Glyph[] }[] = [];
+  const secret: { type: string; value: string; hidden: string[]; masked: boolean; hideGlyphs: Glyph[] }[] = [];
   const toRemove: Glyph[] = [];
   const boxes = new Map<number, Box[]>();
   for (const page of pages) {
@@ -228,7 +230,7 @@ export async function protectPdf(bytes: Uint8Array, prevStates: ReadonlyMap<stri
           contextLabel: d.contextLabel,
           bbox: [{ x: (vb.x0 - ox) / width, y: (oy + height - vb.y1) / height, w: (vb.x1 - vb.x0) / width, h: (vb.y1 - vb.y0) / height }],
         });
-        secret.push({ value: line.text.slice(d.start, d.end), hidden: d.hide.map(([a, b]) => line.text.slice(Math.max(d.start, a - 1), b)), masked: state === 'masked', hideGlyphs });
+        secret.push({ type: d.type, value: line.text.slice(d.start, d.end), hidden: d.hide.map(([a, b]) => line.text.slice(Math.max(d.start, a - 1), b)), masked: state === 'masked', hideGlyphs });
         if (state === 'masked') {
           toRemove.push(...hideGlyphs);
           // 가릴 조각마다 상자 하나
@@ -266,7 +268,9 @@ export async function protectPdf(bytes: Uint8Array, prevStates: ReadonlyMap<stri
   }
   diag.verifyTextLength = extracted.length;
   const flat = norm(extracted);
-  diag.verifyLeakCount = secret.filter((x) => x.masked).filter((s) => flat.includes(norm(s.value)) || s.hidden.some((h) => digitsOf(h).length >= 4 && flat.includes(norm(h)))).length;
+  const leaked = secret.filter((x) => x.masked).filter((s) => flat.includes(norm(s.value)) || s.hidden.some((h) => digitsOf(h).length >= 4 && flat.includes(norm(h))));
+  diag.verifyLeakCount = leaked.length;
+  diag.verifyLeakTypes = [...new Set(leaked.map((s) => s.type))];
   // 놓친 Level 1 정보가 보호본에 남아 있으면 실패 (사용자가 가리기 해제했거나 후보로 둔 값은 제외)
   const allowed = new Set(secret.filter((x) => !x.masked).map((x) => digitsOf(x.value)));
   const missed: string[] = [];
