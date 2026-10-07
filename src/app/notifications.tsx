@@ -1,16 +1,16 @@
 import { router } from 'expo-router';
 import { useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
-import { Divider, EmptyState, ListRow, Screen, Section } from '@/components/ui/layout';
+import { Divider, EmptyState, Screen, Section } from '@/components/ui/layout';
 import { formatMonthDayKo } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
+import { groupReminders, reminderDigest, type ReminderDigestItem } from '@/domain/reminderGroups';
 import { REMINDER_RULES, upcomingReminders } from '@/domain/reminders';
+import type { ISODate } from '@/domain/types';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { colors, radius, spacing } from '@/theme';
-
-const KIND_LABEL = { contract_end: '만료', renewal: '자동갱신', termination_notice: '해지 통보기한', payment: '결제' } as const;
 
 /**
  * 알림함 — V1은 "예정된 알림"을 계산해 보여준다.
@@ -19,7 +19,8 @@ const KIND_LABEL = { contract_end: '만료', renewal: '자동갱신', terminatio
 export default function NotificationsScreen() {
   const today = useToday();
   const { data } = useContracts();
-  const reminders = useMemo(() => (data ? upcomingReminders(data, today, 60) : []), [data, today]);
+  // 원본 알림(결제 한 건마다) → 같은 계약·같은 알림 날짜는 하나로 → 반복 결제 알림은 가장 가까운 것만 펼침
+  const items = useMemo(() => (data ? reminderDigest(groupReminders(upcomingReminders(data, today, 60))) : []), [data, today]);
 
   return (
     <Screen edges={[]}>
@@ -29,33 +30,64 @@ export default function NotificationsScreen() {
         </AppText>
       </View>
       <Section title="예정된 알림" caption="앞으로 60일" testID="reminder-list">
-        {reminders.length === 0 ? (
+        {items.length === 0 ? (
           <EmptyState title="예정된 알림이 없어요" />
         ) : (
-          reminders.map((r, i) => {
-            const d = daysUntil(r.fireOn, today);
-            return (
-              <View key={r.key}>
-                {i > 0 ? <Divider /> : null}
-                <ListRow
-                  title={`${r.contractTitle} · ${KIND_LABEL[r.kind]}`}
-                  subtitle={r.message}
-                  right={
-                    <AppText variant="caption" color={d === 0 ? 'primary' : 'textTertiary'} tabular>
-                      {d === 0 ? '오늘' : formatMonthDayKo(r.fireOn)}
-                    </AppText>
-                  }
-                  onPress={() => router.push(`/contract/${r.contractId}`)}
-                />
-              </View>
-            );
-          })
+          items.map((item, i) => (
+            <View key={item.group.key}>
+              {i > 0 ? <Divider /> : null}
+              <ReminderRow item={item} today={today} />
+            </View>
+          ))
         )}
       </Section>
     </Screen>
   );
 }
 
+/** 알림 한 건: 계약·종류 / 알림 문구 / 세부 내역 / 실제 일정 날짜 / 이후 반복 — 오른쪽은 "알림 날짜"임을 명시 */
+function ReminderRow({ item, today }: { item: ReminderDigestItem; today: ISODate }) {
+  const { group, followUp } = item;
+  const d = daysUntil(group.fireOn, today);
+  return (
+    <Pressable onPress={() => router.push(`/contract/${group.contractId}`)} accessibilityRole="button" style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]} testID={`reminder-${group.key}`}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <AppText variant="body2Strong" numberOfLines={1}>
+          {group.title}
+        </AppText>
+        <AppText variant="body2" color="textSecondary">
+          {group.message}
+        </AppText>
+        {group.detail ? (
+          <AppText variant="caption" color="textTertiary" tabular>
+            {group.detail}
+          </AppText>
+        ) : null}
+        {group.eventLines.map((l) => (
+          <AppText key={l} variant="caption" color="textSecondary" tabular>
+            일정 · {l}
+          </AppText>
+        ))}
+        {followUp ? (
+          <AppText variant="caption" color="textTertiary">
+            {followUp.text}
+          </AppText>
+        ) : null}
+      </View>
+      <View style={styles.when}>
+        <AppText variant="captionStrong" color={d === 0 ? 'primary' : 'textSecondary'} tabular>
+          {d === 0 ? '오늘' : formatMonthDayKo(group.fireOn)}
+        </AppText>
+        <AppText variant="small" color="textTertiary">
+          알림 예정
+        </AppText>
+      </View>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingVertical: 12 },
+  when: { alignItems: 'flex-end' },
   info: { margin: spacing.gutter, marginBottom: 0, padding: spacing.md, backgroundColor: colors.bgSubtle, borderRadius: radius.md },
 });

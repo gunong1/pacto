@@ -1,7 +1,7 @@
 import { addDays } from './dates';
 import { expandPayment } from './schedule';
 import { currentTerm, isLive, terminationNoticeDeadline } from './status';
-import type { ContractRecord, ISODate } from './types';
+import type { ContractRecord, Direction, ISODate } from './types';
 
 /**
  * 알림 규칙 기본값. DB 단계에서는 notification_rules(P1) 테이블로 옮긴다.
@@ -16,6 +16,11 @@ export const REMINDER_RULES = {
 
 export type ReminderKind = 'contract_end' | 'renewal' | 'termination_notice' | 'payment';
 
+/**
+ * 알림 원본 한 건 — 결제·통보기한·만료 하나당 하나.
+ * fireOn = 알림이 울리는 날, targetDate = 계약 일정 날짜(결제일·기한). 둘을 섞어 보여주지 않는다.
+ * 화면·발송은 reminderGroups.ts에서 같은 계약 + 같은 알림 날짜끼리 하나로 묶는다.
+ */
 export interface Reminder {
   key: string;
   kind: ReminderKind;
@@ -24,7 +29,19 @@ export interface Reminder {
   contractId: string;
   contractTitle: string;
   message: string;
+  /** 일정 이름 (결제: 월 렌탈료·설치비 …, 그 외: 해지 통보기한 등) */
+  label: string;
+  /** 결제 알림의 금액·방향 (결제가 아니면 null) */
+  amount: number | null;
+  direction: Direction | null;
+  estimated: boolean;
 }
+
+const KIND_TARGET_LABEL: Record<Exclude<ReminderKind, 'payment'>, string> = {
+  contract_end: '계약 종료',
+  renewal: '자동갱신 예정일',
+  termination_notice: '해지 통보기한',
+};
 
 function offsetText(days: number): string {
   return days === 0 ? '오늘' : `${days}일 남았습니다`;
@@ -53,6 +70,10 @@ export function upcomingReminders(records: ContractRecord[], today: ISODate, hor
           kind: contract.autoRenewal ? 'renewal' : 'contract_end',
           fireOn,
           targetDate: term.termEnd,
+          label: KIND_TARGET_LABEL[contract.autoRenewal ? 'renewal' : 'contract_end'],
+          amount: null,
+          direction: null,
+          estimated: false,
           message: contract.autoRenewal
             ? `자동갱신 예정일까지 ${off}일 남았습니다.`
             : `계약 종료까지 ${off}일 남았습니다.`,
@@ -71,6 +92,10 @@ export function upcomingReminders(records: ContractRecord[], today: ISODate, hor
           kind: 'termination_notice',
           fireOn,
           targetDate: notice.date,
+          label: KIND_TARGET_LABEL.termination_notice,
+          amount: null,
+          direction: null,
+          estimated: false,
           message:
             off === 0
               ? '오늘은 해지 통보기한입니다. 자동갱신을 원하지 않으면 오늘까지 해지 의사를 전달해주세요.'
@@ -89,7 +114,11 @@ export function upcomingReminders(records: ContractRecord[], today: ISODate, hor
           kind: 'payment',
           fireOn,
           targetDate: o.date,
-          message: `내일 ${p.label} 결제일입니다.`,
+          message: `내일 ${p.label} ${p.direction === 'income' ? '입금' : '결제'}일입니다.`,
+          label: o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label,
+          amount: o.amount,
+          direction: p.direction,
+          estimated: o.estimated,
         });
       }
     }
