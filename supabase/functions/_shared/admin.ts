@@ -99,3 +99,70 @@ export function toBase64(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 }
+
+// ===== 민감정보 보호 (서버 전용) =====
+export interface RegionRow {
+  id: string;
+  region_key: string;
+  state: 'masked' | 'unmasked' | 'candidate';
+  user_confirmed: boolean;
+}
+
+export async function selectRegions(userId: string, documentId: string): Promise<RegionRow[]> {
+  const res = await rest(`document_sensitive_regions?select=id,region_key,state,user_confirmed&user_id=eq.${userId}&document_id=eq.${documentId}`);
+  if (!res.ok) throw new Error(`regions_${res.status}`);
+  return await res.json();
+}
+
+export async function updateRegionStates(userId: string, documentId: string, updates: { id: string; state: 'masked' | 'unmasked' }[]): Promise<void> {
+  for (const u of updates) {
+    const res = await rest(`document_sensitive_regions?id=eq.${u.id}&user_id=eq.${userId}&document_id=eq.${documentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ state: u.state, user_confirmed: true }),
+    });
+    if (!res.ok) throw new Error(`regions_update_${res.status}`);
+  }
+}
+
+/** 문서의 영역을 새 결과로 바꾼다 (사용자 확인 여부는 같은 key면 유지) */
+export async function replaceRegions(userId: string, documentId: string, rows: Record<string, unknown>[]): Promise<void> {
+  const del = await rest(`document_sensitive_regions?user_id=eq.${userId}&document_id=eq.${documentId}`, { method: 'DELETE' });
+  if (!del.ok) throw new Error(`regions_delete_${del.status}`);
+  if (rows.length === 0) return;
+  const ins = await rest('document_sensitive_regions', { method: 'POST', body: JSON.stringify(rows) });
+  if (!ins.ok) throw new Error(`regions_insert_${ins.status}`);
+}
+
+export async function updateDocumentProtection(userId: string, documentId: string, patch: Record<string, unknown>): Promise<void> {
+  const res = await rest(`contract_documents?id=eq.${documentId}&user_id=eq.${userId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  if (!res.ok) throw new Error(`document_update_${res.status}`);
+}
+
+export async function selectDerivatives(userId: string, documentId: string): Promise<{ id: string; kind: string; storage_path: string }[]> {
+  const res = await rest(`document_derivatives?select=id,kind,storage_path&user_id=eq.${userId}&document_id=eq.${documentId}`);
+  if (!res.ok) throw new Error(`derivatives_${res.status}`);
+  return await res.json();
+}
+
+export async function upsertDerivative(row: { user_id: string; document_id: string; kind: string; storage_path: string; size_bytes: number }): Promise<void> {
+  const res = await rest('document_derivatives?on_conflict=document_id,kind', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify(row),
+  });
+  if (!res.ok) throw new Error(`derivative_upsert_${res.status}`);
+}
+
+export async function deleteDerivative(id: string): Promise<void> {
+  const res = await rest(`document_derivatives?id=eq.${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`derivative_delete_${res.status}`);
+}
+
+export async function uploadObject(bucket: string, path: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  const res = await fetch(`${URL_BASE}/storage/v1/object/${bucket}/${path}`, {
+    method: 'POST',
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': contentType, 'x-upsert': 'true' },
+    body: bytes,
+  });
+  if (!res.ok) throw new Error(`storage_upload_${res.status}`);
+}

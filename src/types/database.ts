@@ -3,25 +3,7 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 export type Database = {
   
-  "graphql_public": {
-          Tables: {
-            [_ in never]: never
-          }
-          Views: {
-            [_ in never]: never
-          }
-          Functions: {
-            "graphql":
-{ Args: { "extensions"?: Json,"operationName"?: string,"query"?: string,"variables"?: Json }; Returns: Json
-                           }
-          }
-          Enums: {
-            [_ in never]: never
-          }
-          CompositeTypes: {
-            [_ in never]: never
-          }
-        },"public": {
+  "public": {
           Tables: {
             "analysis_jobs": {
                   Row: {
@@ -114,13 +96,13 @@ isOneToOne: false
                   ]
                 },"contract_documents": {
                   Row: {
-                    "analysis_job_id": string | null,"contract_id": string | null,"created_at": string,"id": string,"mime_type": string,"original_filename": string | null,"page_count": number | null,"size_bytes": number,"sort_order": number,"storage_path": string,"user_id": string
+                    "analysis_job_id": string | null,"contract_id": string | null,"created_at": string,"id": string,"mime_type": string,"original_filename": string | null,"page_count": number | null,"protected_at": string | null,"protection_detail": string | null,"protection_images_unchecked": boolean,"protection_status": string,"size_bytes": number,"sort_order": number,"storage_path": string,"user_id": string
                   }
                   Insert: {
-                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"id"?: string,"mime_type": string,"original_filename"?: string | null,"page_count"?: number | null,"size_bytes": number,"sort_order"?: number,"storage_path": string,"user_id"?: string
+                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"id"?: string,"mime_type": string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_status"?: string,"size_bytes": number,"sort_order"?: number,"storage_path": string,"user_id"?: string
                   }
                   Update: {
-                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"id"?: string,"mime_type"?: string,"original_filename"?: string | null,"page_count"?: number | null,"size_bytes"?: number,"sort_order"?: number,"storage_path"?: string,"user_id"?: string
+                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"id"?: string,"mime_type"?: string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_status"?: string,"size_bytes"?: number,"sort_order"?: number,"storage_path"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -223,6 +205,44 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "contract_type_defs"
       referencedColumns: ["code"]
+    }
+                  ]
+                },"document_derivatives": {
+                  Row: {
+                    "created_at": string,"document_id": string,"id": string,"kind": string,"size_bytes": number | null,"storage_path": string,"user_id": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"document_id": string,"id"?: string,"kind": string,"size_bytes"?: number | null,"storage_path": string,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"document_id"?: string,"id"?: string,"kind"?: string,"size_bytes"?: number | null,"storage_path"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "document_derivatives_document_id_fkey"
+      columns: ["document_id"]
+isOneToOne: false
+      referencedRelation: "contract_documents"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"document_sensitive_regions": {
+                  Row: {
+                    "bbox_json": NonNullable<Json>,"confidence": string,"context_label": string | null,"created_at": string,"document_id": string,"id": string,"mask_level": number,"masked_preview": string,"page_number": number,"region_key": string,"sensitive_type": string,"source": string,"state": string,"updated_at": string,"user_confirmed": boolean,"user_id": string
+                  }
+                  Insert: {
+                    "bbox_json": NonNullable<Json>,"confidence": string,"context_label"?: string | null,"created_at"?: string,"document_id": string,"id"?: string,"mask_level": number,"masked_preview": string,"page_number": number,"region_key": string,"sensitive_type": string,"source"?: string,"state": string,"updated_at"?: string,"user_confirmed"?: boolean,"user_id": string
+                  }
+                  Update: {
+                    "bbox_json"?: NonNullable<Json>,"confidence"?: string,"context_label"?: string | null,"created_at"?: string,"document_id"?: string,"id"?: string,"mask_level"?: number,"masked_preview"?: string,"page_number"?: number,"region_key"?: string,"sensitive_type"?: string,"source"?: string,"state"?: string,"updated_at"?: string,"user_confirmed"?: boolean,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "document_sensitive_regions_document_id_fkey"
+      columns: ["document_id"]
+isOneToOne: false
+      referencedRelation: "contract_documents"
+      referencedColumns: ["id"]
     }
                   ]
                 },"payment_kind_defs": {
@@ -379,11 +399,7 @@ export type CompositeTypes<
   : never
 
 export const Constants = {
-  "graphql_public": {
-          Enums: {
-            
-          }
-        },"public": {
+  "public": {
           Enums: {
             "contract_event_type": ["payment", "contract_start", "contract_end", "renewal", "termination_notice", "custom"],"contract_lifecycle": ["active", "ended", "cancelled"],"contract_source": ["upload", "manual"],"event_source": ["system", "ai", "user"],"job_status": ["queued", "processing", "succeeded", "failed", "expired"],"payment_frequency": ["one_time", "monthly", "bimonthly", "quarterly", "semiannual", "yearly"]
           }

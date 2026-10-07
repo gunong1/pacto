@@ -5,6 +5,7 @@ import { SeverityLabel } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
 import { checkTopicLabel } from '@/domain/contractTypes';
+import { maskLevel1Text } from '@/domain/sensitive';
 import { formatDateKo } from '@/domain/dates';
 import type { AiCheck } from '@/domain/types';
 import { colors, hitSlop, radius, spacing } from '@/theme';
@@ -42,7 +43,7 @@ export function ContractCheckCard({
         {check.title}
       </AppText>
       <AppText variant="body2" color="textSecondary" style={{ marginTop: 4 }}>
-        {check.description}
+        {maskLevel1Text(check.description)}
       </AppText>
       {check.behavior === 'conditional_rule' && check.rule ? (
         <View style={styles.rule} testID={testID ? `${testID}-rule` : undefined}>
@@ -68,13 +69,13 @@ export function ContractCheckCard({
             근거{check.evidencePage ? ` · 계약서 ${check.evidencePage}쪽` : ''}
           </AppText>
           <AppText variant="caption" color="textSecondary" style={{ marginTop: 2 }}>
-            “{check.evidenceQuote}”
+            “{maskLevel1Text(check.evidenceQuote)}”
           </AppText>
           {onOpenOriginal ? (
             <Pressable onPress={onOpenOriginal} hitSlop={hitSlop} accessibilityRole="button" style={styles.open} testID={testID ? `${testID}-original` : undefined}>
               <Ionicons name="document-text-outline" size={14} color={colors.primary} />
               <AppText variant="captionStrong" color="primary">
-                원문 보기
+                계약서에서 보기
               </AppText>
             </Pressable>
           ) : null}

@@ -149,6 +149,40 @@ export interface ContractDocument {
   /** 기기 로컬 URI (mock 미리보기 전용) */
   localUri: string | null;
   pageCount: number | null;
+  /** 민감정보 보호 결과 (원본과 별도) — 없으면 아직 처리 전 */
+  protection?: DocumentProtection;
+}
+
+/**
+ * 민감정보 보호 상태. 원본(original)은 수정하지 않고, 보호 표시본(protected_view)을 따로 만든다.
+ * - protected: 찾아서 실제로 제거한 보호본이 있음 / no_sensitive_data: 찾지 못함("없다"가 아님)
+ * - unsupported_scan: 사진·스캔본이라 자동 가리기 미지원 / failed: 처리 못 함 / pending: 처리 전
+ */
+export type ProtectionStatus = 'pending' | 'protected' | 'no_sensitive_data' | 'unsupported_scan' | 'failed';
+
+export interface SensitiveRegion {
+  id: string;
+  page: number;
+  /** resident_registration_number · credit_card · bank_account · phone · email … */
+  type: string;
+  level: 1 | 2 | 3;
+  confidence: 'high' | 'medium' | 'low';
+  /** masked 가림 / unmasked 사용자가 해제 / candidate 확신 낮은 후보(가리지 않음) */
+  state: 'masked' | 'unmasked' | 'candidate';
+  userConfirmed: boolean;
+  /** 이미 가린 표시값 (원문 값은 어디에도 저장하지 않는다) */
+  maskedPreview: string;
+  contextLabel: string | null;
+}
+
+export interface DocumentProtection {
+  status: ProtectionStatus;
+  detail: string | null;
+  /** 텍스트 문서 안 이미지(서명·사본 등)는 확인하지 못함 */
+  imagesUnchecked: boolean;
+  /** 보호 표시본 경로 (status = protected일 때) */
+  protectedViewPath: string | null;
+  regions: SensitiveRegion[];
 }
 
 /**

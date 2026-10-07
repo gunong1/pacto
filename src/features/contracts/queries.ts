@@ -105,8 +105,30 @@ export function useAttachOriginal(contractId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (files: PickedFile[]) => {
-      for (let i = 0; i < files.length; i++) await documentStore.upload(files[i], { contractId, sortOrder: i });
+      for (let i = 0; i < files.length; i++) {
+        const doc = await documentStore.upload(files[i], { contractId, sortOrder: i });
+        // 원본은 그대로 두고 민감정보 보호본을 만든다 (실패해도 원본 보관은 유지)
+        await documentStore.protect(doc.id).catch(() => undefined);
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: contractKeys.all }),
+  });
+}
+
+/** 문서별 민감정보 보호 결과 (계약 저장 전 업로드 문서 포함) */
+export function useDocumentProtection(documentIds: string[]) {
+  return useQuery({
+    queryKey: ['protection', ...documentIds],
+    queryFn: () => documentStore.getProtection(documentIds),
+    enabled: documentIds.length > 0,
+  });
+}
+
+/** 보호 처리 또는 가림 선택 반영 (보호본을 서버에서 다시 만든다) */
+export function useProtectDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ documentId, regions }: { documentId: string; regions?: { id: string; state: 'masked' | 'unmasked' }[] }) => documentStore.protect(documentId, regions),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: contractKeys.all }), qc.invalidateQueries({ queryKey: ['protection'] })]),
   });
 }

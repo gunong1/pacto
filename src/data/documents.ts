@@ -1,4 +1,4 @@
-import type { ContractDocument } from '@/domain/types';
+import type { ContractDocument, DocumentProtection, ProtectionStatus } from '@/domain/types';
 
 import type { PickedFile } from './ai/provider';
 
@@ -22,10 +22,25 @@ export interface DocumentStore {
   /** 원본 업로드 (사진은 JPEG로 변환·축소). contractId가 있으면 바로 그 계약에 연결 */
   upload(file: PickedFile, options?: { sortOrder?: number; contractId?: string }): Promise<UploadedDocument>;
   /** 원본 열람용 URL (Supabase: 수 분 내 만료되는 Signed URL) */
-  openUrl(doc: Pick<ContractDocument, 'storagePath' | 'localUri'>): Promise<string>;
-  /** 저장하지 않고 취소한 업로드 정리 (계약에 연결된 문서는 지우지 않음) */
+  openUrl(doc: Pick<ContractDocument, 'storagePath' | 'localUri' | 'protection'>, variant?: DocumentVariant): Promise<string>;
+  /** 저장하지 않고 취소한 업로드 정리 (계약에 연결된 문서는 지우지 않음) — 파생 파일·민감정보 기록 포함 */
   discard(documentIds: string[]): Promise<void>;
+  /**
+   * 민감정보 보호 처리 (서버). regions가 있으면 사용자의 가림 선택을 반영해 보호본을 다시 만든다.
+   * 원본은 수정하지 않는다. mock 모드는 처리하지 않는다(pending).
+   */
+  protect(documentId: string, regions?: { id: string; state: 'masked' | 'unmasked' }[]): Promise<ProtectionSummary>;
+  /** 문서별 보호 결과 (계약에 연결 전인 업로드 문서 포함) */
+  getProtection(documentIds: string[]): Promise<Record<string, DocumentProtection>>;
 }
+
+export interface ProtectionSummary {
+  status: ProtectionStatus;
+  detail: string | null;
+}
+
+/** 원본 열기 대상: 보호 표시본(기본) 또는 원본 */
+export type DocumentVariant = 'protected_view' | 'original';
 
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 
@@ -44,4 +59,10 @@ export class MockDocumentStore implements DocumentStore {
     return doc.localUri;
   }
   async discard() {}
+  async protect(): Promise<ProtectionSummary> {
+    return { status: 'pending', detail: 'preview_mode' };
+  }
+  async getProtection(): Promise<Record<string, DocumentProtection>> {
+    return {};
+  }
 }

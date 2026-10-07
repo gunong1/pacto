@@ -513,3 +513,26 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
     expect(extraCosts(afterLocker).map((x) => x.label)).toEqual(['양도 수수료']);
   });
 });
+
+describe('H. AI가 주민등록번호·계좌번호를 인용해도 저장·표시값은 가림', () => {
+  test('toAppResult(서버, 저장 전) → 확인 화면 모델까지 원문 없음, 의미는 유지', () => {
+    const quote = '근로자 박민준(주민등록번호 901225-1234567)의 급여는 국민은행 계좌 123456-01-234567로 지급한다.';
+    const r = toAppResult(
+      output({
+        type: cls('employment'),
+        fields: { counterparty: f('주식회사 네오링크', 'high', quote) },
+        details: [{ ...det('employee_name', '박민준'), evidence_quote: quote }],
+        checks: [check({ topic: 'wage', title: '급여 지급', description: `${quote} 확인이 필요한 조건입니다.`, evidence_quote: quote })],
+      }),
+      'openai',
+    );
+    const json = JSON.stringify(r);
+    expect(json).not.toContain('1234567');
+    expect(json).not.toContain('123456-01-2');
+    expect(r.checks[0].evidenceQuote).toBe('근로자 박민준(주민등록번호 901225-1******)의 급여는 국민은행 계좌 ******-**-**4567로 지급한다.');
+    expect(r.details.employee_name.value).toBe('박민준');
+    const m = review({ type: cls('employment'), fields: { counterparty: f('주식회사 네오링크', 'high', quote) }, details: [{ ...det('employee_name', '박민준'), evidence_quote: quote }] });
+    expect(JSON.stringify([m.evidence, m.notes, m.checks])).not.toContain('1234567');
+    expect(m.evidence.counterparty).toContain('901225-1******');
+  });
+});

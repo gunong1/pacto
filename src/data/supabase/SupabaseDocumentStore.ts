@@ -1,12 +1,12 @@
 import * as Crypto from 'expo-crypto';
 
-import type { ContractDocument } from '@/domain/types';
+import type { ContractDocument, DocumentProtection } from '@/domain/types';
 
 import type { PickedFile } from '../ai/provider';
-import { DocumentError, MAX_DOCUMENT_BYTES, type DocumentStore, type UploadedDocument } from '../documents';
+import { DocumentError, MAX_DOCUMENT_BYTES, type DocumentStore, type DocumentVariant, type ProtectionSummary, type UploadedDocument } from '../documents';
 import type { PactoSupabase } from './client';
 import type { PreparedFile } from './prepareFile';
-import { CONTRACT_BUCKET } from './SupabaseContractRepository';
+import { CONTRACT_BUCKET, DOCUMENT_SELECT, toProtection, type DocumentRow } from './SupabaseContractRepository';
 
 /** Signed URL 유효 시간 (초). 원본 열람 직후 만료되도록 짧게. */
 export const SIGNED_URL_TTL_SECONDS = 120;
@@ -60,19 +60,35 @@ export class SupabaseDocumentStore implements DocumentStore {
     return { id, fileName, mimeType: prepared.mimeType, sizeBytes: prepared.bytes.byteLength, storagePath, localUri: null };
   }
 
-  async openUrl(doc: Pick<ContractDocument, 'storagePath' | 'localUri'>): Promise<string> {
-    if (!doc.storagePath) throw new DocumentError('보관된 원본이 없어요.');
-    const { data, error } = await this.sb.storage.from(CONTRACT_BUCKET).createSignedUrl(doc.storagePath, SIGNED_URL_TTL_SECONDS);
+  /** 보호 표시본(기본) 또는 원본의 짧은 Signed URL. 보호본이 없는데 보호본을 요청하면 오류 (원본으로 대신 열지 않는다) */
+  async openUrl(doc: Pick<ContractDocument, 'storagePath' | 'localUri' | 'protection'>, variant: DocumentVariant = 'original'): Promise<string> {
+    const path = variant === 'protected_view' ? doc.protection?.protectedViewPath : doc.storagePath;
+    if (!path) throw new DocumentError(variant === 'protected_view' ? '보호된 문서가 아직 없어요.' : '보관된 원본이 없어요.');
+    const { data, error } = await this.sb.storage.from(CONTRACT_BUCKET).createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
     if (error || !data?.signedUrl) throw new DocumentError('원본을 열지 못했어요. 잠시 후 다시 시도해주세요.');
     return data.signedUrl;
   }
 
   async discard(documentIds: string[]): Promise<void> {
     if (documentIds.length === 0) return;
-    const { data } = await this.sb.from('contract_documents').select('id, storage_path').in('id', documentIds).is('contract_id', null);
+    const { data } = await this.sb.from('contract_documents').select('id, storage_path, document_derivatives(storage_path)').in('id', documentIds).is('contract_id', null);
     const rows = data ?? [];
     if (rows.length === 0) return;
-    await this.sb.storage.from(CONTRACT_BUCKET).remove(rows.map((r) => r.storage_path));
+    // 원본 + 보호 표시본 등 파생 파일 → 기록 (민감정보 영역·파생본 기록은 cascade)
+    await this.sb.storage.from(CONTRACT_BUCKET).remove(rows.flatMap((r) => [r.storage_path, ...(r.document_derivatives ?? []).map((d) => d.storage_path)]));
     await this.sb.from('contract_documents').delete().in('id', rows.map((r) => r.id));
+  }
+
+  async protect(documentId: string, regions?: { id: string; state: 'masked' | 'unmasked' }[]): Promise<ProtectionSummary> {
+    const { data, error } = await this.sb.functions.invoke<ProtectionSummary>('protect-document', { body: { documentId, ...(regions?.length ? { regions } : {}) } });
+    if (error || !data?.status) return { status: 'failed', detail: 'request_failed' };
+    return { status: data.status, detail: data.detail ?? null };
+  }
+
+  async getProtection(documentIds: string[]): Promise<Record<string, DocumentProtection>> {
+    if (documentIds.length === 0) return {};
+    const { data, error } = await this.sb.from('contract_documents').select(DOCUMENT_SELECT).in('id', documentIds);
+    if (error) throw new DocumentError('보호 상태를 불러오지 못했어요.');
+    return Object.fromEntries(((data ?? []) as unknown as DocumentRow[]).map((r) => [r.id, toProtection(r)]));
   }
 }

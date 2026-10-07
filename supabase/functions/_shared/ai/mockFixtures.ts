@@ -96,7 +96,7 @@ export function employmentOutput(title: string) {
       pay({ role: 'component', part_of: '월 임금', kind: 'salary', direction: 'income', label: '고정연장근로수당', amount: 320000, frequency: 'monthly', ...q(wage) }),
     ],
     details: [
-      detail('employee_name', '박민준', '근로자: 박민준'),
+      detail('employee_name', '박민준', '근로자: 박민준 (주민등록번호 901225-1234567)'),
       detail('employment_kind', 'fixed_term', period, 'inferred'),
       detail('job_title', '백엔드 개발', '담당업무: 백엔드 개발'),
       detail('probation_months', 3, '입사일로부터 3개월간 수습기간을 둔다.'),
@@ -104,7 +104,7 @@ export function employmentOutput(title: string) {
       detail('renewal_terms', '업무평가·조직운영 상황·당사자 협의에 따라 별도로 정함', '계약기간 만료 후 갱신 여부는 업무평가, 조직운영 상황 및 당사자 협의에 따라 별도로 정한다.'),
     ],
     checks: [
-      check({ severity: 'info', topic: 'wage', title: '급여일', description: '임금은 매월 25일에 지급하고, 지급일이 휴일이면 그 전일에 지급하는 것으로 기재되어 있습니다.', evidence_quote: payday }),
+      check({ severity: 'info', topic: 'wage', title: '급여일', description: '임금은 매월 25일에 근로자 명의 계좌(국민은행 123456-01-234567)로 지급하고, 지급일이 휴일이면 그 전일에 지급하는 것으로 기재되어 있습니다.', evidence_quote: payday }),
       check({ severity: 'check', topic: 'work_change', title: '근무장소·업무 변경', description: '회사가 업무상 필요에 따라 근무장소나 담당업무를 변경할 수 있는 조건이 포함되어 있습니다.', evidence_quote: '회사는 업무상 필요한 경우 근무장소 및 담당업무를 변경할 수 있다.' }),
       check({ severity: 'check', topic: 'fixed_overtime', title: '고정연장근로수당 포함', description: '월 임금 3,600,000원에 고정연장근로수당 320,000원이 포함되어 있는 것으로 기재되어 있습니다.', evidence_quote: wage }),
       check({ severity: 'check', topic: 'probation', title: '수습기간 임금 90%', description: '입사일부터 3개월은 수습기간이며, 이 기간 임금은 월 임금의 90%로 기재되어 있습니다.', evidence_quote: '수습기간 중 임금은 월 임금의 90%로 한다.', related_date: '2026-10-01' }),

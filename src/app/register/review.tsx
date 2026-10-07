@@ -12,8 +12,9 @@ import { formatWon } from '@/domain/money';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
 import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm } from '@/features/contracts/form';
-import { openOriginal } from '@/features/contracts/openOriginal';
-import { useCreateContract, useToday } from '@/features/contracts/queries';
+import { viewDocument } from '@/features/documents/openDocument';
+import { useCreateContract, useDocumentProtection, useProtectDocument, useToday } from '@/features/contracts/queries';
+import { ProtectionCard } from '@/features/documents/ProtectionCard';
 import { noticeDeadlineFor, toReviewModel, type ReviewCheck } from '@/features/registration/extraction';
 import { finishRegistration } from '@/features/registration/finish';
 import { useRegistration } from '@/features/registration/store';
@@ -24,6 +25,10 @@ export default function ReviewScreen() {
   const today = useToday();
   const { extraction, files, method, uploaded } = useRegistration();
   const create = useCreateContract();
+  // 민감정보 보호 결과 (분석 전에 서버가 처리) — 원본은 그대로, 기본 표시는 보호본
+  const protection = useDocumentProtection(uploaded.map((d) => d.id));
+  const protect = useProtectDocument();
+  const withProtection = <T extends { id: string }>(d: T) => ({ ...d, protection: protection.data?.[d.id] });
   const model = useMemo(() => (extraction ? toReviewModel(extraction, uploaded.map((d) => d.id)) : null), [extraction, uploaded]);
   // 계약 체크에서 "캘린더에 추가"를 고른 항목 (계약서에 명시된 날짜)
   const [addEvents, setAddEvents] = useState<ReadonlySet<number>>(new Set());
@@ -65,6 +70,19 @@ export default function ReviewScreen() {
         </AppText>
       </View>
 
+      {uploaded.map((d) => (
+        <View key={d.id} style={{ marginTop: spacing.md }}>
+          <ProtectionCard
+            protection={protection.data?.[d.id]}
+            fileName={uploaded.length > 1 ? d.fileName : undefined}
+            busy={protect.isPending}
+            onChangeRegion={(r, state) => protect.mutate({ documentId: d.id, regions: [{ id: r.id, state }] })}
+            onProtect={() => protect.mutate({ documentId: d.id })}
+            testID={`review-protection-${uploaded.indexOf(d)}`}
+          />
+        </View>
+      ))}
+
       <View style={styles.files}>
         {files.map((f) => (
           <View key={f.uri} style={styles.file}>
@@ -78,7 +96,10 @@ export default function ReviewScreen() {
     </View>
   );
 
-  const docFor = (c: ReviewCheck) => uploaded.find((d) => d.id === c.evidenceDocumentId) ?? uploaded[0];
+  const docFor = (c: ReviewCheck) => {
+    const d = uploaded.find((x) => x.id === c.evidenceDocumentId) ?? uploaded[0];
+    return d ? withProtection(d) : undefined;
+  };
   const noticeDate = noticeDeadlineFor(model.draft.endDate, model.draft.terminationNoticeDays);
 
   const trailing = (
@@ -108,7 +129,7 @@ export default function ReviewScreen() {
                 <ContractCheckCard
                   testID={`review-check-${i}`}
                   check={c}
-                  onOpenOriginal={doc ? () => openOriginal(doc, c.evidencePage) : undefined}
+                  onOpenOriginal={doc ? () => viewDocument(doc, c.evidencePage) : undefined}
                   deadline={
                     s?.kind === 'set_termination_notice' && noticeDate
                       ? { label: profileOf(model.draft.contractType).noticeLabel, date: noticeDate }

@@ -22,8 +22,10 @@ import { currentTerm, deriveStatus, terminationNoticeDeadline } from '@/domain/s
 import { endProfile, isActionable, nextAction } from '@/domain/nextAction';
 import type { AiCheck, ContractRecord } from '@/domain/types';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
-import { openOriginal } from '@/features/contracts/openOriginal';
-import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
+import { viewDocument, viewOriginal } from '@/features/documents/openDocument';
+import { ProtectionCard } from '@/features/documents/ProtectionCard';
+import { protectionCopy } from '@/features/documents/protectionCopy';
+import { useAttachOriginal, useContract, useContractActions, useProtectDocument, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
@@ -35,6 +37,7 @@ export default function ContractDetailScreen() {
   const actions = useContractActions(id);
   const remove = useRemoveContract();
   const attach = useAttachOriginal(id);
+  const protect = useProtectDocument();
   const attachOriginal = async (kind: 'pdf' | 'photo') => {
     const files = kind === 'pdf' ? await pickPdf() : await pickPhotos();
     if (files) attach.mutate(files, { onError: (e) => notify('원본 추가', e instanceof Error ? e.message : '원본을 보관하지 못했어요.') });
@@ -168,17 +171,24 @@ export default function ContractDetailScreen() {
             </AppText>
           ) : null}
 
-          {/* 계약서 원본 — 계약 지갑의 핵심. Step 8에서 Signed URL 열람으로 연결 */}
+          {/* 계약서 보기 — 기본은 민감정보를 가린 보호 표시본. 원본은 아래 "계약서" 섹션의 "원본 보기"(확인 후) */}
           {record.documents.length > 0 ? (
             <Pressable
-              onPress={() => openOriginal(record.documents[0])}
+              onPress={() => viewDocument(record.documents[0])}
               accessibilityRole="button"
-              testID="detail-open-original"
+              testID="detail-open-document"
               style={({ pressed }) => [styles.original, pressed && { backgroundColor: colors.bgSubtle }]}>
-              <Ionicons name="document-text-outline" size={20} color={colors.primary} />
-              <AppText variant="body2Strong" color="primary" style={{ flex: 1 }}>
-                계약서 원본 보기
-              </AppText>
+              <Ionicons name={record.documents[0].protection?.protectedViewPath ? 'shield-checkmark-outline' : 'document-text-outline'} size={20} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <AppText variant="body2Strong" color="primary">
+                  {record.documents[0].protection?.protectedViewPath ? '보호된 계약서 보기' : '계약서 보기'}
+                </AppText>
+                {protectionCopy(record.documents[0].protection) ? (
+                  <AppText variant="small" color="textTertiary" testID="detail-protection-status">
+                    {protectionCopy(record.documents[0].protection)!.title}
+                  </AppText>
+                ) : null}
+              </View>
               <AppText variant="caption" color="textTertiary">
                 {record.documents.length > 1 ? `파일 ${record.documents.length}개` : (record.documents[0].pageCount ? `${record.documents[0].pageCount}쪽` : '')}
               </AppText>
@@ -323,8 +333,8 @@ export default function ContractDetailScreen() {
 
         <SectionGap />
 
-        {/* 원본 계약서 */}
-        <Section title="원본 계약서">
+        {/* 계약서 — 원본은 수정하지 않고 비공개로 보관, 기본 표시는 민감정보를 가린 보호본 */}
+        <Section title="계약서" caption="원본은 비공개로 보관하고, 지원되는 문서는 민감정보를 가려서 보여드려요" testID="detail-documents">
           {record.documents.length === 0 ? (
             <AppText variant="body2" color="textTertiary">
               보관된 원본이 없어요. 계약서를 추가해두면 언제든 다시 꺼내볼 수 있어요.
@@ -337,7 +347,8 @@ export default function ContractDetailScreen() {
             </View>
           ) : (
             record.documents.map((d) => (
-              <Pressable key={d.id} style={styles.doc} onPress={() => openOriginal(d)} accessibilityRole="button" testID={`document-${d.id}`}>
+              <View key={d.id} style={{ marginBottom: spacing.md }}>
+              <Pressable style={styles.doc} onPress={() => viewDocument(d)} accessibilityRole="button" testID={`document-${d.id}`}>
                 <Ionicons name={d.mimeType === 'application/pdf' ? 'document-outline' : 'image-outline'} size={22} color={colors.textSecondary} />
                 <View style={{ flex: 1 }}>
                   <AppText variant="body2Strong" numberOfLines={1}>
@@ -350,6 +361,15 @@ export default function ContractDetailScreen() {
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={colors.textDisabled} />
               </Pressable>
+              <ProtectionCard
+                protection={d.protection}
+                busy={protect.isPending}
+                onChangeRegion={(r, state) => protect.mutate({ documentId: d.id, regions: [{ id: r.id, state }] }, { onError: () => notify('민감정보 보호', '변경하지 못했어요. 잠시 후 다시 시도해주세요.') })}
+                onProtect={() => protect.mutate({ documentId: d.id })}
+                onViewOriginal={d.storagePath ? () => viewOriginal(d) : undefined}
+                testID={`protection-${d.id}`}
+              />
+              </View>
             ))
           )}
         </Section>
@@ -448,7 +468,7 @@ function AiSection({
                 testID={`check-${x.id}`}
                 check={x}
                 deadline={deadline}
-                onOpenOriginal={doc ? () => openOriginal(doc, x.evidencePage) : undefined}
+                onOpenOriginal={doc ? () => viewDocument(doc, x.evidencePage) : undefined}
                 action={
                   <>
                     {x.behavior === 'conditional_rule' && x.rule ? <RuleScheduler check={x} onSchedule={(title, date) => onScheduleRule(x.id, title, date)} /> : null}

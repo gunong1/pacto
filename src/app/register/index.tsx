@@ -46,7 +46,7 @@ export default function RegisterMethodScreen() {
       <View style={styles.privacy}>
         <Ionicons name="lock-closed-outline" size={16} color={colors.textTertiary} />
         <AppText variant="caption" color="textTertiary" style={{ flex: 1 }}>
-          계약서 원본은 본인만 열람할 수 있는 비공개 저장소에 보관되며, 공개 링크로 공유되지 않습니다.
+          계약서는 본인만 열람할 수 있는 비공개 저장소에 보관되며, 공개 링크로 공유되지 않습니다. 지원되는 문서(글자로 된 PDF)에서는 주민등록번호·계좌번호 등 민감정보를 찾아 가려서 표시합니다.
         </AppText>
       </View>
     </Screen>

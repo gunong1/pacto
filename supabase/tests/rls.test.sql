@@ -2,7 +2,7 @@
 -- 실행: npx supabase test db
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(39);
+select plan(50);
 
 -- 테스트 사용자 A, B
 insert into auth.users (id, email, aud, role) values
@@ -83,6 +83,31 @@ select throws_ok($$ select count(*) from public.contracts $$, '42501', null, 'an
 select pg_temp.login('11111111-1111-1111-1111-111111111111');
 select is((select contract_id from public.contract_documents where id = 'aaaaaaaa-0000-0000-0000-00000000000d'), (select id from a_contract), 'A: 원본 연결 유지 (B가 가져가지 못함)');
 select is((select title from public.contracts where id = (select id from a_contract)), '헬스장(수정)', 'A: 계약 내용 변조되지 않음');
+
+-- ===== 민감정보 보호: 상태·영역·파생본은 서버만 만들고, 사용자는 본인 것만 보고 가림 상태만 바꾼다 =====
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select lives_ok($$ update public.contract_documents set protection_status = 'protected' where id = 'aaaaaaaa-0000-0000-0000-00000000000d' $$, 'A: 보호 상태 변경 요청은 오류 없이');
+select is((select protection_status from public.contract_documents where id = 'aaaaaaaa-0000-0000-0000-00000000000d'), 'pending', 'A: 사용자는 보호 상태를 "보호됨"으로 바꿀 수 없음');
+select throws_ok($$ insert into public.document_sensitive_regions (user_id, document_id, page_number, sensitive_type, mask_level, bbox_json, confidence, state, masked_preview, region_key)
+  values ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-00000000000d', 1, 'phone', 2, '[]', 'high', 'masked', '010-****-5678', 'k') $$, '42501', null, 'A: 영역 직접 생성 불가 (서버만)');
+-- 서버(service_role)가 처리 결과 저장
+select set_config('role', 'service_role', true);
+update public.contract_documents set protection_status = 'protected', protected_at = now() where id = 'aaaaaaaa-0000-0000-0000-00000000000d';
+insert into public.document_sensitive_regions (id, user_id, document_id, page_number, sensitive_type, mask_level, bbox_json, confidence, state, masked_preview, region_key)
+  values ('aaaaaaaa-0000-0000-0000-0000000000a1', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-00000000000d', 1, 'resident_registration_number', 1, '[{"x":0.1,"y":0.1,"w":0.2,"h":0.02}]', 'high', 'masked', '901225-1******', 'p1:rrn:0');
+insert into public.document_derivatives (user_id, document_id, kind, storage_path, size_bytes)
+  values ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-00000000000d', 'protected_view', '11111111-1111-1111-1111-111111111111/aaaaaaaa-0000-0000-0000-00000000000d.protected_view.pdf', 1000);
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select is((select protection_status from public.contract_documents where id = 'aaaaaaaa-0000-0000-0000-00000000000d'), 'protected', 'A: 서버가 저장한 보호 상태');
+select lives_ok($$ update public.document_sensitive_regions set state = 'unmasked', user_confirmed = true where id = 'aaaaaaaa-0000-0000-0000-0000000000a1' $$, 'A: 본인 영역의 가림 상태 변경');
+select throws_ok($$ update public.document_sensitive_regions set masked_preview = 'x' where id = 'aaaaaaaa-0000-0000-0000-0000000000a1' $$, '42501', null, 'A: 가림 상태 외 컬럼은 변경 불가');
+select throws_ok($$ delete from public.document_derivatives $$, '42501', null, 'A: 파생본 기록 직접 삭제 불가 (계약 삭제 시 함께 삭제)');
+select pg_temp.login('22222222-2222-2222-2222-222222222222');
+select is((select count(*) from public.document_sensitive_regions), 0::bigint, 'B: A의 민감정보 영역 안 보임');
+select is((select count(*) from public.document_derivatives), 0::bigint, 'B: A의 파생본 안 보임');
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select is((select count(*) from public.document_sensitive_regions where state = 'unmasked'), 1::bigint, 'A: 가림 해제 반영');
+select is((select count(*) from public.document_derivatives), 1::bigint, 'A: 본인 파생본 조회');
 
 select * from finish();
 rollback;

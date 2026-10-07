@@ -52,7 +52,7 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
 
   // 3. DB 저장
   await page.click(tid('submit-contract'));
-  await page.waitForSelector(tid('detail-open-original'), { timeout: 15000 });
+  await page.waitForSelector(tid('detail-open-document'), { timeout: 15000 });
   const title = await page.locator(tid('detail-title')).innerText();
   log('3 저장 → 상세:', title, '/ "계약서 원본 보기" 표시');
 
@@ -63,7 +63,7 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   const row = page.locator(`${tid('contracts-list')} >> text=${title}`);
   await row.waitFor({ timeout: 15000 });
   await row.click();
-  await page.waitForSelector(tid('detail-open-original'), { timeout: 15000 });
+  await page.waitForSelector(tid('detail-open-document'), { timeout: 15000 });
   await shot('02-detail-after-reload');
   log('4~5 새로고침(재실행) 후 계약·원본 연결 유지');
 
@@ -71,7 +71,7 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   // 헤드리스 브라우저는 PDF를 다운로드로 처리하므로, 새 탭이 요청한 Signed URL을 확인한다
   const [request] = await Promise.all([
     context.waitForEvent('request', { predicate: (r) => r.method() === 'GET' && r.url().includes('/storage/v1/object/sign/contract-files/') && r.url().includes('token='), timeout: 15000 }),
-    page.click(tid('detail-open-original')),
+    page.click(tid('detail-open-document')),
   ]);
   const signedUrl = request.url();
   const res = await context.request.get(signedUrl);

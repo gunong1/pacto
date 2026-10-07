@@ -24,6 +24,7 @@ import {
   PAYMENT_KIND_CODES,
   PAYMENT_KIND_DEFS,
 } from './contractRegistry.ts';
+import { maskLevel1Deep } from './protection/sensitive.ts';
 
 export const PROMPT_VERSION = 'extract-v6';
 
@@ -692,5 +693,6 @@ export function toAppResult(output: unknown, provider: string): AppExtractionRes
     }
   }
 
-  return { category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION };
+  // 강한 보호(Level 1: 주민·외국인등록번호·카드·계좌) 원문이 인용문·설명·값에 남지 않도록 저장·반환 전에 가린다 (의미는 유지)
+  return maskLevel1Deep({ category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION });
 }

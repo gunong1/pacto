@@ -16,18 +16,26 @@ import { confirm } from '@/lib/dialog';
 import { colors, spacing } from '@/theme';
 
 /**
- * 분석 단계 — 계약 유형이 정해지기 전이라 특정 계약에만 있는 항목(결제일·해지 통보기한 등)은 고정 표시하지 않는다.
- * 서버 분석은 한 번의 요청이라 실제 진행률을 알 수 없어, 단계는 시간에 따라 넘기고 마지막 단계에서 응답을 기다린다.
+ * 진행 단계 — 실제 처리 순서와 같다 (가짜 진행률을 만들지 않는다).
+ * ① 계약서 보관 → ② 민감정보 보호(서버, 외부 전송 없음) → ③ 계약 내용 분석(AI) → ④ 계약정보 정리
+ * 분석은 한 번의 요청이라 세부 진행률을 알 수 없어, 분석 중에는 무엇을 보고 있는지만 안내 문구로 바꿔 보여준다(완료 표시 아님).
  */
-const STAGES = [
-  { label: '계약 유형 확인', message: '어떤 계약인지 확인하고 있어요.' },
-  { label: '중요한 날짜 확인', message: '중요한 날짜를 찾고 있어요.' },
-  { label: '금액 및 납입 구조 확인', message: '금액과 납입 구조를 정리하고 있어요.' },
-  { label: '계약 기간 및 주요 일정 확인', message: '계약 기간과 종료 조건을 확인하고 있어요.' },
-  { label: '종료·갱신·만기 조건 확인', message: '주의해서 볼 조건이 있는지 확인하고 있어요.' },
-  { label: '중요한 조건 확인', message: '저장 전에 확인할 내용을 정리하고 있어요.' },
+const PHASES = [
+  { key: 'upload', label: '계약서 보관' },
+  { key: 'protect', label: '민감정보 보호' },
+  { key: 'analyze', label: '계약 내용 분석' },
+  { key: 'done', label: '계약정보 정리' },
 ] as const;
-/** 단계 전환 간격 (ms) — 실제 분석은 보통 수 초~수십 초 */
+type Phase = (typeof PHASES)[number]['key'];
+const ANALYZE_MESSAGES = [
+  '어떤 계약인지 확인하고 있어요.',
+  '중요한 날짜를 찾고 있어요.',
+  '금액과 납입 구조를 정리하고 있어요.',
+  '계약 기간과 종료 조건을 확인하고 있어요.',
+  '주의해서 볼 조건이 있는지 확인하고 있어요.',
+  '저장 전에 확인할 내용을 정리하고 있어요.',
+] as const;
+/** 안내 문구 전환 간격 (ms) */
 const STAGE_MS = 2600;
 
 /** "계약서를 확인하고 있습니다." — 분석 진행 화면. 완료 후 바로 저장하지 않고 확인 화면으로. */
@@ -36,7 +44,8 @@ export default function AnalyzingScreen() {
   const files = useRegistration((s) => s.files);
   const setExtraction = useRegistration((s) => s.setExtraction);
   const setUploaded = useRegistration((s) => s.setUploaded);
-  const [phase, setPhase] = useState<'upload' | 'analyze' | 'done'>('upload');
+  const [phase, setPhase] = useState<Phase>('upload');
+  const [protectedCount, setProtectedCount] = useState<number | null>(null);
   const [step, setStep] = useState(0);
   const [failed, setFailed] = useState<null | { title: string; message: string; uploadFailed: boolean }>(null);
   const [attempt, setAttempt] = useState(0);
@@ -68,10 +77,22 @@ export default function AnalyzingScreen() {
         }
       }
       if (controller.signal.aborted) return;
-      // ② 계약정보 정리 (Step 9 전까지 mock)
+      // ② 민감정보 보호: 원본은 그대로 두고 서버가 보호 표시본을 만든다 (외부 전송 없음). 실패해도 분석은 계속한다
+      if (documentStore.mode === 'supabase') setPhase('protect');
+      try {
+        const results = await Promise.all(docs.map((d) => documentStore.protect(d.id).catch(() => null)));
+        if (documentStore.mode === 'supabase') {
+          const prot = await documentStore.getProtection(docs.map((d) => d.id)).catch(() => ({}) as Record<string, never>);
+          setProtectedCount(results.some((r) => r?.status === 'protected') ? Object.values(prot).reduce((n, p) => n + p.regions.filter((g) => g.state === 'masked').length, 0) : null);
+        }
+      } catch {
+        // 보호 실패는 문서 상태(failed)로 남고, 화면에서 다시 시도할 수 있다
+      }
+      if (controller.signal.aborted) return;
+      // ③ 계약 내용 분석
       setPhase('analyze');
       setStep(0);
-      timer = setInterval(() => setStep((v) => Math.min(v + 1, STAGES.length - 1)), STAGE_MS);
+      timer = setInterval(() => setStep((v) => Math.min(v + 1, ANALYZE_MESSAGES.length - 1)), STAGE_MS);
       const extract = () => aiProvider.extractContract({ files, documentIds: docs.map((d) => d.id), today }, controller.signal);
       try {
         let result;
@@ -95,7 +116,6 @@ export default function AnalyzingScreen() {
         if (controller.signal.aborted) return;
         done.current = true;
         clearInterval(timer);
-        setStep(STAGES.length);
         setPhase('done');
         setExtraction(result);
         // 완료 문구를 잠깐 보여준 뒤 확인 화면으로
@@ -146,13 +166,19 @@ export default function AnalyzingScreen() {
     );
   }
 
-  const title = phase === 'upload' ? '계약서를 안전하게 보관하고 있어요.' : phase === 'done' ? '계약정보 정리가 완료됐어요.' : '계약서를 확인하고 있어요.';
+  const title =
+    phase === 'upload' ? '계약서를 안전하게 보관하고 있어요.' : phase === 'protect' ? '민감정보를 찾고 있어요.' : phase === 'done' ? '계약정보 정리가 완료됐어요.' : '계약서를 확인하고 있어요.';
   const subtitle =
     phase === 'upload'
       ? '원본은 본인만 열람할 수 있는 비공개 저장소에 보관됩니다.'
-      : phase === 'done'
-        ? '저장하기 전에 내용을 한 번 확인해주세요.'
-        : '이 계약에서 꼭 관리해야 할 날짜와 금액, 주요 조건을 정리하고 있어요.';
+      : phase === 'protect'
+        ? '원본은 그대로 두고, 주민등록번호·계좌번호 등을 가린 보호본을 따로 만들어요.'
+        : phase === 'done'
+          ? '저장하기 전에 내용을 한 번 확인해주세요.'
+          : '이 계약에서 꼭 관리해야 할 날짜와 금액, 주요 조건을 정리하고 있어요.';
+  // 미리보기(mock) 모드는 보호 처리를 하지 않으므로 그 단계를 보여주지 않는다
+  const phases = documentStore.mode === 'supabase' ? PHASES : PHASES.filter((p) => p.key !== 'protect');
+  const phaseIndex = phases.findIndex((p) => p.key === phase);
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']} testID="analyzing">
@@ -168,12 +194,11 @@ export default function AnalyzingScreen() {
         <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
           {subtitle}
         </AppText>
-        {phase !== 'upload' ? (
-          <View style={styles.fields} testID="analyzing-stages">
-            {STAGES.map((s, i) => {
-              const state = i < step ? 'done' : i === step ? 'active' : 'todo';
-              return (
-                <View key={s.label} style={styles.field}>
+        <View style={styles.fields} testID="analyzing-stages">
+          {phases.map((s, i) => {
+            const state = i < phaseIndex || phase === 'done' ? 'done' : i === phaseIndex ? 'active' : 'todo';
+            return (
+              <View key={s.key} style={styles.field} testID={`analyzing-phase-${s.key}`}>
                   {state === 'active' ? (
                     <ActivityIndicator size="small" color={colors.primary} style={{ width: 20 }} />
                   ) : (
@@ -181,15 +206,15 @@ export default function AnalyzingScreen() {
                   )}
                   <AppText variant="body" color={state === 'todo' ? 'textTertiary' : 'text'}>
                     {s.label}
+                    {s.key === 'protect' && state === 'done' && protectedCount ? ` · ${protectedCount}건 가림` : ''}
                   </AppText>
-                </View>
-              );
-            })}
-          </View>
-        ) : null}
+              </View>
+            );
+          })}
+        </View>
         {phase === 'analyze' ? (
           <AppText variant="body2Strong" color="primary" style={{ marginTop: spacing.lg }} testID="analyzing-stage-message">
-            {STAGES[Math.min(step, STAGES.length - 1)].message}
+            {ANALYZE_MESSAGES[Math.min(step, ANALYZE_MESSAGES.length - 1)]}
           </AppText>
         ) : null}
         <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.xxl }}>

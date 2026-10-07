@@ -8,7 +8,10 @@ import type {
   ContractLifecycle,
   ContractPayment,
   ContractRecord,
+  DocumentProtection,
   ISODate,
+  ProtectionStatus,
+  SensitiveRegion,
 } from '@/domain/types';
 import type { Database, Json } from '@/types/database';
 
@@ -21,12 +24,18 @@ type ContractRow = Row<'contracts'> & {
   contract_payments: Row<'contract_payments'>[];
   contract_dates: Row<'contract_dates'>[];
   contract_events: Row<'contract_events'>[];
-  contract_documents: Row<'contract_documents'>[];
+  contract_documents: DocumentRow[];
 };
+/** 원본 + 민감정보 보호 결과 (영역·파생본) */
+export type DocumentRow = Row<'contract_documents'> & {
+  document_sensitive_regions?: Row<'document_sensitive_regions'>[];
+  document_derivatives?: Row<'document_derivatives'>[];
+};
+export const DOCUMENT_SELECT = '*, document_sensitive_regions(*), document_derivatives(*)';
 
 export const CONTRACT_BUCKET = 'contract-files';
 
-const SELECT = '*, contract_payments(*), contract_dates(*), contract_events(*), contract_documents(*)';
+const SELECT = `*, contract_payments(*), contract_dates(*), contract_events(*), contract_documents(${DOCUMENT_SELECT})`;
 
 /** 오류 원문(내부 정보)을 그대로 노출하지 않는 저장소 오류 */
 export class RepositoryError extends Error {
@@ -84,7 +93,37 @@ function toEvent(r: Row<'contract_events'>): ContractEvent {
   };
 }
 
-function toDocument(r: Row<'contract_documents'>): ContractDocument {
+const firstBox = (r: Row<'document_sensitive_regions'>): { x: number; y: number } => {
+  const b = Array.isArray(r.bbox_json) ? (r.bbox_json[0] as { x?: number; y?: number } | undefined) : undefined;
+  return { x: Number(b?.x ?? 0), y: Math.round(Number(b?.y ?? 0) * 200) / 200 };
+};
+
+/** 보호 결과 — 원문 값은 DB에 없으므로 가린 표시값·위치·상태만 */
+export function toProtection(r: DocumentRow): DocumentProtection {
+  const view = (r.document_derivatives ?? []).find((d) => d.kind === 'protected_view');
+  return {
+    status: r.protection_status as ProtectionStatus,
+    detail: r.protection_detail,
+    imagesUnchecked: r.protection_images_unchecked,
+    protectedViewPath: r.protection_status === 'protected' && view ? view.storage_path : null,
+    regions: [...(r.document_sensitive_regions ?? [])]
+      // 문서에서 나오는 순서 (쪽 → 위에서 아래 → 왼쪽에서 오른쪽)
+      .sort((a, b) => a.page_number - b.page_number || firstBox(a).y - firstBox(b).y || firstBox(a).x - firstBox(b).x)
+      .map((g) => ({
+        id: g.id,
+        page: g.page_number,
+        type: g.sensitive_type,
+        level: g.mask_level as 1 | 2 | 3,
+        confidence: g.confidence as SensitiveRegion['confidence'],
+        state: g.state as SensitiveRegion['state'],
+        userConfirmed: g.user_confirmed,
+        maskedPreview: g.masked_preview,
+        contextLabel: g.context_label,
+      })),
+  };
+}
+
+function toDocument(r: DocumentRow): ContractDocument {
   return {
     id: r.id,
     contractId: r.contract_id ?? '',
@@ -94,6 +133,7 @@ function toDocument(r: Row<'contract_documents'>): ContractDocument {
     storagePath: r.storage_path,
     localUri: null,
     pageCount: r.page_count,
+    protection: toProtection(r),
   };
 }
 
@@ -313,10 +353,13 @@ export class SupabaseContractRepository implements ContractRepository {
     return this.writeChecks(id, r.aiChecks.map((c) => (c.id === checkId ? { ...c, status } : c)));
   }
 
-  /** 계약 삭제: 원본 파일(Storage) → 계약 행(하위 데이터 cascade) 순서 */
+  /**
+   * 계약 삭제: 원본·보호 표시본 등 파생 파일(Storage) → 계약 행 순서.
+   * 계약 행을 지우면 원본 기록·민감정보 영역·파생본 기록·결제·일정이 cascade로 함께 지워진다 (고아 파일이 남지 않도록 파일 먼저).
+   */
   async remove(id: string) {
-    const docs = check(await this.sb.from('contract_documents').select('storage_path').eq('contract_id', id));
-    const paths = (docs ?? []).map((d) => d.storage_path);
+    const docs = check(await this.sb.from('contract_documents').select('id, storage_path, document_derivatives(storage_path)').eq('contract_id', id));
+    const paths = (docs ?? []).flatMap((d) => [d.storage_path, ...(d.document_derivatives ?? []).map((x) => x.storage_path)]);
     if (paths.length > 0) {
       const { error } = await this.sb.storage.from(CONTRACT_BUCKET).remove(paths);
       if (error) throw new RepositoryError('원본 계약서를 삭제하지 못했어요. 잠시 후 다시 시도해주세요.');
