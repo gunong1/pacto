@@ -251,13 +251,13 @@ function FirstRunHome() {
       <View style={styles.firstRun} testID="home-first-run">
         <AppText variant="title1">첫 계약서를{'\n'}넣어보세요</AppText>
         <AppText variant="body" color="textSecondary" style={{ marginTop: spacing.sm }}>
-          계약서를 넣어두면 중요한 순간은 PACTO가 기억합니다.
+          계약서를 올리면 PACTO가 중요한 날짜와 금액, 조건을 알아서 정리해드려요.
         </AppText>
         <View style={styles.remembers}>
           {[
-            ['calendar-outline', '매달 결제일과 이번 달 계약 지출'],
-            ['alarm-outline', '해지 통보기한·만료·자동갱신'],
-            ['document-text-outline', '언제든 다시 꺼내볼 수 있는 계약서 원본'],
+            ['calendar-outline', '중요한 날짜와 금액을 한눈에'],
+            ['alarm-outline', '만료·갱신·해지기한을 놓치지 않게'],
+            ['document-text-outline', '계약서 원본도 안전하게 보관'],
           ].map(([icon, text]) => (
             <View key={text} style={styles.remember}>
               <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={colors.primary} />

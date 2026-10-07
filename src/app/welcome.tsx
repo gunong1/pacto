@@ -38,9 +38,9 @@ export default function WelcomeScreen() {
 
         <View style={styles.points}>
           {[
-            ['folder-open-outline', '계약서를 한곳에 보관'],
-            ['calendar-outline', '결제일·만료일·해지 통보기한 관리'],
-            ['wallet-outline', '매달 나가는 계약 지출을 한눈에'],
+            ['folder-open-outline', '전세·보험·근로·대출, 흩어진 계약을 한곳에'],
+            ['calendar-outline', '만료·갱신·해지기한 같은 중요한 날짜를 기억'],
+            ['shield-checkmark-outline', '계약이 끝날 때까지 PACTO가 관리'],
           ].map(([icon, text]) => (
             <View key={text} style={styles.point}>
               <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={colors.primary} />
