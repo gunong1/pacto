@@ -166,3 +166,33 @@ export async function uploadObject(bucket: string, path: string, bytes: Uint8Arr
   });
   if (!res.ok) throw new Error(`storage_upload_${res.status}`);
 }
+
+// ===== 문서 확인 (분석 작업·문서 역할, 서버 전용) =====
+export interface JobRow {
+  id: string;
+  user_id: string;
+  status: string;
+  provider: string | null;
+  validation: Record<string, unknown> | null;
+  raw_output: unknown;
+}
+
+export async function selectOwnJob(userId: string, jobId: string): Promise<JobRow | null> {
+  const res = await rest(`analysis_jobs?select=id,user_id,status,provider,validation,raw_output&user_id=eq.${userId}&id=eq.${jobId}`);
+  if (!res.ok) throw new Error(`job_${res.status}`);
+  const rows: JobRow[] = await res.json();
+  return rows[0] ?? null;
+}
+
+/** 문서 역할 기록 (사용자는 바꿀 수 없다 — 트리거) */
+export async function updateDocumentRole(userId: string, documentId: string, patch: { document_role?: string; role_confirmed_by_user?: boolean }): Promise<void> {
+  const res = await rest(`contract_documents?user_id=eq.${userId}&id=eq.${documentId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  if (!res.ok) throw new Error(`document_role_${res.status}`);
+}
+
+// ===== 고아 파일 정리 (서버 전용) =====
+export async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
+  const res = await rest(`rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) });
+  if (!res.ok) throw new Error(`rpc_${fn}_${res.status}`);
+  return await res.json();
+}

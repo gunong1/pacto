@@ -76,14 +76,14 @@ const leaks = (text) => SECRETS.filter((s) => text.includes(s));
   await page.click(tid('first-run-register'));
   await page.waitForSelector(tid('method-pdf'));
   const uploadCopy = await body();
-  check('U', '업로드 화면: 지원되는 문서에서만 보호한다고 안내 (단정 표현 없음)', uploadCopy.includes('지원되는 문서') && !/100%|완벽하게|자동으로 보호됩니다/.test(uploadCopy));
+  check('U', '업로드 화면: 지원되는 PDF에서만 가린다고 안내 (사진까지 가리는 것처럼 쓰지 않음, 단정 표현 없음)', uploadCopy.includes('지원되는 PDF에서는 민감정보를') && !/100%|완벽하게|자동으로 보호됩니다/.test(uploadCopy));
 
   // 업로드 → 보호 → 분석
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click(tid('method-pdf'))]);
   await chooser.setFiles({ name: '근로계약서_네오링크.pdf', mimeType: 'application/pdf', buffer: original });
   await page.waitForSelector(tid('analyzing-phase-protect'), { timeout: 20000 }).catch(() => undefined);
   const phases = await page.locator(tid('analyzing-stages')).innerText().catch(() => '');
-  check('S', '분석 단계: 계약서 보관 → 민감정보 보호 → 계약 내용 분석 → 계약정보 정리 (실제 순서)', /계약서 보관[\s\S]*민감정보 보호[\s\S]*계약 내용 분석[\s\S]*계약정보 정리/.test(phases), phases.replace(/\n/g, ' / '));
+  check('S', '분석 단계: 계약서 보관 → 민감정보 보호 → 문서 확인·계약 분석 → 계약정보 정리 (실제 순서)', /계약서 보관[\s\S]*민감정보 보호[\s\S]*문서 확인·계약 분석[\s\S]*계약정보 정리/.test(phases), phases.replace(/\n/g, ' / '));
   await page.waitForSelector(tid('review-protection-0'), { timeout: 40000 });
   await page.waitForTimeout(500);
   await page.click(tid('review-protection-0-toggle'));

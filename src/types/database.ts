@@ -7,13 +7,13 @@ export type Database = {
           Tables: {
             "analysis_jobs": {
                   Row: {
-                    "completed_at": string | null,"contract_id": string | null,"created_at": string,"error_code": string | null,"id": string,"model": string | null,"prompt_version": string | null,"provider": string | null,"result": Json | null,"started_at": string | null,"status": Database["public"]['Enums']["job_status"],"user_id": string
+                    "completed_at": string | null,"contract_id": string | null,"created_at": string,"error_code": string | null,"id": string,"model": string | null,"prompt_version": string | null,"provider": string | null,"raw_output": Json | null,"result": Json | null,"started_at": string | null,"status": Database["public"]['Enums']["job_status"],"user_id": string,"validation": Json | null
                   }
                   Insert: {
-                    "completed_at"?: string | null,"contract_id"?: string | null,"created_at"?: string,"error_code"?: string | null,"id"?: string,"model"?: string | null,"prompt_version"?: string | null,"provider"?: string | null,"result"?: Json | null,"started_at"?: string | null,"status"?: Database["public"]['Enums']["job_status"],"user_id"?: string
+                    "completed_at"?: string | null,"contract_id"?: string | null,"created_at"?: string,"error_code"?: string | null,"id"?: string,"model"?: string | null,"prompt_version"?: string | null,"provider"?: string | null,"raw_output"?: Json | null,"result"?: Json | null,"started_at"?: string | null,"status"?: Database["public"]['Enums']["job_status"],"user_id"?: string,"validation"?: Json | null
                   }
                   Update: {
-                    "completed_at"?: string | null,"contract_id"?: string | null,"created_at"?: string,"error_code"?: string | null,"id"?: string,"model"?: string | null,"prompt_version"?: string | null,"provider"?: string | null,"result"?: Json | null,"started_at"?: string | null,"status"?: Database["public"]['Enums']["job_status"],"user_id"?: string
+                    "completed_at"?: string | null,"contract_id"?: string | null,"created_at"?: string,"error_code"?: string | null,"id"?: string,"model"?: string | null,"prompt_version"?: string | null,"provider"?: string | null,"raw_output"?: Json | null,"result"?: Json | null,"started_at"?: string | null,"status"?: Database["public"]['Enums']["job_status"],"user_id"?: string,"validation"?: Json | null
                   }
                   Relationships: [
                     {
@@ -96,13 +96,13 @@ isOneToOne: false
                   ]
                 },"contract_documents": {
                   Row: {
-                    "analysis_job_id": string | null,"contract_id": string | null,"created_at": string,"id": string,"mime_type": string,"original_filename": string | null,"page_count": number | null,"protected_at": string | null,"protection_detail": string | null,"protection_images_unchecked": boolean,"protection_status": string,"size_bytes": number,"sort_order": number,"storage_path": string,"user_id": string
+                    "analysis_job_id": string | null,"contract_id": string | null,"created_at": string,"document_role": string | null,"id": string,"mime_type": string,"original_filename": string | null,"page_count": number | null,"protected_at": string | null,"protection_detail": string | null,"protection_images_unchecked": boolean,"protection_status": string,"role_confirmed_by_user": boolean,"size_bytes": number,"sort_order": number,"storage_path": string,"user_id": string
                   }
                   Insert: {
-                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"id"?: string,"mime_type": string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_status"?: string,"size_bytes": number,"sort_order"?: number,"storage_path": string,"user_id"?: string
+                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"document_role"?: string | null,"id"?: string,"mime_type": string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_status"?: string,"role_confirmed_by_user"?: boolean,"size_bytes": number,"sort_order"?: number,"storage_path": string,"user_id"?: string
                   }
                   Update: {
-                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"id"?: string,"mime_type"?: string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_status"?: string,"size_bytes"?: number,"sort_order"?: number,"storage_path"?: string,"user_id"?: string
+                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"document_role"?: string | null,"id"?: string,"mime_type"?: string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_status"?: string,"role_confirmed_by_user"?: boolean,"size_bytes"?: number,"sort_order"?: number,"storage_path"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -277,8 +277,18 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "owns_contract":
+            "claim_orphan_documents":
+{ Args: { "p_limit"?: number }; Returns: {
+              "document_id": string,"paths": (string)[]
+            }[]
+                           },
+"owns_contract":
 { Args: { "cid": string }; Returns: boolean
+                           },
+"purge_stale_analysis_jobs":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "cleared_outputs": number,"deleted_jobs": number
+            }[]
                            },
 "save_contract":
 { Args: { "p_ai_checks"?: Json,"p_contract": Json,"p_contract_id"?: string,"p_dates"?: Json,"p_document_ids"?: (string)[],"p_payments"?: Json }; Returns: string

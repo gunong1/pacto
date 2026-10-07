@@ -37,6 +37,7 @@ export default function RegisterLayout() {
         headerRight: () => <CloseButton />,
       }}>
       <Stack.Screen name="index" options={{ title: '계약 등록' }} />
+      <Stack.Screen name="capture" options={{ title: '계약서 촬영' }} />
       <Stack.Screen name="analyzing" options={{ title: '', headerBackVisible: false, headerLeft: () => null, gestureEnabled: false }} />
       <Stack.Screen name="review" options={{ title: '계약정보 확인', headerBackVisible: false, headerLeft: () => null }} />
       <Stack.Screen name="manual" options={{ title: '직접 입력' }} />

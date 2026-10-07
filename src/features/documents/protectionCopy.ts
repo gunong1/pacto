@@ -48,6 +48,10 @@ export function protectionCopy(p: DocumentProtection | undefined): { title: stri
     case 'no_sensitive_data':
       return { title: '민감정보가 감지되지 않았어요', body: '자동으로 찾지 못했을 수 있어요. 중요한 문서는 원본을 직접 확인해주세요.', tone: 'neutral' };
     case 'unsupported_scan':
+      // 사진으로 등록한 계약서: AI 분석·등록은 되지만 자동 가리기는 미지원 (두 가지를 나눠서 알린다)
+      if (p.detail === 'image_file') {
+        return { title: '사진으로 등록한 계약서', body: '현재 사진 문서의 자동 민감정보 가리기는 지원하지 않아요. 원본은 비공개로 보관됩니다. 계약 내용 분석과 등록은 그대로 할 수 있어요.', tone: 'warning' };
+      }
       return { title: '스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요.', body: '사진·스캔본 속 글자는 아직 자동으로 가리지 못해요. 원본은 비공개로 보관돼요.', tone: 'warning' };
     case 'failed':
       return { title: '민감정보 보호 처리 중 문제가 발생했어요.', body: `${failedReason(p.detail)}원본은 비공개로 보관돼요.`, tone: 'warning' };

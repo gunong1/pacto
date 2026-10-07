@@ -78,7 +78,7 @@ const log = (...a) => console.log('✔', ...a);
   await shot('05-register');
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click(tid('method-pdf'))]);
   await chooser.setFiles({ name: 'sample-contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%mock\n') });
-  await page.waitForSelector('text=계약서를 확인하고 있어요.');
+  await page.waitForSelector('text=문서를 확인하고 있어요.');
   await shot('06-analyzing');
   log('5 계약 등록 → 분석 화면');
 
@@ -109,7 +109,12 @@ const log = (...a) => console.log('✔', ...a);
   const after = await total();
   await shot('09-home-after');
   const n = (s) => Number((/₩([\d,]+)/.exec(s)?.[1] ?? s).replace(/[^\d]/g, ''));
-  if (n(after) - n(before) !== 49900) throw new Error(`지출 반영 실패 ${before} → ${after}`);
+  // mock 계약: 시작 = 오늘(한국 시간) + 5일, 설치비는 시작일 1회, 렌탈료는 시작일 이후 매월 12일 → 이번 달에 들어오는 금액만 기대
+  const kst = new Date(Date.now() + 9 * 3600_000);
+  const start = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() + 5));
+  const sameMonth = start.getUTCMonth() === kst.getUTCMonth();
+  const expected = sameMonth ? 20000 + (start.getUTCDate() <= 12 ? 29900 : 0) : 0;
+  if (n(after) - n(before) !== expected) throw new Error(`지출 반영 실패 ${before} → ${after} (기대 +${expected})`);
   if (!(await page.locator(tid('home-recent')).innerText()).includes('공기청정기 렌탈')) throw new Error('최근 등록 미반영');
   log('8 홈 반영: 지출', before, '→', after, '/ 최근 등록에 표시');
   await page.click(tid('tab-contracts'));
@@ -120,8 +125,12 @@ const log = (...a) => console.log('✔', ...a);
   // 9. 캘린더 반영
   await page.click(tid('tab-calendar'));
   await page.waitForSelector(tid('calendar-title'));
-  for (let i = 0; i < 12 && !(await page.locator(tid('calendar-title')).innerText()).includes('10월'); i++) await page.click(tid('calendar-prev'));
-  await page.click(tid('day-2026-10-12'));
+  // mock 계약 시작일 = 오늘(한국 시간) + 5일 → 그날 설치비·이용 시작
+  const kst2 = new Date(Date.now() + 9 * 3600_000);
+  const startDay = new Date(Date.UTC(kst2.getUTCFullYear(), kst2.getUTCMonth(), kst2.getUTCDate() + 5)).toISOString().slice(0, 10);
+  const startMonth = `${Number(startDay.slice(5, 7))}월`;
+  for (let i = 0; i < 12 && !(await page.locator(tid('calendar-title')).innerText()).includes(startMonth); i++) await page.click(tid(i < 1 && startDay.slice(0, 7) > kst2.toISOString().slice(0, 7) ? 'calendar-next' : 'calendar-prev'));
+  await page.click(tid(`day-${startDay}`));
   await page.waitForTimeout(300);
   const dayList = await page.locator(tid('calendar-day-list')).innerText();
   if (!dayList.includes('공기청정기 렌탈')) throw new Error('캘린더 미반영: ' + dayList);

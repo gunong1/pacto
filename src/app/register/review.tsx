@@ -23,7 +23,9 @@ import { colors, radius, spacing } from '@/theme';
 /** "AI가 정리한 계약정보를 확인해주세요." — 저장 전 필수 확인/수정 단계 + PACTO 계약 체크(확인이 필요한 조항). */
 export default function ReviewScreen() {
   const today = useToday();
-  const { extraction, files, method, uploaded } = useRegistration();
+  const { extraction, files, method, uploaded, validation } = useRegistration();
+  // PDF의 계약과 무관한·읽기 어려운·중복 쪽 (PDF는 쪽을 지울 수 없어 안내만 — 그 쪽의 값은 서버에서 이미 뺐다)
+  const pdfWarnings = (validation?.suspiciousPages ?? []).filter((p) => p.pdf);
   const create = useCreateContract();
   // 민감정보 보호 결과 (분석 전에 서버가 처리) — 원본은 그대로, 기본 표시는 보호본
   const protection = useDocumentProtection(uploaded.map((d) => d.id));
@@ -61,6 +63,22 @@ export default function ReviewScreen() {
             지금은 계약서를 실제로 읽지 않습니다. 모든 항목을 계약서와 비교해 직접 입력해주세요.
           </AppText>
         </View>
+      ) : null}
+
+      {pdfWarnings.length > 0 ? (
+        <View style={styles.mockBanner} testID="review-pdf-warning">
+          <AppText variant="captionStrong" color="check">
+            {pdfWarnings.map((p) => `${p.page}쪽`).join('·')}을 계약 관련 내용으로 확인하기 어려워요
+          </AppText>
+          <AppText variant="caption" color="textSecondary">
+            {pdfWarnings.some((p) => p.duplicateOf) ? '같은 내용이 반복된 쪽이 있어요. ' : ''}이 쪽에서 읽은 날짜·금액은 계약 정보에 넣지 않았어요. 계약서와 비교해 확인해주세요.
+          </AppText>
+        </View>
+      ) : null}
+      {validation?.userConfirmedRole ? (
+        <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }} testID="review-user-confirmed">
+          계약 관련 문서라고 직접 확인한 파일이에요. 자동 판단이 확실하지 않았던 만큼 내용을 꼼꼼히 확인해주세요.
+        </AppText>
       ) : null}
 
       <View style={styles.summary} testID="review-summary">

@@ -17,7 +17,9 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
     const ai = new MockAIProvider(0);
 
     // 1) AI mock 추출 — 법적 판단 표현 없음
-    const result = await ai.extractContract({ files: [{ name: 'a.pdf', uri: 'file://a.pdf', mimeType: 'application/pdf', size: 1 }], documentIds: [], today: TODAY });
+    const outcome = await ai.analyze({ files: [{ name: 'a.pdf', uri: 'file://a.pdf', mimeType: 'application/pdf', size: 1 }], documentIds: [], today: TODAY });
+    expect(outcome.validation).toMatchObject({ role: 'contract', decision: 'proceed' });
+    const result = outcome.result!;
     for (const c of result.checks) expect(findBannedPhrases(c.description)).toEqual([]);
 
     // 2) 확인 화면: 폼으로 변환 후 사용자가 결제일 수정 (설치비는 날짜가 없어 시작일 + 확인 필요)

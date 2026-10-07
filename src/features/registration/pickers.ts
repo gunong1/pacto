@@ -39,10 +39,27 @@ export async function pickPhotos(limit = MAX_PHOTOS): Promise<PickedFile[] | nul
     mimeType: a.mimeType ?? 'image/jpeg',
     size: a.fileSize ?? null,
     width: a.width ?? null,
+    height: a.height ?? null,
   }));
   if (tooLarge(files)) {
     notify('사진이 너무 커요', '한 장당 20MB 이하로 선택해주세요.');
     return null;
   }
   return files;
+}
+
+/** 업로드 전 사진 점검 (AI 비용 없음): 너무 작은 사진, 같은 사진 중복 */
+export const MIN_PHOTO_LONG_SIDE = 800;
+export function checkPhotos(files: readonly PickedFile[]): { lowResolution: number[]; duplicates: number[] } {
+  const lowResolution: number[] = [];
+  const duplicates: number[] = [];
+  files.forEach((f, i) => {
+    if (!f.mimeType.startsWith('image/')) return;
+    const long = Math.max(f.width ?? 0, f.height ?? 0);
+    if (long > 0 && long < MIN_PHOTO_LONG_SIDE) lowResolution.push(i);
+    // 같은 파일(크기·가로·세로가 모두 같음)을 두 번 고른 경우
+    const same = files.findIndex((g, j) => j < i && g.size != null && g.size === f.size && g.width === f.width && g.height === f.height);
+    if (same >= 0) duplicates.push(i);
+  });
+  return { lowResolution, duplicates };
 }

@@ -24,9 +24,11 @@ import {
   PAYMENT_KIND_CODES,
   PAYMENT_KIND_DEFS,
 } from './contractRegistry.ts';
+import { DOCUMENT_CHECK_INSTRUCTIONS, documentCheckJsonSchema } from './documentGate.ts';
 import { maskLevel1Deep } from './protection/sensitive.ts';
 
-export const PROMPT_VERSION = 'extract-v6';
+/** v7: document_check(문서 역할·쪽별 판정·계약 신호) + 모든 추출값에 근거 파일·쪽 */
+export const PROMPT_VERSION = 'extract-v7';
 
 export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export const FREQUENCIES = ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly', 'one_time'] as const;
@@ -83,11 +85,12 @@ export const FIELDS: Record<string, { type: FieldType; desc: string }> = {
   penaltyTerms: { type: 'string', desc: '위약금 조건 요약 (한 문장)' },
 };
 
-const evidence = {
+const evidenceQuote = {
   evidence_quote: { type: ['string', 'null'], description: '계약서 원문에서 그대로 옮긴 근거 문장 (120자 이내)' },
 };
-const evidenceFull = {
-  ...evidence,
+// v7: 모든 추출값에 근거 파일·쪽 — 사용자가 제외한 사진이나 계약과 무관한 쪽에서 온 값을 지울 수 있도록
+const evidence = {
+  ...evidenceQuote,
   evidence_page: { type: ['integer', 'null'], description: '근거가 있는 쪽 번호(1부터, 파일 안에서)' },
   evidence_file: { type: ['integer', 'null'], description: '근거가 있는 파일 번호(1부터, 첨부 순서). 파일이 하나면 1' },
 };
@@ -103,15 +106,28 @@ const classification = (codes: readonly string[], desc: string) =>
   });
 
 /** Structured Outputs(strict)용 JSON Schema: 모든 속성 required, additionalProperties false */
+// 스키마 크기 한도(객체 속성 100개·중첩 5단계) 안에서 근거 파일·쪽을 모든 값에 넣기 위해, v7부터 공통 필드도 "키 목록" 방식
+const FIELD_GUIDE = Object.entries(FIELDS)
+  .map(([k, d]) => `${k}(${d.type === 'integer' ? 'number_value' : d.type === 'boolean' ? 'boolean_value' : 'text_value'}): ${d.desc}`)
+  .join(' / ');
+
 export function extractionJsonSchema() {
-  const fieldProps: Record<string, unknown> = {};
-  for (const [key, def] of Object.entries(FIELDS)) {
-    fieldProps[key] = strictObject({ value: { type: [def.type, 'null'], description: def.desc }, confidence, ...evidence });
-  }
   return strictObject({
+    document_check: documentCheckJsonSchema(),
     category: classification(CATEGORY_CODES, '무슨 계약인가 (분야)'),
     contract_type: classification(CONTRACT_TYPE_CODES, '돈·날짜·의무가 움직이는 구조 (관리 방식)'),
-    fields: strictObject(fieldProps),
+    fields: {
+      type: 'array',
+      description: `계약 공통 정보 중 계약서에 있는 것만 key마다 한 번 (없으면 넣지 않음). ${FIELD_GUIDE}`,
+      items: strictObject({
+        key: { type: 'string', enum: Object.keys(FIELDS) },
+        text_value: { type: ['string', 'null'] },
+        number_value: { type: ['integer', 'null'] },
+        boolean_value: { type: ['boolean', 'null'] },
+        confidence,
+        ...evidence,
+      }),
+    },
     dates: {
       type: 'array',
       description: '계약서에 나온 중요한 날짜를 모두. 각 날짜의 의미를 문맥으로 판단한다',
@@ -188,7 +204,7 @@ export function extractionJsonSchema() {
         action: { type: ['string', 'null'], description: 'conditional_rule에서 해야 할 일 (예: 희망 퇴직일 30일 전에 회사에 통보)' },
         offset_days: { type: ['integer', 'null'], description: 'conditional_rule에서 기준일 며칠 전인지 (예: 30)' },
         related_date: { type: ['string', 'null'], description: 'fixed_event이고 챙길 날짜가 계약서에 명시돼 있으면 YYYY-MM-DD. conditional_rule은 null' },
-        ...evidenceFull,
+        ...evidence,
       }),
     },
   });
@@ -220,8 +236,9 @@ export function extractionInstructions(today: string): string {
   return [
     '당신은 개인용 계약 관리 앱 PACTO의 계약서 분석 도우미입니다.',
     'PACTO는 계약이 어떤 종류인지 이해하고, 그 계약에서 중요한 돈·날짜·의무·주의할 조건을 찾아 계약이 끝날 때까지 관리하도록 돕습니다.',
-    '계약서가 좋은지 나쁜지 판정하지 않습니다. 첨부된 계약서(PDF 또는 사진)를 다음 순서로 분석합니다.',
+    '계약서가 좋은지 나쁜지 판정하지 않습니다. 첨부된 파일(PDF 또는 사진)을 다음 순서로 분석합니다.',
     '',
+    DOCUMENT_CHECK_INSTRUCTIONS,
     `1) category — 무슨 계약인가: ${CATEGORY_DEFS.map((c) => `${c.code}(${c.label})`).join(', ')}`,
     '2) contract_type — 돈·날짜·의무가 움직이는 구조. 분야가 아니라 실제 계약 내용으로 정합니다 (자동차 분야라도 할부·리스·보험·매매는 다름):',
     ...CONTRACT_TYPE_DEFS.map((t) => `   - ${t.code}: ${t.guide} (예: ${t.examples})`),
@@ -238,7 +255,7 @@ export function extractionInstructions(today: string): string {
     '   금액마다 payment_obligation을 판단합니다 (아래 원칙).',
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
-    '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·해지·만기 조건(자동갱신, 연장 기간, 통보기한 일수, 중도해지·위약금).',
+    '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·해지·만기 조건(자동갱신, 연장 기간, 통보기한 일수, 중도해지·위약금). 계약서에 있는 key만 목록으로.',
     '9) checks — PACTO 계약 체크: 사용자가 놓치기 쉬운, 확인이 필요한 조항을 찾습니다. 주제(topic):',
     topicGuide(),
     '   severity와 behavior는 아래 의미 해석 원칙을 따릅니다. 확신이 낮으면 confidence를 low로.',
@@ -288,6 +305,8 @@ type ModelSource = (typeof MODEL_SOURCES)[number];
 export interface Evidence {
   page: number;
   quote: string;
+  /** 근거 파일 (첨부 순서 1부터) — 없으면 위치를 모름 */
+  file?: number;
 }
 
 export interface Extracted {
@@ -413,7 +432,8 @@ function text(raw: unknown, max: number): string | null {
 function quoteOf(o: Record<string, unknown>): { evidence?: Evidence[] } {
   const quote = typeof o.evidence_quote === 'string' ? o.evidence_quote.trim().slice(0, 200) : '';
   const page = typeof o.evidence_page === 'number' && o.evidence_page >= 1 ? Math.round(o.evidence_page) : null;
-  return quote ? { evidence: [{ page: page ?? 1, quote }] } : {};
+  const file = typeof o.evidence_file === 'number' && o.evidence_file >= 1 ? Math.round(o.evidence_file) : null;
+  return quote ? { evidence: [{ page: page ?? 1, quote, ...(file ? { file } : {}) }] } : {};
 }
 
 const MAX_AMOUNT = 100_000_000_000;
@@ -506,8 +526,25 @@ function classify<T extends string>(raw: unknown, codes: readonly T[], fallback:
   };
 }
 
+/**
+ * v7 모델 출력의 공통 필드(목록) → key별 객체 (이전 형식·mock의 객체 형식은 그대로).
+ * 쪽별 필터·앱 형식 변환 전에 먼저 적용한다.
+ */
+export function normalizeModelOutput(output: unknown): unknown {
+  if (!isObj(output) || !Array.isArray(output.fields)) return output;
+  const fields: Record<string, unknown> = {};
+  for (const f of output.fields) {
+    if (!isObj(f) || typeof f.key !== 'string' || !(f.key in FIELDS) || fields[f.key]) continue;
+    const t = FIELDS[f.key].type;
+    const value = t === 'integer' ? f.number_value : t === 'boolean' ? f.boolean_value : f.text_value;
+    fields[f.key] = { value: value ?? null, confidence: f.confidence, evidence_quote: f.evidence_quote ?? null, evidence_page: f.evidence_page ?? null, evidence_file: f.evidence_file ?? null };
+  }
+  return { ...output, fields };
+}
+
 /** 모델 출력(JSON) → 검증된 앱 형식. 구조가 틀리면 예외. 형식이 틀린 항목은 버리거나 low로 낮춘다. */
-export function toAppResult(output: unknown, provider: string): AppExtractionResult {
+export function toAppResult(raw: unknown, provider: string): AppExtractionResult {
+  const output = normalizeModelOutput(raw);
   if (!isObj(output) || !isObj(output.fields) || !Array.isArray(output.checks) || !isObj(output.contract_type)) throw new Error('invalid_output_shape');
   const fieldsIn = output.fields as Record<string, unknown>;
 

@@ -167,3 +167,82 @@ export function gymYearOutput(title: string) {
     ],
   };
 }
+
+// ───────── 문서 확인 시나리오 (mock 공급자 · 테스트 공용) ─────────
+type Role = 'contract' | 'addendum' | 'supporting' | 'non_contract' | 'uncertain' | 'unreadable';
+const NON_CONTRACT = /음식|강아지|고양이|반려|책상|풍경|food|dog|cat|desk/i;
+
+function pageRole(name: string): { role: Role; reason: string | null } {
+  if (NON_CONTRACT.test(name)) return { role: 'non_contract', reason: 'photo_not_document' };
+  if (/영수증|receipt/i.test(name)) return { role: 'non_contract', reason: 'receipt' };
+  if (/신분증/.test(name)) return { role: 'non_contract', reason: 'id_card' };
+  if (/흐림|blur/i.test(name)) return { role: 'unreadable', reason: 'blurry' };
+  if (/특약/.test(name)) return { role: 'addendum', reason: 'addendum_terms' };
+  if (/견적서/.test(name)) return { role: 'supporting', reason: 'supporting_material' };
+  return { role: 'contract', reason: 'contract_terms' };
+}
+
+const ALL_SIGNALS = { parties: true, dates: true, amounts: true, obligations: true, purpose: true, termination_renewal: true, signature: true, contract_language: true };
+const NO_SIGNALS = { parties: false, dates: false, amounts: false, obligations: false, purpose: false, termination_renewal: false, signature: false, contract_language: false };
+
+/** 계약 정보를 만들지 않는 출력 (계약이 아니거나 읽을 수 없을 때 — 추측하지 않는다) */
+function emptyExtraction() {
+  return {
+    category: { value: 'other', confidence: 'low', alternatives: [], reason: '계약 문서로 확인되지 않았습니다.' },
+    contract_type: { value: 'other', confidence: 'low', alternatives: [], reason: '계약 문서로 확인되지 않았습니다.' },
+    fields: Object.fromEntries(['title', 'counterparty', 'totalAmount', 'depositAmount', 'autoRenewal', 'renewalPeriodMonths', 'terminationNoticeDays', 'earlyTerminationTerms', 'penaltyTerms'].map((k) => [k, f(null, 'low')])),
+    dates: [],
+    payments: [],
+    details: [],
+    checks: [],
+  };
+}
+
+/** 모든 추출값의 근거 파일 번호를 채운다 (모델이 v7에서 하는 일) */
+function stampFile(out: Record<string, unknown>, file: number, skipPayments = false) {
+  const stamp = (o: Record<string, unknown>) => ({ ...o, evidence_file: typeof o.evidence_file === 'number' ? o.evidence_file : file, evidence_page: o.evidence_page ?? 1 });
+  const fields = out.fields as Record<string, Record<string, unknown>>;
+  for (const k of Object.keys(fields)) if (fields[k].value !== null) fields[k] = stamp(fields[k]);
+  for (const key of ['dates', 'payments', 'details', 'checks']) {
+    if (key === 'payments' && skipPayments) {
+      out[key] = (out[key] as Record<string, unknown>[]).map((p) => ({ ...p, evidence_file: null, evidence_page: null }));
+      continue;
+    }
+    out[key] = (out[key] as Record<string, unknown>[]).map(stamp);
+  }
+  return out;
+}
+
+export function mockDocumentOutput(names: string[]) {
+  const pages = names.map((n, i) => ({ file: i + 1, page: 1, ...pageRole(n), dup: /중복|dup/i.test(n) && i > 0 ? i : null }));
+  const roles = new Set(pages.map((p) => p.role));
+  const reasons = [...new Set(pages.map((p) => p.reason).filter(Boolean))].slice(0, 4);
+  const page = (p: (typeof pages)[number]) => ({ file: p.file, page: p.page, role: p.role, duplicate_of_file: p.dup, duplicate_of_page: p.dup ? 1 : null });
+  const check = (role: Role, confidence: string, signals: Record<string, boolean>, extra: string[] = []) => ({
+    role, confidence, reasons: [...reasons, ...extra].slice(0, 4), signals, pages: pages.map(page),
+  });
+
+  if (pages.every((p) => p.role === 'unreadable')) return { document_check: check('unreadable', 'high', NO_SIGNALS), ...emptyExtraction() };
+  if (pages.every((p) => p.role === 'non_contract')) return { document_check: check('non_contract', 'high', NO_SIGNALS), ...emptyExtraction() };
+
+  const main = pages.find((p) => p.role === 'contract') ?? pages.find((p) => p.role === 'addendum') ?? pages[0];
+  const name = names[main.file - 1];
+  const title = name.replace(/\.[^.]+$/, '') || '계약서';
+  // 계약 신호가 거의 없는 문서 — 억지로 계약을 만들지 않는지 확인용
+  if (/정보부족|sparse/i.test(name)) {
+    return { document_check: check('contract', 'low', { ...NO_SIGNALS, contract_language: true }), ...emptyExtraction() };
+  }
+  if (main.role === 'supporting') {
+    const out = stampFile(rentalOutput(title) as Record<string, unknown>, main.file);
+    return { document_check: check('supporting', 'medium', { ...NO_SIGNALS, parties: true, amounts: true, dates: true }), ...out };
+  }
+  const base = /근로/.test(name) ? employmentOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : rentalOutput(title);
+  const out = stampFile(base as Record<string, unknown>, main.file, /출처불명/.test(names.join(' ')));
+  // 계약과 무관한 쪽(예: 책상 사진의 가격표)에서 읽힌 값 — 그 쪽을 제외하면 결과에 남으면 안 된다
+  for (const junk of pages.filter((p) => p.role === 'non_contract')) {
+    (out.payments as unknown[]).push({ ...pay({ kind: 'other', direction: 'expense', label: '월 납입액', amount: 3_000_000, frequency: 'monthly', day_of_month: 15 }), evidence_quote: '가격 3,000,000원', evidence_file: junk.file, evidence_page: 1 });
+    (out.dates as unknown[]).push({ date: '2027-03-15', meaning: 'contract_end', label: '종료일', confidence: 'medium', source_type: 'explicit', evidence_quote: '2027.03.15', evidence_file: junk.file, evidence_page: 1 });
+  }
+  const role: Role = main.role === 'addendum' && !roles.has('contract') ? 'addendum' : 'contract';
+  return { document_check: check(role, 'high', ALL_SIGNALS, pages.length > 1 && pages.some((p) => p.role !== 'contract' && p.role !== 'addendum') ? ['mixed_pages'] : []), ...out };
+}

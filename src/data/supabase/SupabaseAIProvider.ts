@@ -1,4 +1,4 @@
-import { AIConsentRequiredError, AIExtractionError, type AIProvider, type ExtractInput, type ExtractionResult } from '../ai/provider';
+import { AIConsentRequiredError, AIExtractionError, type AIProvider, type AnalysisChoice, type AnalysisOutcome, type ExtractInput } from '../ai/provider';
 import type { PactoSupabase } from './client';
 
 const MESSAGES: Record<string, string> = {
@@ -7,6 +7,8 @@ const MESSAGES: Record<string, string> = {
   too_large: '파일이 너무 커서 자동으로 정리하지 못했어요.',
   not_found: '계약서 파일을 찾지 못했어요. 다시 올려주세요.',
   model_refused: '이 문서는 자동으로 정리하지 못했어요. 직접 입력해주세요.',
+  confirmation_required: '계약 관련 문서인지 먼저 확인해주세요.',
+  not_allowed: '이 파일은 계약서로 확인되지 않아 정리할 수 없어요.',
 };
 
 /**
@@ -17,11 +19,17 @@ export class SupabaseAIProvider implements AIProvider {
   readonly name = 'server';
   constructor(private readonly sb: PactoSupabase) {}
 
-  async extractContract(input: ExtractInput): Promise<ExtractionResult> {
-    const { data, error } = await this.sb.functions.invoke<{ jobId: string; result: ExtractionResult }>('analyze-contract', {
-      method: 'POST',
-      body: { documentIds: input.documentIds },
-    });
+  async analyze(input: ExtractInput): Promise<AnalysisOutcome> {
+    return await this.call({ documentIds: input.documentIds });
+  }
+
+  async finalize(jobId: string | undefined, choice: AnalysisChoice): Promise<AnalysisOutcome> {
+    if (!jobId) throw new AIExtractionError('분석 기록을 찾지 못했어요. 다시 시도해주세요.');
+    return await this.call({ jobId, ...choice });
+  }
+
+  private async call(body: Record<string, unknown>): Promise<AnalysisOutcome> {
+    const { data, error } = await this.sb.functions.invoke<AnalysisOutcome & { jobId: string }>('analyze-contract', { method: 'POST', body });
     if (error) {
       let code = 'extract_failed';
       try {
@@ -33,8 +41,8 @@ export class SupabaseAIProvider implements AIProvider {
       if (code === 'ai_consent_required') throw new AIConsentRequiredError('ai_consent_required');
       throw new AIExtractionError(MESSAGES[code] ?? '계약서를 자동으로 정리하지 못했어요. 원본은 보관되었으니 직접 입력으로 계속할 수 있어요.');
     }
-    if (!data?.result) throw new AIExtractionError('계약서를 자동으로 정리하지 못했어요.');
-    return { ...data.result, jobId: data.jobId };
+    if (!data?.validation) throw new AIExtractionError('계약서를 자동으로 정리하지 못했어요.');
+    return { ...data, result: data.result ? { ...data.result, jobId: data.jobId } : null };
   }
 
   /** 계약서 자동 정리를 위한 외부 처리 동의 기록 */

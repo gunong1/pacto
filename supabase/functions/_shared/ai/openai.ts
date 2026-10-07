@@ -9,7 +9,14 @@ export function buildOpenAIRequest(model: string, files: ContractFile[], today: 
       ? { type: 'input_file', filename: f.fileName, file_data: `data:application/pdf;base64,${f.base64}` }
       : { type: 'input_image', image_url: `data:${f.mimeType};base64,${f.base64}`, detail: 'high' },
   );
-  content.push({ type: 'input_text', text: files.length > 1 ? `위 ${files.length}개 파일은 한 계약서의 여러 쪽입니다. 순서대로 1쪽부터입니다.` : '위 계약서를 정리해주세요.' });
+  // 계약서라고 단정하지 않는다 — 계약과 무관한 사진이 섞였을 수 있다 (document_check)
+  content.push({
+    type: 'input_text',
+    text:
+      files.length > 1
+        ? `위 ${files.length}개 파일을 첨부 순서대로 파일 1~${files.length}로 봅니다. 한 계약의 여러 쪽일 수 있지만, 계약과 무관한 사진이나 중복된 쪽이 섞였을 수 있습니다. 먼저 document_check로 확인해주세요.`
+        : '위 파일(파일 1)이 계약 관리 대상 문서인지 먼저 document_check로 확인하고, 계약 문서일 때만 내용을 정리해주세요.',
+  });
   return {
     model,
     instructions: extractionInstructions(today),

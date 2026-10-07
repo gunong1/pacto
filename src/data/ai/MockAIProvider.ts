@@ -1,10 +1,13 @@
 import { addDays, addMonths } from '@/domain/dates';
 
-import type { AIProvider, ExtractInput, ExtractionResult } from './provider';
+import { finalize, firstPass } from '../../../supabase/functions/_shared/analysis';
+import { mockDocumentOutput } from '../../../supabase/functions/_shared/ai/mockFixtures';
+import type { AIProvider, AnalysisChoice, AnalysisOutcome, ExtractInput, ExtractionResult } from './provider';
 
 /**
  * 실제 LLM 없이 등록 흐름을 검증하기 위한 mock.
- * 어떤 파일을 넣어도 같은 "공기청정기 렌탈" 계약(월 렌탈료 + 초기 설치비)을 추출한 것처럼 응답한다.
+ * 문서 확인은 서버 mock과 같은 규칙(파일 이름: 음식·강아지·흐림·특약·영수증·신분증·견적서 …)과 같은 게이트 코드로 판정하고,
+ * 통과하면 "공기청정기 렌탈" 계약(월 렌탈료 + 초기 설치비)을 추출한 것처럼 응답한다.
  * 결제일 신뢰도 low, 설치비 날짜 없음 등으로 "확인 필요" UI를 확인할 수 있게 한다.
  */
 export class MockAIProvider implements AIProvider {
@@ -12,7 +15,28 @@ export class MockAIProvider implements AIProvider {
 
   constructor(private readonly latencyMs = 2200) {}
 
-  async extractContract(input: ExtractInput, signal?: AbortSignal): Promise<ExtractionResult> {
+  async analyze(input: ExtractInput, signal?: AbortSignal): Promise<AnalysisOutcome> {
+    const result = await this.extract(input, signal);
+    const { validation } = this.gate(input);
+    return { validation, result: validation.decision === 'proceed' ? result : null };
+  }
+
+  async finalize(_jobId: string | undefined, choice: AnalysisChoice, input: ExtractInput, signal?: AbortSignal): Promise<AnalysisOutcome> {
+    const { raw, files, validation } = this.gate(input);
+    const out = finalize(raw, validation, files, choice, this.name);
+    const excluded = out.excluded.filter((e) => e.page === null).map((e) => e.file);
+    if (out.kind === 'reanalyze') return { validation: { ...validation, decision: 'proceed' }, result: await this.extract(input, signal), excludedFiles: excluded };
+    return { validation: out.validation, result: out.result ? await this.extract(input, signal) : null, excludedFiles: excluded };
+  }
+
+  private gate(input: ExtractInput) {
+    const names = input.files.map((f) => f.name);
+    const files = names.map((n, i) => ({ file: i + 1, pdf: /\.pdf$/i.test(n) }));
+    const raw = mockDocumentOutput(names);
+    return { raw, files, validation: firstPass(raw, files, this.name).validation };
+  }
+
+  private async extract(input: ExtractInput, signal?: AbortSignal): Promise<ExtractionResult> {
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(resolve, this.latencyMs);
       signal?.addEventListener('abort', () => {

@@ -1,6 +1,9 @@
 import type { AiCheck } from '@/domain/types';
 
+import type { DocumentValidation } from '../../../supabase/functions/_shared/documentGate';
 import type { AppExtractionResult } from '../../../supabase/functions/_shared/extraction';
+
+export type { DocumentRole, DocumentValidation, GateDecision } from '../../../supabase/functions/_shared/documentGate';
 
 /**
  * AI 서비스 추상화 (ARCHITECTURE.md §2.2).
@@ -14,8 +17,11 @@ export interface PickedFile {
   uri: string;
   mimeType: string;
   size: number | null;
-  /** 이미지 가로 픽셀 (큰 사진 축소 판단용) */
+  /** 이미지 가로·세로 픽셀 (큰 사진 축소 · 해상도 점검용) */
   width?: number | null;
+  height?: number | null;
+  /** 앱에서 직접 촬영한 사진 (임시 파일 — 등록이 끝나면 지운다) */
+  captured?: boolean;
 }
 
 export interface ExtractInput {
@@ -39,6 +45,25 @@ export type { ExtractedDate, ExtractedPayment } from '../../../supabase/function
 
 export type ExtractedCheck = Omit<AiCheck, 'id' | 'contractId' | 'status'>;
 
+/**
+ * 분석 결과 — 문서 확인 판정 + (통과했을 때만) 추출 결과.
+ * 계약이 아니거나 읽을 수 없거나 정보가 부족하면 result는 null (확인 화면으로 가지 않는다).
+ */
+export interface AnalysisOutcome {
+  jobId?: string;
+  validation: DocumentValidation;
+  result: ExtractionResult | null;
+  /** 마무리에서 제외된 사진 (첨부 순서 1부터) — 앱이 보관본을 지운다 */
+  excludedFiles?: number[];
+}
+
+/** 사용자 선택: "계약 관련 문서가 맞아요" · 의심 사진 포함/제외 (첨부 순서 1부터) */
+export interface AnalysisChoice {
+  confirmRole: boolean;
+  includeFiles: number[];
+  excludeFiles: number[];
+}
+
 /** AI 처리(외부 전송) 동의가 필요함 */
 export class AIConsentRequiredError extends Error {}
 
@@ -47,6 +72,9 @@ export class AIExtractionError extends Error {}
 
 export interface AIProvider {
   readonly name: string;
-  extractContract(input: ExtractInput, signal?: AbortSignal): Promise<ExtractionResult>;
+  /** 문서 확인 + 계약 추출 (AI 1회) */
+  analyze(input: ExtractInput, signal?: AbortSignal): Promise<AnalysisOutcome>;
+  /** 사용자 확인·쪽 선택 반영 (제외한 쪽의 값은 결과에서 빠진다) */
+  finalize(jobId: string | undefined, choice: AnalysisChoice, input: ExtractInput, signal?: AbortSignal): Promise<AnalysisOutcome>;
   // P2: answerQuestion(input: AskInput): Promise<GroundedAnswer>
 }
