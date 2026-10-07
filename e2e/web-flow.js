@@ -136,7 +136,7 @@ const log = (...a) => console.log('✔', ...a);
   // 추가 화면
   await page.click(tid('tab-home'));
   await page.click(tid('open-notifications'));
-  await page.waitForSelector(tid('reminder-list'));
+  await page.waitForSelector(tid('reminder-policy'));
   await page.waitForTimeout(300);
   await shot('11-notifications');
   await page.goBack();

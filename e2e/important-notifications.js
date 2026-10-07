@@ -17,7 +17,7 @@ const assert = (cond, msg) => {
 
 (async () => {
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 390, height: 1200 }, locale: 'ko-KR' });
+  const page = await browser.newPage({ viewport: { width: 390, height: 1400 }, locale: 'ko-KR' });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('dialog', (d) => d.accept().catch(() => undefined));
@@ -69,9 +69,10 @@ const assert = (cond, msg) => {
     assert(order, 'critical이 먼저가 아님');
     log('중요한 계약 일정: 종료 통보기한(중요·입력한 계약 정보 기준·2027. 6. 21.) → 갱신 여부 확인(PACTO 안내, 법령·계약서 기한 아님)');
 
-    const next = await page.locator(tid('reminder-list')).innerText();
-    assert(next.includes('내일 850,000원 결제 예정이에요.') && next.includes('이후 매월 19일 알림 예정'), '다음 알림(월세) 없음: ' + next);
-    log('다음 알림: 월세 결제 전날 알림 + 이후 매월 19일');
+    const policy = await page.locator(tid('reminder-policy')).innerText();
+    assert(policy.includes('해지·종료 통보기한') && policy.includes('30·7·1일 전과 당일') && policy.includes('알림 시점은 PACTO 설정이에요'), '알림 규칙 없음: ' + policy);
+    assert(!(await page.locator('body').innerText()).includes('850,000원 결제 예정'), '결제 알림 목록이 남아 있음');
+    log('알림 규칙 요약 (결제 하루 전 · 통보기한 30·7·1일 전과 당일 …), 결제 알림 목록 없음');
     await page.screenshot({ path: path.join(SHOTS, 'important-01-notifications.png'), fullPage: true });
 
     // 캘린더도 같은 중요도·출처

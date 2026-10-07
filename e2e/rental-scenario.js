@@ -115,19 +115,16 @@ const assert = (cond, msg) => {
   await shot('03-calendar-2029-10');
   log('2029-09-11 해지 통보기한, 2029-10-11 이용 종료(자동갱신 조건)');
 
-  // 알림: 같은 계약·같은 알림 날짜는 하나로, 반복 결제는 가장 가까운 것만 + "이후 매월 11일", 알림 날짜와 결제일 구분
+  // 알림 화면: 결제 전날 알림을 나열하지 않고, 중요한 계약 일정(12개월) + 알림 규칙만. 2029년 해지 통보기한은 표시 범위 밖
   await page.click(tid('tab-home'));
   await page.click(tid('open-notifications'));
-  await page.waitForSelector(tid('reminder-list'));
-  const notes = await page.locator(tid('reminder-list')).innerText();
-  assert(notes.includes('공기청정기 렌탈 · 결제') && notes.includes('내일 49,900원 결제 예정이에요.'), '10/11 통합 알림 없음: ' + notes);
-  assert(notes.includes('월 렌탈료 29,900원 · 초기 설치비 20,000원'), '세부 내역 없음: ' + notes);
-  assert(notes.includes('일정 · 10월 12일 월 렌탈료 · 초기 설치비 결제') && notes.includes('10월 11일') && notes.includes('알림 예정'), '알림 날짜/결제일 구분 없음: ' + notes);
-  assert(notes.includes('이후 매월 11일 알림 예정'), '반복 알림 요약 없음: ' + notes);
-  assert((notes.match(/공기청정기 렌탈 · /g) || []).length === 1, '같은 계약 알림이 여러 줄: ' + notes);
-  assert(!notes.includes('해지 통보기한'), '60일 안에 해지 통보기한 알림이 있으면 안 됨: ' + notes);
+  await page.waitForSelector(tid('reminder-policy'));
+  const notes = await page.locator('body').innerText();
+  assert(notes.includes('앞으로 12개월 안에 챙길 중요한 계약 일정이 없어요.'), '중요 일정 빈 상태 문구 없음: ' + notes);
+  assert(notes.includes('결제·입금') && notes.includes('하루 전') && notes.includes('30·7·1일 전과 당일') && notes.includes('90·30·7일 전'), '알림 규칙 요약 없음: ' + notes);
+  assert(!notes.includes('49,900원 결제 예정') && !notes.includes('다음 알림'), '결제 알림 목록이 남아 있음: ' + notes);
   await shot('04-notifications');
-  log('알림: 10/11 알림 1개(내일 49,900원 결제 예정 · 월 렌탈료+설치비), 결제일 10/12 따로 표시, 이후 매월 11일, 해지 통보기한 없음');
+  log('알림 화면: 중요 일정 없음(2029년 기한은 12개월 밖) + 알림 규칙 요약, 결제 알림 목록 없음');
   await page.goBack();
 
   // 수정: 시작일 10/12 → 10/15 → 새로고침 없이 캘린더 반영

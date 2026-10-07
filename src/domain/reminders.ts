@@ -26,6 +26,20 @@ export const REMINDER_RULES = {
   paymentDaysBefore: 1,
 } as const;
 
+/** 알림 화면에 보여줄 알림 규칙 요약 (REMINDER_RULES에서 만든다 — 숫자를 화면에 따로 적지 않도록) */
+export function reminderPolicySummary(): { label: string; when: string }[] {
+  const days = (xs: readonly number[]) => {
+    const before = xs.filter((d) => d > 0);
+    return `${before.join('·')}일 전${xs.includes(0) ? '과 당일' : ''}`;
+  };
+  return [
+    { label: '결제·입금', when: REMINDER_RULES.paymentDaysBefore === 1 ? '하루 전' : `${REMINDER_RULES.paymentDaysBefore}일 전` },
+    { label: '해지·종료 통보기한', when: days(REMINDER_RULES.terminationNotice) },
+    { label: '계약 만료', when: days(REMINDER_RULES.contractEnd) },
+    { label: '자동갱신 예정일', when: days(REMINDER_RULES.renewal) },
+  ];
+}
+
 export type ReminderKind = 'contract_end' | 'renewal' | 'termination_notice' | 'payment';
 
 /**
