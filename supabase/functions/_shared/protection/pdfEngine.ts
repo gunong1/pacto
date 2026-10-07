@@ -72,6 +72,29 @@ export interface PageText {
   images: number;
   /** 입력 양식(위젯) 수 — 값이 콘텐츠 밖에 있어 V1은 처리하지 않는다 */
   widgets: number;
+  /** 진단용: 이 페이지에서 쓴 글꼴의 형식 (글꼴 이름·글자 내용 없음) */
+  fonts: FontNote[];
+}
+
+/** 진단용 글꼴 형식 — 해석 가능 여부 판단 근거 */
+export interface FontNote {
+  subtype: string;
+  encoding: string;
+  toUnicode: boolean;
+  supported: boolean;
+}
+
+export function describeFont(doc: PDFDocument, fontObj: unknown): FontNote {
+  const font = doc.context.lookup(fontObj as PDFRef);
+  if (!(font instanceof PDFDict)) return { subtype: 'missing', encoding: '-', toUnicode: false, supported: false };
+  const st = font.lookup(PDFName.of('Subtype'));
+  const enc = font.lookup(PDFName.of('Encoding'));
+  return {
+    subtype: st instanceof PDFName ? st.asString().slice(1) : 'unknown',
+    encoding: enc instanceof PDFName ? enc.asString().slice(1) : enc instanceof PDFStream ? 'embedded_cmap' : enc instanceof PDFDict ? 'differences' : 'none',
+    toUnicode: font.lookup(PDFName.of('ToUnicode')) instanceof PDFStream,
+    supported: loadFont(doc, fontObj) !== null,
+  };
 }
 
 function num(o: unknown): number {
@@ -181,6 +204,7 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
   const page = doc.getPage(pageIndex);
   const mb = page.getMediaBox();
   const glyphs: Glyph[] = [];
+  const fontNotes = new Map<string, FontNote>();
   let undecodable = 0;
   let images = 0;
   const annots = page.node.lookup(PDFName.of('Annots'));
@@ -237,6 +261,8 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
           if (!fontCache.has(name)) {
             const ref = fontsDict instanceof PDFDict ? fontsDict.get(PDFName.of(name)) : undefined;
             fontCache.set(name, ref ? loadFont(doc, ref) : null);
+            const noteKey = ref instanceof PDFRef ? `${ref.objectNumber}` : `${entry.key}:${name}`;
+            if (!fontNotes.has(noteKey)) fontNotes.set(noteKey, ref ? describeFont(doc, ref) : { subtype: 'missing', encoding: '-', toUnicode: false, supported: false });
           }
           font = fontCache.get(name) ?? null;
           break;
@@ -295,7 +321,7 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
   const entry: StreamEntry = { key, stream: undefined as unknown as PDFStream, ref: null, src, ops: tokenize(src), resources: page.node.Resources() };
   streams.set(key, entry);
   walk(entry, I, 0);
-  return { pageIndex, box: { x: mb.x, y: mb.y, width: mb.width, height: mb.height }, glyphs, undecodable, images, widgets };
+  return { pageIndex, box: { x: mb.x, y: mb.y, width: mb.width, height: mb.height }, glyphs, undecodable, images, widgets, fonts: [...fontNotes.values()] };
 }
 
 /** 표시용 대체 텍스트(ActualText/Alt/E)에 원문이 남지 않도록 marked-content 속성에서 제거 */

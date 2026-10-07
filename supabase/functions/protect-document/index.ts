@@ -18,7 +18,7 @@ import {
   upsertDerivative,
 } from '../_shared/admin.ts';
 import { corsHeaders, json } from '../_shared/cors.ts';
-import { protectPdf, type ProtectResult, type RegionState } from '../_shared/protection/protect.ts';
+import { protectPdf, safeErrorCode, type ProtectResult, type RegionState } from '../_shared/protection/protect.ts';
 import { detectionCounts } from '../_shared/protection/sensitive.ts';
 
 const BUCKET = 'contract-files';
@@ -52,30 +52,54 @@ Deno.serve(async (req) => {
   if (!doc) return json({ error: 'not_found' }, 404);
 
   const started = Date.now();
+  // 진단: 어느 단계에서 멈췄는지 (download → protect → storage_upload → db_save). 원문·좌표·글꼴 이름은 남기지 않는다
+  let stage = 'db_read';
+  let result: ProtectResult | null = null;
+  let derivativeCreated = false;
+  const logDiagnostics = (extra: Record<string, unknown>) =>
+    console.log(
+      `protect-document diagnostics: ${JSON.stringify({
+        documentId,
+        mimeType: doc.mime_type,
+        sizeBytes: doc.size_bytes,
+        stage,
+        status: result?.status ?? null,
+        detail: result?.detail ?? null,
+        derivativeCreated,
+        ms: Date.now() - started,
+        ...(result?.diagnostics ?? {}),
+        ...extra,
+      })}`,
+    );
   try {
     if (updates.length) await updateRegionStates(userId, documentId, updates);
     const prev = await selectRegions(userId, documentId);
     const prevStates = new Map<string, RegionState>(prev.map((r) => [r.region_key, r.state]));
     const confirmed = new Set(prev.filter((r) => r.user_confirmed).map((r) => r.region_key));
 
-    let result: ProtectResult;
     if (doc.mime_type !== 'application/pdf') {
       // 사진: 글자가 이미지 안에 있다 — V1 자동 가리기 미지원 (향후 OCR)
-      result = { status: 'unsupported_scan', detail: 'image_file', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 1 };
+      result = { status: 'unsupported_scan', detail: 'image_file', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 1, diagnostics: undefined as never };
     } else {
+      stage = 'download';
+      const bytes = await downloadObject(BUCKET, doc.storage_path);
+      stage = 'protect';
       try {
-        result = await protectPdf(await downloadObject(BUCKET, doc.storage_path), prevStates);
-      } catch {
-        result = { status: 'failed', detail: 'error', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 0 };
+        result = await protectPdf(bytes, prevStates);
+      } catch (e) {
+        result = { status: 'failed', detail: 'error', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 0, diagnostics: undefined as never };
+        logDiagnostics({ errorCode: safeErrorCode(e), downloadedBytes: bytes.byteLength });
       }
     }
 
     // 보호 표시본 (원본과 별도 경로) — 보호됨일 때만 두고, 아니면 지운다
     const viewPath = `${userId}/${documentId}.protected_view.pdf`;
     const existing = (await selectDerivatives(userId, documentId)).filter((d) => d.kind === 'protected_view');
+    stage = 'storage_upload';
     if (result.status === 'protected' && result.protectedPdf) {
       await uploadObject(BUCKET, viewPath, result.protectedPdf, 'application/pdf');
       await upsertDerivative({ user_id: userId, document_id: documentId, kind: 'protected_view', storage_path: viewPath, size_bytes: result.protectedPdf.byteLength });
+      derivativeCreated = true;
     } else {
       for (const d of existing) {
         await removeObjects(BUCKET, [d.storage_path]);
@@ -83,6 +107,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    stage = 'db_save';
     await replaceRegions(
       userId,
       documentId,
@@ -108,11 +133,14 @@ Deno.serve(async (req) => {
       protection_images_unchecked: result.imagesUnchecked,
       protected_at: new Date().toISOString(),
     });
+    stage = 'done';
     console.log(`protect-document: doc=${documentId} status=${result.status} detail=${result.detail ?? '-'} pages=${result.pageCount} regions=${detectionCounts(result.regions)} ms=${Date.now() - started}`);
+    logDiagnostics({});
     return json({ status: result.status, detail: result.detail, imagesUnchecked: result.imagesUnchecked, regionCount: result.regions.length });
   } catch (e) {
     const code = e instanceof Error && /^[a-z_0-9]+$/.test(e.message) ? e.message : 'protect_failed';
-    console.error(`protect-document: doc=${documentId} failed code=${code} ms=${Date.now() - started}`);
+    console.error(`protect-document: doc=${documentId} failed stage=${stage} code=${code} ms=${Date.now() - started}`);
+    logDiagnostics({ errorCode: e instanceof Error && /^[a-z_0-9]+$/.test(e.message) ? e.message : safeErrorCode(e) });
     await updateDocumentProtection(userId, documentId, { protection_status: 'failed', protection_detail: 'error', protected_at: new Date().toISOString() }).catch(() => undefined);
     return json({ error: code }, 500);
   }

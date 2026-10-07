@@ -72,6 +72,7 @@
     "check": "npm run typecheck && npm run lint && npm test -- --silent && npm run test:protection",
     "test:protection": "node --experimental-strip-types --no-warnings --test tests/protection/*.test.ts",
     "vendor:pdf": "node scripts/vendor-pdf.mjs",
+    "diagnose:pdf": "node --experimental-strip-types --no-warnings tests/protection/cli.ts diagnose",
     "brand:assets": "node --experimental-strip-types --no-warnings scripts/generate-brand-assets.ts",
     "db:start": "supabase start -x studio,imgproxy,realtime,logflare,vector,supavisor,postgres-meta",
     "db:reset": "supabase db reset",
