@@ -148,7 +148,7 @@ const leaks = (text) => SECRETS.filter((s) => text.includes(s));
   await page.waitForSelector(tid('review-protection-0'), { timeout: 40000 });
   const scanCard = await page.locator(tid('review-protection-0')).innerText();
   await page.locator(tid('review-protection-0')).screenshot({ path: path.join(SHOTS, 'protection-04-scan-card.png') });
-  check('S2', '스캔본: "이 문서는 자동 가리기를 지원하지 않아요" (보호했어요와 구분)', scanCard.includes('자동 가리기를 지원하지 않아요') && !scanCard.includes('보호했어요'), scanCard.split('\n')[0]);
+  check('S2', '스캔본: "스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요." (보호했어요와 구분)', scanCard.includes('스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요.') && !scanCard.includes('보호했어요'), scanCard.split('\n')[0]);
 
   // E: 계약 삭제 → 원본·보호본·기록 정리
   const contractId = contracts[0].id;

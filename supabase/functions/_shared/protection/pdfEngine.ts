@@ -14,8 +14,11 @@ import {
   PDFRawStream,
   PDFRef,
   PDFStream,
+  StandardEncodings,
+  StandardFontMetrics,
   decodePDFRawStream,
 } from '../vendor/pdf-lib.js';
+import { builtInCMap, splitCodes, type CMap } from './cmap.ts';
 import { fmtNum, hexString, tokenize, type Op, type Operand } from './contentStream.ts';
 
 type M = [number, number, number, number, number, number];
@@ -41,13 +44,20 @@ export interface Glyph {
   index: number;
   /** 보이지 않는 글자 (Tr 3/7 — 스캔본 위 OCR 글자층 등) */
   invisible: boolean;
+  /** 글자 원점(기준선 시작점)과 글자 크기 — 다른 구현(pdf.js)과 위치를 맞춰 볼 때 쓴다 */
+  ox: number;
+  oy: number;
+  size: number;
 }
 
-interface FontInfo {
-  twoByte: boolean;
-  /** 1/1000 em */
+export interface FontInfo {
+  /** 문자열 바이트 → 글자 코드 (1바이트 글꼴, Identity 2바이트, 미리 정의된 CMap의 1~2바이트 혼합) */
+  codes: (bytes: number[]) => { code: number; at: number; len: number }[];
+  /** 1/1000 글자 공간 단위 */
   width: (code: number) => number;
   toUnicode: (code: number) => string | null;
+  /** 어간(Tw)이 적용되는 글자 (1바이트 코드 32) */
+  wordSpace: (code: number, len: number) => boolean;
 }
 
 export interface StreamEntry {
@@ -68,6 +78,9 @@ export interface PageText {
   glyphs: Glyph[];
   /** 해석할 수 없는 글자 수 (인코딩 미지원 글꼴) */
   undecodable: number;
+  /** 해석할 수 없는 글꼴로 그린 글자 바이트 수 (글자 위치를 알 수 없음) / 그중 보이는 글자 */
+  unsupportedText: number;
+  unsupportedVisibleText: number;
   /** 그려진 이미지 수 (스캔본 판단용) */
   images: number;
   /** 입력 양식(위젯) 수 — 값이 콘텐츠 밖에 있어 V1은 처리하지 않는다 */
@@ -144,7 +157,40 @@ function parseToUnicode(cmap: string): Map<number, string> {
   return map;
 }
 
-function loadFont(doc: PDFDocument, fontObj: unknown): FontInfo | null {
+const ONE_BYTE = (bytes: number[]) => bytes.map((code, at) => ({ code, at, len: 1 }));
+const IDENTITY_SPACE: CMap['codespace'] = [{ n: 2, lo: 0, hi: 0xffff }];
+
+function cidWidths(desc: PDFDict): (cid: number) => number {
+  const dw = desc.lookup(PDFName.of('DW')) ? num(desc.lookup(PDFName.of('DW'))) : 1000;
+  const widths = new Map<number, number>();
+  const w = desc.lookup(PDFName.of('W'));
+  if (w instanceof PDFArray) {
+    let k = 0;
+    while (k < w.size()) {
+      const first = num(w.lookup(k));
+      const next = w.lookup(k + 1);
+      if (next instanceof PDFArray) {
+        for (let j = 0; j < next.size(); j++) widths.set(first + j, num(next.lookup(j)));
+        k += 2;
+      } else {
+        const last = num(next);
+        const ww = num(w.lookup(k + 2));
+        for (let c = first; c <= last && c - first < 65536; c++) widths.set(c, ww);
+        k += 3;
+      }
+    }
+  }
+  return (cid) => widths.get(cid) ?? dw;
+}
+
+/**
+ * 글꼴 해석기. 글자 위치·내용을 확실히 얻을 수 없는 글꼴은 null (→ 그 글꼴을 쓴 문서는 보호 처리하지 않음)
+ * - Type0: Identity-H, 미리 정의된 한글 가로쓰기 CMap(UniKS-*-H, KSC*-H, KSCms-UHC-*H …). 세로쓰기(-V)는 미지원
+ *   문자: ToUnicode가 있으면 그것, 없으면 Adobe-Korea1 문자 집합의 CID → 유니코드 표(Adobe-Korea1-UCS2)
+ * - Type1/TrueType: Widths + ToUnicode (없으면 ASCII 범위만)
+ * - Type3: FontMatrix가 회전·기울임 없는 경우만, ToUnicode 필수 (Chrome PDF 등)
+ */
+export function loadFont(doc: PDFDocument, fontObj: unknown): FontInfo | null {
   const font = doc.context.lookup(fontObj as PDFRef);
   if (!(font instanceof PDFDict)) return null;
   const subtype = font.lookup(PDFName.of('Subtype'));
@@ -153,42 +199,137 @@ function loadFont(doc: PDFDocument, fontObj: unknown): FontInfo | null {
   if (tu instanceof PDFStream) toUni = parseToUnicode(latin1(streamBytes(tu)));
   if (subtype === PDFName.of('Type0')) {
     const enc = font.lookup(PDFName.of('Encoding'));
-    // Identity-H/V만 지원 (KSC 계열 등 미리 정의된 CMap은 해석하지 않고 실패 처리)
-    if (!(enc instanceof PDFName) || !/Identity-[HV]/.test(enc.asString()) || !toUni) return null;
+    if (!(enc instanceof PDFName)) return null; // 내장 CMap 스트림은 미지원
+    const encName = enc.asString().slice(1);
     const desc = font.lookup(PDFName.of('DescendantFonts'), PDFArray).lookup(0, PDFDict);
-    const dw = desc.lookup(PDFName.of('DW')) ? num(desc.lookup(PDFName.of('DW'))) : 1000;
-    const widths = new Map<number, number>();
-    const w = desc.lookup(PDFName.of('W'));
-    if (w instanceof PDFArray) {
-      let k = 0;
-      while (k < w.size()) {
-        const first = num(w.lookup(k));
-        const next = w.lookup(k + 1);
-        if (next instanceof PDFArray) {
-          for (let j = 0; j < next.size(); j++) widths.set(first + j, num(next.lookup(j)));
-          k += 2;
-        } else {
-          const last = num(next);
-          const ww = num(w.lookup(k + 2));
-          for (let c = first; c <= last && c - first < 65536; c++) widths.set(c, ww);
-          k += 3;
-        }
-      }
+    let codespace = IDENTITY_SPACE;
+    let toCid = (code: number): number | undefined => code;
+    if (encName !== 'Identity-H') {
+      const cm = /-V$|^Identity-V$/.test(encName) ? null : builtInCMap(encName);
+      if (!cm || cm.vertical) return null;
+      codespace = cm.codespace;
+      toCid = (code) => cm.cid.get(code);
     }
+    // ToUnicode가 없으면 문자 집합(Registry-Ordering)의 CID → 유니코드 표를 쓴다 (한글 Adobe-Korea1만)
+    let cidUni: CMap | null = null;
+    if (!toUni) {
+      const info = desc.lookup(PDFName.of('CIDSystemInfo'));
+      const ordering = info instanceof PDFDict ? info.lookup(PDFName.of('Ordering')) : undefined;
+      const registry = info instanceof PDFDict ? info.lookup(PDFName.of('Registry')) : undefined;
+      const str = (o: unknown) => (o && typeof (o as { decodeText?: () => string }).decodeText === 'function' ? (o as { decodeText: () => string }).decodeText() : '');
+      if (str(registry) === 'Adobe' && str(ordering) === 'Korea1') cidUni = builtInCMap('Adobe-Korea1-UCS2');
+      if (!cidUni) return null;
+    }
+    const width = cidWidths(desc);
     const map = toUni;
-    return { twoByte: true, width: (c) => widths.get(c) ?? dw, toUnicode: (c) => map.get(c) ?? null };
+    return {
+      codes: (bytes) => splitCodes(codespace, bytes),
+      width: (code) => {
+        const cid = toCid(code);
+        return cid === undefined ? 0 : width(cid);
+      },
+      toUnicode: (code) => {
+        if (code < 0) return null;
+        if (map) return map.get(code) ?? null;
+        const cid = toCid(code);
+        return cid === undefined ? null : (cidUni!.bf.get(cid) ?? null);
+      },
+      wordSpace: (code, len) => len === 1 && code === 32,
+    };
   }
-  if (subtype === PDFName.of('Type3')) return null;
-  // 단순 글꼴 (Type1/TrueType): ToUnicode가 없으면 ASCII 범위만 (숫자·영문은 표준 인코딩과 같다)
   const firstChar = num(font.lookup(PDFName.of('FirstChar')));
   const ws = font.lookup(PDFName.of('Widths'));
   const widths: number[] = ws instanceof PDFArray ? Array.from({ length: ws.size() }, (_, k) => num(ws.lookup(k))) : [];
   const map = toUni;
+  if (subtype === PDFName.of('Type3')) {
+    // 글자 모양은 글꼴 안 절차(CharProcs)로 그려진다 — 너비는 Widths × FontMatrix, 문자는 ToUnicode로만 확정
+    const fm = font.lookup(PDFName.of('FontMatrix'));
+    if (!(fm instanceof PDFArray) || fm.size() !== 6 || !map) return null;
+    const [a, b, c, d] = [0, 1, 2, 3].map((k) => num(fm.lookup(k)));
+    if (!(a > 0) || Math.abs(b) > 1e-9 || Math.abs(c) > 1e-9 || Math.abs(d) < a * 0.5 || Math.abs(d) > a * 2) return null;
+    return {
+      codes: ONE_BYTE,
+      width: (code) => (widths[code - firstChar] ?? 0) * a * 1000,
+      toUnicode: (code) => map.get(code) ?? null,
+      wordSpace: (code) => code === 32,
+    };
+  }
+  // 단순 글꼴 (Type1/TrueType)
+  // 너비: Widths, 없으면(글꼴 미포함 표준 14 글꼴 — Helvetica 등) 표준 글꼴 글자 너비표, 그래도 없으면 500 (→ 위치 대조에서 걸러진다)
+  // 문자: ToUnicode, 없으면 ASCII 범위만 (Differences로 다른 글리프를 가리키게 바꾼 코드는 해석하지 않음)
+  const diffs = encodingDifferences(font);
+  const std = ws instanceof PDFArray ? null : standardMetrics(font);
   return {
-    twoByte: false,
-    width: (c) => widths[c - firstChar] ?? 500,
-    toUnicode: (c) => map?.get(c) ?? (c >= 32 && c < 127 ? String.fromCharCode(c) : null),
+    codes: ONE_BYTE,
+    width: (c) => {
+      const w = widths[c - firstChar];
+      if (w !== undefined) return w;
+      const name = diffs.get(c) ?? winAnsiName(c);
+      const sw = std && name ? std.getWidthOfGlyph(name) : undefined;
+      return typeof sw === 'number' ? sw : 500;
+    },
+    toUnicode: (c) => {
+      const mapped = map?.get(c);
+      if (mapped !== undefined) return mapped;
+      if (c < 32 || c >= 127) return null;
+      const d = diffs.get(c);
+      return d === undefined || d === winAnsiName(c) ? String.fromCharCode(c) : null;
+    },
+    wordSpace: (code) => code === 32,
   };
+}
+
+/** 단순 글꼴 Encoding의 Differences (코드 → 글리프 이름) */
+function encodingDifferences(font: PDFDict): Map<number, string> {
+  const out = new Map<number, string>();
+  const enc = font.lookup(PDFName.of('Encoding'));
+  const diff = enc instanceof PDFDict ? enc.lookup(PDFName.of('Differences')) : undefined;
+  if (!(diff instanceof PDFArray)) return out;
+  let code = 0;
+  for (let k = 0; k < diff.size(); k++) {
+    const v = diff.lookup(k);
+    if (v instanceof PDFNumber) code = v.asNumber();
+    else if (v instanceof PDFName) out.set(code++, v.asString().slice(1));
+  }
+  return out;
+}
+
+let winAnsiNames: Map<number, string> | null = null;
+/** WinAnsi 코드 → 글리프 이름 (ASCII 범위는 표준 인코딩과 같다) */
+function winAnsiName(code: number): string | undefined {
+  if (!winAnsiNames) {
+    winAnsiNames = new Map();
+    const enc = StandardEncodings.WinAnsi;
+    for (const cp of enc.supportedCodePoints) {
+      const { code: c, name } = enc.encodeUnicodeCodePoint(cp);
+      if (!winAnsiNames.has(c)) winAnsiNames.set(c, name);
+    }
+  }
+  return winAnsiNames.get(code);
+}
+
+/** 글꼴을 포함하지 않은 표준 14 글꼴(및 흔한 별칭)의 글자 너비표 */
+function standardMetrics(font: PDFDict): { getWidthOfGlyph: (name: string) => number | undefined } | null {
+  const desc = font.lookup(PDFName.of('FontDescriptor'));
+  if (desc instanceof PDFDict && ['FontFile', 'FontFile2', 'FontFile3'].some((k) => desc.lookup(PDFName.of(k)))) return null;
+  const base = font.lookup(PDFName.of('BaseFont'));
+  if (!(base instanceof PDFName)) return null;
+  const n = base.asString().slice(1).replace(/^[A-Z]{6}\+/, '');
+  const bold = /bold|black|heavy/i.test(n), italic = /italic|oblique/i.test(n);
+  let family: 'Helvetica' | 'Times' | 'Courier' | null = null;
+  if (/^(Helvetica|Arial)/i.test(n)) family = 'Helvetica';
+  else if (/^Times/i.test(n)) family = 'Times';
+  else if (/^Courier/i.test(n)) family = 'Courier';
+  if (!family) return null;
+  const name =
+    family === 'Times'
+      ? `Times-${bold && italic ? 'BoldItalic' : bold ? 'Bold' : italic ? 'Italic' : 'Roman'}`
+      : `${family}${bold || italic ? '-' : ''}${bold ? 'Bold' : ''}${italic ? 'Oblique' : ''}`;
+  try {
+    return StandardFontMetrics.load(name as never) as never;
+  } catch {
+    return null;
+  }
 }
 
 function pageContents(doc: PDFDocument, pageIndex: number): string {
@@ -206,6 +347,8 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
   const glyphs: Glyph[] = [];
   const fontNotes = new Map<string, FontNote>();
   let undecodable = 0;
+  let unsupportedText = 0;
+  let unsupportedVisibleText = 0;
   let images = 0;
   const annots = page.node.lookup(PDFName.of('Annots'));
   let widgets = 0;
@@ -226,26 +369,29 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
     const xobjs = entry.resources?.lookup(PDFName.of('XObject'));
     const show = (bytes: number[], opIndex: number, part: number) => {
       if (!font) {
+        // 해석할 수 없는 글꼴로 그린 글자 — 글자 수·위치를 알 수 없으므로 바이트 수로 센다 (스캔본과 구분)
         undecodable += bytes.length;
+        unsupportedText += bytes.length;
+        if (mode !== 3 && mode !== 7) unsupportedVisibleText += bytes.length;
         return;
       }
-      const step = font.twoByte ? 2 : 1;
-      for (let k = 0, idx = 0; k + step - 1 < bytes.length; k += step, idx++) {
-        const c = step === 2 ? (bytes[k] << 8) | bytes[k + 1] : bytes[k];
-        const w0 = font.width(c) / 1000;
+      font.codes(bytes).forEach(({ code: c, len }, idx) => {
+        const w0 = font!.width(c) / 1000;
         // 매핑이 없는 좁은 글리프(0.4em 미만)는 공백으로 본다 — 숫자·한글처럼 넓은 글자는 해석 불가로 센다
-        const mapped = font.toUnicode(c);
+        const mapped = font!.toUnicode(c);
         const ch = mapped ?? (w0 < 0.4 ? ' ' : null);
         if (ch == null) undecodable++;
         const trm = mul([fs * th, 0, 0, fs, 0, rise], mul(tm, ctm));
         const p0 = apply(trm, 0, -0.22), p1 = apply(trm, w0, 0.9);
+        const o = apply(trm, 0, 0);
         glyphs.push({
           ch: ch ?? '�',
           x0: Math.min(p0.x, p1.x), y0: Math.min(p0.y, p1.y), x1: Math.max(p0.x, p1.x), y1: Math.max(p0.y, p1.y),
           streamKey: entry.key, opIndex, part, index: idx, invisible: mode === 3 || mode === 7,
+          ox: o.x, oy: o.y, size: Math.hypot(trm[2], trm[3]),
         });
-        tm = mul([1, 0, 0, 1, (w0 * fs + tc + (!font.twoByte && c === 32 ? tw : 0)) * th, 0], tm);
-      }
+        tm = mul([1, 0, 0, 1, (w0 * fs + tc + (font!.wordSpace(c, len) ? tw : 0)) * th, 0], tm);
+      });
     };
     entry.ops.forEach((o, opIndex) => {
       const a = o.operands;
@@ -321,7 +467,7 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
   const entry: StreamEntry = { key, stream: undefined as unknown as PDFStream, ref: null, src, ops: tokenize(src), resources: page.node.Resources() };
   streams.set(key, entry);
   walk(entry, I, 0);
-  return { pageIndex, box: { x: mb.x, y: mb.y, width: mb.width, height: mb.height }, glyphs, undecodable, images, widgets, fonts: [...fontNotes.values()] };
+  return { pageIndex, box: { x: mb.x, y: mb.y, width: mb.width, height: mb.height }, glyphs, undecodable, unsupportedText, unsupportedVisibleText, images, widgets, fonts: [...fontNotes.values()] };
 }
 
 /** 표시용 대체 텍스트(ActualText/Alt/E)에 원문이 남지 않도록 marked-content 속성에서 제거 */
@@ -364,7 +510,6 @@ export function removeGlyphs(doc: PDFDocument, streams: Map<string, StreamEntry>
       const kill = byOp.get(opIndex);
       if (!kill || !fontInfo) return;
       const f: FontInfo = fontInfo;
-      const step = f.twoByte ? 2 : 1;
       const rewrite = (bytes: number[], part: number): Operand[] => {
         const res: Operand[] = [];
         let keep: number[] = [];
@@ -377,17 +522,16 @@ export function removeGlyphs(doc: PDFDocument, streams: Map<string, StreamEntry>
           if (shift) res.push({ t: 'num', v: shift, raw: fmtNum(shift) });
           shift = 0;
         };
-        for (let k = 0, idx = 0; k + step - 1 < bytes.length; k += step, idx++) {
-          const c = step === 2 ? (bytes[k] << 8) | bytes[k + 1] : bytes[k];
+        f.codes(bytes).forEach(({ code: c, at, len }, idx) => {
           if (kill.has(`${part}:${idx}`)) {
             pushKeep();
-            // 글자 너비 + 자간(+어간) 만큼 이동: TJ 숫자는 1/1000 em, 음수가 오른쪽
-            shift -= f.width(c) + (fs ? ((tc + (!f.twoByte && c === 32 ? tw : 0)) * 1000) / fs : 0);
+            // 글자 너비 + 자간(+어간) 만큼 이동: TJ 숫자는 1/1000 글자 공간 단위, 음수가 오른쪽
+            shift -= f.width(c) + (fs ? ((tc + (f.wordSpace(c, len) ? tw : 0)) * 1000) / fs : 0);
           } else {
             pushShift();
-            keep.push(...bytes.slice(k, k + step));
+            keep.push(...bytes.slice(at, at + len));
           }
-        }
+        });
         pushKeep();
         pushShift();
         return res;

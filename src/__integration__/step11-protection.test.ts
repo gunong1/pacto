@@ -18,7 +18,7 @@ jest.setTimeout(120_000);
 const ROOT = path.resolve(__dirname, '../..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pacto-protect-'));
 const cli = (...args: string[]) => execFileSync('node', ['--experimental-strip-types', '--no-warnings', path.join(ROOT, 'tests/protection/cli.ts'), ...args], { cwd: ROOT, encoding: 'utf8' });
-function fixture(kind: 'employment' | 'rental' | 'scan'): Uint8Array {
+function fixture(kind: 'employment' | 'rental' | 'scan' | 'cmap' | 'repeated' | 'type3'): Uint8Array {
   const out = path.join(tmp, `${kind}.pdf`);
   if (!fs.existsSync(out)) cli('make', kind, out);
   return new Uint8Array(fs.readFileSync(out));
@@ -68,6 +68,20 @@ describe('Step 11 — 민감정보 보호', () => {
     const admin = adminClient();
     const { data: rows } = await admin.from('document_sensitive_regions').select('*').eq('document_id', up.id);
     expect(JSON.stringify(rows)).not.toMatch(/1234567|1234-5678|minjun@/);
+  });
+
+  test.each([
+    ['cmap', '한글 CMap 글꼴(UniKS-UCS2-H) — 스캔본으로 잘못 분류하지 않음', ['1234567', '010-1234-5678', '4111-1111-1111-1111']],
+    ['repeated', '반복 숫자(카드·전화가 1111·1234 공유) — 오탐 없이 보호', ['4111111111111111', '5500000000081111', '01022221111', '01012345678', '01012349876']],
+    ['type3', 'Chrome형 Type3 글꼴 — 보호', ['4111111111111111', '01012345678']],
+  ] as const)('%s: %s (Edge Function · Deno)', async (kind, _name, secrets) => {
+    const a = await newUser(`protect-${kind}`);
+    const { docs } = stores(a.client, fixture(kind));
+    const up = await docs.upload(file(`${kind}.pdf`));
+    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null });
+    const prot = (await docs.getProtection([up.id]))[up.id];
+    const view = textOf(await download(await docs.openUrl({ ...up, protection: prot }, 'protected_view'))).replace(/[-.]/g, '');
+    for (const s of secrets) expect(view).not.toContain(s.replace(/[-.]/g, ''));
   });
 
   test('가리기 해제 → 보호본 다시 생성 (해제한 값만 표시, 사용자 확인으로 기록)', async () => {

@@ -48,11 +48,29 @@ export function protectionCopy(p: DocumentProtection | undefined): { title: stri
     case 'no_sensitive_data':
       return { title: '민감정보가 감지되지 않았어요', body: '자동으로 찾지 못했을 수 있어요. 중요한 문서는 원본을 직접 확인해주세요.', tone: 'neutral' };
     case 'unsupported_scan':
-      return { title: '이 문서는 자동 가리기를 지원하지 않아요', body: '사진·스캔본은 아직 자동 가리기를 지원하지 않아요. 원본은 비공개로 안전하게 보관돼요.', tone: 'warning' };
+      return { title: '스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요.', body: '사진·스캔본 속 글자는 아직 자동으로 가리지 못해요. 원본은 비공개로 보관돼요.', tone: 'warning' };
     case 'failed':
-      return { title: '민감정보를 자동으로 가리지 못했어요', body: '이 문서는 자동 보호를 적용하지 못했어요. 원본은 비공개로 보관돼요.', tone: 'warning' };
+      return { title: '민감정보 보호 처리 중 문제가 발생했어요.', body: `${failedReason(p.detail)}원본은 비공개로 보관돼요.`, tone: 'warning' };
     case 'pending':
       return p.detail === 'preview_mode' ? null : { title: '민감정보 보호 전이에요', body: '계약서 속 주민등록번호·계좌번호 등을 찾아 가려서 표시할 수 있어요.', tone: 'neutral' };
+  }
+}
+
+/** 실패 사유별 안내 (원문·기술 용어 없이) */
+function failedReason(detail: string | null | undefined): string {
+  switch (detail) {
+    case 'encrypted':
+      return '암호가 걸린 문서는 자동으로 가릴 수 없어요. ';
+    case 'form_fields':
+      return '입력 양식이 들어 있는 문서는 아직 자동 가리기를 지원하지 않아요. ';
+    case 'unsupported_font':
+    case 'undecodable_font':
+    case 'text_mismatch':
+      return '이 문서에 쓰인 글꼴 형식은 글자 위치를 정확히 확인할 수 없어 자동으로 가리지 않았어요. ';
+    case 'too_many_pages':
+      return '쪽수가 많은 문서는 아직 자동 가리기를 지원하지 않아요. ';
+    default:
+      return '자동 가리기를 적용하지 못했어요. 다시 시도해주세요. ';
   }
 }
 

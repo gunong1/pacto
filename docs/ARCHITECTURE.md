@@ -960,8 +960,17 @@ pacto/
 - **처리 위치**: Edge Function `protect-document` (외부 전송 없음). 업로드 직후·AI 분석 전에 실행. 기존 문서는 상세의 "민감정보 보호하기"로만.
 - **실제 제거(redaction)**: 콘텐츠 스트림의 글자 표시 연산자(Tj/TJ/'/")에서 해당 글자 코드를 지우고 같은 너비만큼 TJ 이동으로 대체 → 나머지 배치는 그대로.
   보호본은 새 문서에 페이지만 복사해 만든다(교체 전 스트림·메타데이터·북마크·첨부·주석·입력 양식·대체 텍스트가 남지 않음).
-- **독립 검증**: 보호본을 pdf.js로 다시 읽어 가린 값의 원문이나 놓친 Level 1 정보가 보이면 `failed` (보호본 저장 안 함).
-- **상태**(`contract_documents.protection_status`): `pending` / `protected` / `no_sensitive_data`("감지되지 않음", 없다고 단정하지 않음) / `unsupported_scan`(사진·스캔본·투명 OCR층 — 텍스트+스캔 혼합 문서는 전체) / `failed`(암호화·해석 불가 글꼴·입력 양식·검증 실패 등). 서버(service_role)만 바꿀 수 있다(트리거).
+- **위치 신뢰성 확인(처리 전)**: 원본을 pdf.js(별도 구현)로도 읽어, pdf.js 텍스트 조각의 시작·끝 글자가 같은 위치에 우리 추출 글자로도 있는지 본다(95% 미만이면 `failed`/`text_mismatch`).
+  pdf.js 원본 텍스트에서만 보이는 Level 1 정보가 있어도 `text_mismatch` (잘못된 "감지되지 않음" 방지).
+- **독립 검증(보호본)** — 하나라도 걸리면 `failed`/`verification_failed` (보호본 저장 안 함):
+  ① 위치 기반: 지워야 했던 글자(원문 문자)가 보호본의 **같은 자리**에서 다시 읽히는가 — 우리 추출기(글자 단위)와 pdf.js(조각 내 비율 추정)로 각각, 글자 상자 가장자리 20% 여유.
+  다른 위치에 같은 숫자 조각(예: 다른 카드의 끝 4자리 `1111`)이 보이는 것은 누출이 아니다 (예전 부분 문자열 검사의 오탐 원인).
+  ② 값 전체: 가린 값 전체가 같은 쪽 어느 줄에 남았는가 (숫자형은 공백·하이픈·점을 빼고 비교 — `4111-1111-…` = `4111 1111 …`).
+  ③ 놓친 Level 1 정보가 보이는가. 검증에 쓰는 원문은 처리 중 메모리에서만 쓰고 DB·로그에 남기지 않는다(로그는 개수·종류·단계만).
+- **지원 글꼴**: Type0 Identity-H, **미리 정의된 한글 CMap 가로쓰기**(UniKS-UCS2/UTF16/UTF8/UTF32-H, KSC-EUC-H, KSCpc-EUC-H, KSCms-UHC(-HW)-H, KSC-Johab-H — ToUnicode가 없으면 Adobe-Korea1 CID→유니코드 표),
+  Type1/TrueType(Widths, 없으면 표준 14 글꼴 글자 너비표 — Helvetica·Times·Courier와 Arial 등 별칭), **Type3**(회전·기울임 없는 FontMatrix + ToUnicode 필수, Chrome 인쇄 PDF).
+  세로쓰기(-V)·한글 외 CMap·내장 CMap 스트림·ToUnicode 없는 Type3 → `failed`/`unsupported_font` (스캔본으로 분류하지 않음). 한글 CMap 데이터는 pdfjs-dist 6.1.200 `cmaps/`(Adobe, BSD-3)를 `_shared/vendor/korean-cmaps.js`로 내장하고 pdf.js 검증에도 같은 데이터를 쓴다.
+- **상태**(`contract_documents.protection_status`): `pending` / `protected` / `no_sensitive_data`("감지되지 않음", 없다고 단정하지 않음) / `unsupported_scan`(사진·스캔본·투명 OCR층 — 텍스트+스캔 혼합 문서는 전체) / `failed`(암호화·해석 불가 글꼴(`unsupported_font`/`undecodable_font`)·위치 불일치(`text_mismatch`)·입력 양식·검증 실패 등). 서버(service_role)만 바꿀 수 있다(트리거).
 - **탐지**(`_shared/protection/sensitive.ts`): 패턴 + 바로 앞 필드명(문맥) + 검증(생년월일·성별 자리·Luhn). 계약번호·증권번호·고객번호·사업자/법인등록번호·차대번호 등 필드명 뒤 숫자는 제외.
   Level 1(주민·외국인등록번호·카드·계좌) 자동 가림, Level 2(전화·이메일) 부분 가림, Level 3(이름·회사)는 계약 이해에 필요해 표시. 신뢰도: high 가림 / medium 가림 + "확인 필요" / low 가리지 않는 후보.
 - **저장**(`document_sensitive_regions`): 위치(0~1 bbox)·종류·신뢰도·가림 상태·**이미 가린 표시값**만. 원문 값·해시는 저장하지 않는다. 사용자는 `state`·`user_confirmed`만 변경 가능.
@@ -971,7 +980,9 @@ pacto/
 - **삭제**: 계약 삭제·초안 폐기 시 원본 + 파생 파일을 먼저 지우고 행을 지운다(영역·파생본 기록은 cascade). 회원 탈퇴는 사용자 폴더 전체 삭제.
 - **로그**: 문서 id·상태·종류별 개수·시간만.
 - **라이브러리**: pdf-lib 1.17.1(MIT)·unpdf 1.8.1(pdf.js, Apache-2.0)을 `scripts/vendor-pdf.mjs`로 고정 번들(`_shared/vendor`). MuPDF는 AGPL이라 사용하지 않음.
-- **테스트**: `npm run test:protection`(Node 내장 테스트 — 실제 제거·구조 분석·상태), `step11-protection`(통합), `e2e/protection-flow.js`.
+- **화면 문구**: `unsupported_scan` → "스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요." / `failed` → "민감정보 보호 처리 중 문제가 발생했어요." (+ 사유별 짧은 안내)
+- **테스트**: `npm run test:protection`(Node 내장 테스트 — 실제 제거·구조 분석·상태·반복 숫자 회귀·눈으로만 가린 경우 실패·pdftotext 교차 확인·한글 CMap·Type3·위치 불일치), `step11-protection`(통합, Deno Edge Function), `e2e/protection-flow.js`.
+  진단: `npm run diagnose:pdf -- <파일>` (상태·개수만 출력, 원문 없음).
 - **다음 단계**: OCR 기반 스캔본 보호, 주소·여권·면허·서명·도장, 사용자 직접 가리기·이름 가리기, 공유용 보호본, AI 전송 전 redaction, 입력 양식 PDF.
 
 ## 8. 예상 기술 문제와 리스크
