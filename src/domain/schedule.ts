@@ -6,6 +6,7 @@ import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status'
 import type {
   Contract,
   ContractCategory,
+  ContractDateKind,
   ContractPayment,
   ContractRecord,
   Direction,
@@ -174,6 +175,8 @@ export interface ScheduleItem {
   category: ContractCategory;
   /** 사용자 일정 id (계산된 일정은 null) */
   eventId: string | null;
+  /** 주요 날짜의 종류 (설치일·개통일 … — 캘린더 요약에서 같은 의미의 시작 일정을 하나로 볼 때 사용) */
+  dateKind?: ContractDateKind;
 }
 
 const TYPE_ORDER: Record<ScheduleItemType, number> = {
@@ -228,7 +231,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
 
   for (const d of record.dates) {
     if (!inRange(d.date)) continue;
-    items.push({ ...base, ...plain, key: `date:${d.id}`, date: d.date, type: 'key_date', title: d.label });
+    items.push({ ...base, ...plain, key: `date:${d.id}`, date: d.date, type: 'key_date', title: d.label, dateKind: d.kind });
   }
 
   // 기간의 끝 (수습기간 종료 예정 등) — 계약 조건에서 계산
