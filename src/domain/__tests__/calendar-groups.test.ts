@@ -46,7 +46,7 @@ describe('캘린더 요약 카드', () => {
     const [g] = groupsOn([rental], '2026-10-12');
     expect(groupsOn([rental], '2026-10-12')).toHaveLength(1);
     expect(g.items).toHaveLength(4);
-    expect(g.primary).toEqual({ type: 'contract_start', label: '이용 시작', action: false });
+    expect(g.primary).toMatchObject({ type: 'contract_start', label: '이용 시작', action: false, priority: 'normal', sourceLabel: null });
     expect(g.secondaryLabels).toEqual([]);
     expect(g.cashflows.map((c) => c.headline)).toEqual(['49,900원 결제 예정']);
     expect(cashflowBreakdown(g.cashflows[0])).toBe('월 렌탈료 29,900원 · 설치비 20,000원');
@@ -96,7 +96,8 @@ describe('캘린더 요약 카드', () => {
     const r = record('d', { title: '정수기 렌탈계약', payments: [{ ...RENT, label: '월 렌탈료', amount: '32,000', dayOfMonth: '11' }], autoRenewal: true, notice: '30' });
     const gs = groupsOn([r], '2029-09-11');
     expect(gs).toHaveLength(1);
-    expect(gs[0].primary).toEqual({ type: 'termination_notice', label: '해지 통보기한', action: true });
+    expect(gs[0].primary).toMatchObject({ type: 'termination_notice', label: '해지 통보기한', action: true, priority: 'critical', sourceLabel: '입력한 계약 정보 기준' });
+    expect(gs[0].priority).toBe('critical');
     expect(gs[0].cashflows.map((c) => c.headline)).toEqual(['32,000원 결제 예정']);
   });
 

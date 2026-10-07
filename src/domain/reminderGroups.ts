@@ -9,6 +9,7 @@
 import { addMonths, formatMonthDayKo, parseISODate } from './dates';
 import { daysUntil } from './dday';
 import { formatWon } from './money';
+import { NOTIFICATION_SOURCE_LABEL, type NotificationPriority } from './notificationPriority';
 import type { Reminder, ReminderKind } from './reminders';
 import type { Direction, ISODate } from './types';
 
@@ -37,9 +38,15 @@ export interface ReminderGroup {
   detail: string | null;
   /** 실제 일정 날짜: "10월 12일 월 렌탈료 · 설치비 결제" */
   eventLines: string[];
+  /** 묶음에서 가장 높은 중요도 */
+  priority: NotificationPriority;
+  /** 대표 일정의 출처 문구 (결제만 있는 알림은 null — 금액 출처는 결제 규칙) */
+  sourceLabel: string | null;
   /** 원본 알림 (합쳐도 지우지 않는다) */
   reminders: Reminder[];
 }
+
+const PRIORITY_RANK: Record<NotificationPriority, number> = { critical: 0, important: 1, normal: 2 };
 
 /** 같은 계약 + 같은 알림 날짜 → 알림 하나 (발송 단위) */
 export function groupReminders(reminders: readonly Reminder[]): ReminderGroup[] {
@@ -103,6 +110,8 @@ function summarize(key: string, list: Reminder[]): ReminderGroup {
     message,
     detail,
     eventLines: eventLines(sorted),
+    priority: list.map((r) => r.priority).sort((a, b) => PRIORITY_RANK[a] - PRIORITY_RANK[b])[0],
+    sourceLabel: head.kind === 'payment' ? null : NOTIFICATION_SOURCE_LABEL[head.source],
     reminders: list,
   };
 }

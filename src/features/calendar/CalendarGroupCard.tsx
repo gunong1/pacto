@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { CategoryIcon } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
+import { Badge } from '@/components/ui/controls';
 import { cashflowBreakdown, secondaryLine, type CalendarContractGroup } from '@/domain/calendarGroups';
 import { spacing } from '@/theme';
 
@@ -18,12 +19,20 @@ export function CalendarGroupCard({ group, datePrefix, onPress, testID }: { grou
     <Pressable testID={testID} onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} style={({ pressed }) => [styles.card, pressed && { opacity: 0.6 }]}>
       <CategoryIcon category={group.category} />
       <View style={{ flex: 1, gap: 2 }}>
-        <AppText variant="body2Strong" numberOfLines={1}>
-          {group.contractTitle}
-        </AppText>
+        <View style={styles.titleRow}>
+          <AppText variant="body2Strong" numberOfLines={1} style={{ flexShrink: 1 }}>
+            {group.contractTitle}
+          </AppText>
+          {primary?.needsReview ? <Badge label="확인 필요" tone="check" /> : group.priority === 'critical' ? <Badge label="중요" tone="caution" /> : group.priority === 'important' ? <Badge label="확인" /> : null}
+        </View>
         {lead ? (
           <AppText variant={primary?.action ? 'captionStrong' : 'caption'} color={primary?.type === 'termination_notice' ? 'caution' : primary?.action ? 'amber' : 'textSecondary'} numberOfLines={1}>
             {lead}
+          </AppText>
+        ) : null}
+        {primary?.sourceLabel ? (
+          <AppText variant="small" color="textTertiary">
+            {primary.sourceLabel}
           </AppText>
         ) : null}
         {cashflows.map((c) => {
@@ -53,4 +62,5 @@ export function CalendarGroupCard({ group, datePrefix, onPress, testID }: { grou
 
 const styles = StyleSheet.create({
   card: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingVertical: 12 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
 });

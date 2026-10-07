@@ -1,5 +1,6 @@
 import { isConfirmedPayment, profileOf, type PaymentKind } from './contractTypes';
 import { adjustToBusinessDay } from './businessDays';
+import { contractTermSource, getNotificationPriority, termNeedsReview, type ActionEventType, type NotificationPriority, type NotificationSource } from './notificationPriority';
 import { addDays, dateInMonth, parseISODate } from './dates';
 import { amountOn, amountPeriods, periodBoundaries } from './paymentRules';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
@@ -177,6 +178,63 @@ export interface ScheduleItem {
   eventId: string | null;
   /** 주요 날짜의 종류 (설치일·개통일 … — 캘린더 요약에서 같은 의미의 시작 일정을 하나로 볼 때 사용) */
   dateKind?: ContractDateKind;
+  /** 행동 중심 종류 · 중요도 · 출처 (notificationPriority.ts — 알림과 같은 규칙) */
+  actionType: ActionEventType;
+  priority: NotificationPriority;
+  source: NotificationSource;
+  /** AI 추정값에서 나온 날짜 — 확인 전까지 확정 기한으로 보지 않음 */
+  needsReview: boolean;
+}
+
+type ScheduleItemDraft = Omit<ScheduleItem, 'actionType' | 'priority' | 'source' | 'needsReview'>;
+
+/** 일정 한 건의 종류·출처·중요도 — 날짜를 만든 근거에 따라 */
+function withMeta(record: ContractRecord, item: ScheduleItemDraft): ScheduleItem {
+  const { contract } = record;
+  const term = contractTermSource(contract);
+  let actionType: ActionEventType;
+  let source: NotificationSource = term;
+  let needsReview = false;
+  switch (item.type) {
+    case 'payment':
+      actionType = item.direction === 'income' ? 'income' : 'payment';
+      break;
+    case 'termination_notice':
+      actionType = 'termination_notice';
+      needsReview = termNeedsReview(contract, ['endDate', 'terminationNoticeDays']);
+      break;
+    case 'renewal':
+      actionType = 'renewal';
+      needsReview = termNeedsReview(contract, ['endDate', 'renewalPeriodMonths']);
+      break;
+    case 'contract_end':
+      actionType = /만기/.test(profileOf(contract.contractType).endEvent) ? 'maturity' : 'contract_end';
+      needsReview = termNeedsReview(contract, ['endDate']);
+      // 해지·종료 처리 기록은 사용자가 입력한 상태
+      if (item.key.startsWith('closed:')) source = 'manual_entry';
+      break;
+    case 'prepare':
+      // 계약서·법령이 아닌 PACTO 기본 사전 안내 (예: 임대차 만기 60일 전 갱신 여부 확인)
+      actionType = 'prepare';
+      source = 'pacto';
+      break;
+    case 'contract_start':
+      actionType = 'contract_start';
+      break;
+    case 'key_date':
+      actionType = 'key_date';
+      break;
+    default:
+      actionType = 'custom';
+  }
+  // 사용자가 직접 만든 일정
+  if (item.eventId) {
+    const e = record.events.find((x) => x.id === item.eventId);
+    source = e?.source === 'user' ? 'user_custom' : term;
+    actionType = item.type === 'termination_notice' ? 'termination_notice' : item.type === 'contract_end' ? 'contract_end' : item.type === 'renewal' ? 'renewal' : item.type === 'payment' ? 'payment' : 'custom';
+    needsReview = false;
+  }
+  return { ...item, actionType, source, needsReview, priority: getNotificationPriority(actionType, { source, needsReview }) };
 }
 
 const TYPE_ORDER: Record<ScheduleItemType, number> = {
@@ -202,7 +260,7 @@ const TYPE_ORDER: Record<ScheduleItemType, number> = {
 export function contractSchedule(record: ContractRecord, range: DateRange, today: ISODate): ScheduleItem[] {
   const { contract } = record;
   const base = { contractId: contract.id, contractTitle: contract.title, category: contract.category };
-  const items: ScheduleItem[] = [];
+  const items: ScheduleItemDraft[] = [];
   const inRange = (d: ISODate | null | undefined): d is ISODate => !!d && d >= range.start && d <= range.end;
 
   for (const p of record.payments) {
@@ -295,7 +353,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
     items.push({ ...base, key: `event:${e.id}`, date: e.eventDate, type: e.eventType, title: e.title, paymentKind: null, direction: null, amount: e.amount, estimated: false, eventId: e.id });
   }
 
-  return items;
+  return items.map((i) => withMeta(record, i));
 }
 
 /** 종료 전 미리 확인할 시점 (임대차: 만기 60일 전 갱신 확인). 자동갱신 계약은 해지 통보기한으로 대신한다. */

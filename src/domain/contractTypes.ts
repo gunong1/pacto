@@ -169,8 +169,9 @@ export interface ContractTypeProfile {
   dateKinds: readonly ContractDateKind[];
 }
 
-const RENEWAL_NOTICE = (md: string) => `계약서 기준 ${md}까지 해지 의사를 전달해야 자동갱신을 피할 수 있습니다.`;
-const GENERIC_NOTICE = (md: string) => `계약서에 적힌 기한이에요. ${md}까지 필요한 의사를 전달해주세요.`;
+// 출처(계약서 기준 / 입력한 계약 정보 기준)는 부르는 쪽에서 붙인다 — 직접 입력한 계약을 "계약서 기준"이라고 하지 않도록
+const RENEWAL_NOTICE = (md: string) => `${md}까지 해지 의사를 전달해야 자동갱신을 피할 수 있습니다.`;
+const GENERIC_NOTICE = (md: string) => `${md}까지 필요한 의사를 전달해주세요.`;
 
 const PROFILES: Record<ContractType, ContractTypeProfile> = {
   recurring: {
@@ -187,7 +188,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     endGuidance: '만기일의 보증금 반환·이사 일정을 확인해주세요.',
     prepare: { daysBefore: 60, label: '갱신 여부 확인', guidance: '만기 전에 재계약 또는 이사 여부를 정하고 상대방과 미리 확인해두세요.' },
     hasRenewal: true, noticeLabel: '종료 통보기한',
-    noticeGuidance: (md) => `계약서에 적힌 통보기한이에요. 종료 또는 갱신 여부를 ${md}까지 상대방에게 알려주세요.`,
+    noticeGuidance: (md) => `종료 또는 갱신 여부를 ${md}까지 상대방에게 알려주세요.`,
     paymentKinds: ['rent', 'maintenance_fee', 'deposit', 'other'],
     dateKinds: ['move_in', 'balance_due', 'other'],
   },

@@ -8,8 +8,11 @@
  * - 월 지출 합계(spending.ts)는 이 요약과 무관하게 결제 규칙에서 직접 계산한다 → 묶어도 합계가 바뀌지 않는다.
  */
 import { formatWon } from './money';
+import { NOTIFICATION_SOURCE_LABEL, type NotificationPriority } from './notificationPriority';
 import type { ScheduleItem } from './schedule';
 import type { ContractCategory, ContractDateKind, Direction, ISODate, ScheduleItemType } from './types';
+
+const PRIORITY_RANK: Record<NotificationPriority, number> = { critical: 0, important: 1, normal: 2 };
 
 /** 시작과 같은 의미의 주요 날짜 (같은 날 계약 시작이 있으면 따로 보여주지 않는다) */
 const START_LIKE_DATE_KINDS: ReadonlySet<ContractDateKind> = new Set(['installation', 'activation', 'move_in', 'hire', 'handover']);
@@ -83,7 +86,9 @@ export interface CalendarContractGroup {
   /** 원본 일정 전체 (요약은 정보를 지우지 않는다) */
   items: ScheduleItem[];
   /** 대표 일정 (금액만 있는 날은 null) */
-  primary: { type: ScheduleItemType; label: string; action: boolean } | null;
+  primary: { type: ScheduleItemType; label: string; action: boolean; priority: NotificationPriority; sourceLabel: string | null; needsReview: boolean } | null;
+  /** 묶음에서 가장 높은 중요도 (알림과 같은 규칙) */
+  priority: NotificationPriority;
   /** 방향별 금액 (지출 → 수입 → 중립 순) */
   cashflows: CashflowSummary[];
   /** 대표 외 일정 문구 (중복 의미 제거 후) */
@@ -129,15 +134,15 @@ function summarizeGroup(key: string, list: ScheduleItem[]): CalendarContractGrou
       : null;
   const merged = new Set<ScheduleItem>([...(startItem ? [startItem] : []), ...startLike]);
 
-  const labels: { type: ScheduleItemType; label: string }[] = [];
+  const labels: { type: ScheduleItemType; label: string; item: ScheduleItem }[] = [];
   let startAdded = false;
   for (const i of nonCash) {
     if (merged.has(i)) {
-      if (!startAdded && startLabel) labels.push({ type: startItem ? 'contract_start' : 'key_date', label: startLabel });
+      if (!startAdded && startLabel) labels.push({ type: startItem ? 'contract_start' : 'key_date', label: startLabel, item: startItem ?? i });
       startAdded = true;
       continue;
     }
-    if (!labels.some((l) => l.label === i.title)) labels.push({ type: i.type, label: i.title });
+    if (!labels.some((l) => l.label === i.title)) labels.push({ type: i.type, label: i.title, item: i });
   }
 
   const head = labels[0] ?? null;
@@ -148,9 +153,21 @@ function summarizeGroup(key: string, list: ScheduleItem[]): CalendarContractGrou
     contractTitle: first.contractTitle,
     category: first.category,
     items: list,
-    primary: head ? { ...head, action: ACTION_TYPES.has(head.type) } : null,
+    primary: head
+      ? {
+          type: head.type,
+          label: head.label,
+          action: ACTION_TYPES.has(head.type),
+          priority: head.item.priority,
+          // 중요 일정과 PACTO 안내는 출처를 함께 보여준다 (PACTO 기본 안내를 계약서·법령 기한으로 오해하지 않도록)
+          sourceLabel: head.item.priority !== 'normal' || head.item.source === 'pacto' ? NOTIFICATION_SOURCE_LABEL[head.item.source] : null,
+          needsReview: head.item.needsReview,
+        }
+      : null,
+    priority: list.map((i) => i.priority).sort((a, b) => PRIORITY_RANK[a] - PRIORITY_RANK[b])[0],
     cashflows: summarizeCashflows(list),
-    secondaryLabels: labels.slice(1).map((l) => l.label),
+    // PACTO 기본 안내는 보조 줄에 있어도 출처를 붙인다 (계약서·법령 기한으로 오해하지 않도록)
+    secondaryLabels: labels.slice(1).map((l) => (l.item.source === 'pacto' ? `${l.label} (${NOTIFICATION_SOURCE_LABEL.pacto})` : l.label)),
     types: [...new Set(list.map((i) => i.type))],
   };
 }

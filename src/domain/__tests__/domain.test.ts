@@ -234,7 +234,7 @@ describe('알림 예정', () => {
     const records = createMockRecords();
     const reminders = upcomingReminders(records, TODAY, 60);
     const gym = reminders.filter((r) => r.contractId === 'c-gym' && r.kind === 'termination_notice').map((r) => r.fireOn);
-    expect(gym).toEqual(['2026-11-24', '2026-11-30', '2026-12-01']);
+    expect(gym).toEqual(['2026-11-01', '2026-11-24', '2026-11-30', '2026-12-01']); // 30·7·1일 전 + 당일 (PACTO 알림 정책)
     expect(reminders.some((r) => r.contractId === 'c-car-insurance' && r.fireOn === '2026-12-01')).toBe(true);
     expect(reminders.some((r) => r.kind === 'payment' && r.contractId === 'c-water-purifier' && r.fireOn === '2026-10-24')).toBe(true);
 

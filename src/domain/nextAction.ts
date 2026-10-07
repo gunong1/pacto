@@ -1,6 +1,7 @@
 import { addDays, addMonths, parseISODate } from './dates';
 import { daysUntil } from './dday';
 import { formatWon } from './money';
+import { NOTIFICATION_SOURCE_LABEL } from './notificationPriority';
 import { profileOf } from './contractTypes';
 import { contractSchedule, nextPayment, prepareDate } from './schedule';
 import { isLive } from './status';
@@ -102,7 +103,7 @@ export function actionCandidates(record: ContractRecord, today: ISODate): NextAc
         ...base, key: `notice:${i.date}`, kind: 'termination_notice', date: i.date, days,
         label: typeProfile.noticeLabel,
         headline: remaining(typeProfile.noticeLabel, days, '이'),
-        guidance: typeProfile.noticeGuidance(monthDay(i.date)),
+        guidance: `${NOTIFICATION_SOURCE_LABEL[i.source]} ${typeProfile.noticeGuidance(monthDay(i.date))}`,
       });
     } else if (i.type === 'contract_end' && contract.autoRenewal) {
       out.push({
@@ -142,7 +143,8 @@ export function actionCandidates(record: ContractRecord, today: ISODate): NextAc
         ...base, key: `prepare:${prep.date}`, kind: 'prepare', date: prep.date, days,
         label: prep.label,
         headline: remaining(`${prep.label} 시점`, days, '까지'),
-        guidance: prep.guidance,
+        // 계약서·법령이 아닌 PACTO 기본 안내임을 함께 밝힌다
+        guidance: `${prep.guidance} (${NOTIFICATION_SOURCE_LABEL.pacto} — 계약서나 법령에 정해진 기한은 아니에요)`,
       });
     }
   }

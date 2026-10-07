@@ -1,16 +1,28 @@
+import { profileOf } from './contractTypes';
 import { addDays } from './dates';
+import {
+  contractTermSource,
+  findEvidence,
+  getNotificationPriority,
+  termNeedsReview,
+  type ActionEventType,
+  type NotificationEvidence,
+  type NotificationPriority,
+  type NotificationSource,
+} from './notificationPriority';
 import { expandPayment } from './schedule';
 import { currentTerm, isLive, terminationNoticeDeadline } from './status';
 import type { ContractRecord, Direction, ISODate } from './types';
 
 /**
- * 알림 규칙 기본값. DB 단계에서는 notification_rules(P1) 테이블로 옮긴다.
- * V1(Step 1~4)에서는 "예정된 알림" 목록을 계산해 보여주기만 한다 (Push 미연결).
+ * PACTO 알림 정책 (언제 미리 알려줄지) — 기한 자체를 만드는 규칙이 아니다.
+ * 예: 계약서 기준 해지 통보기한 2029-09-11 → PACTO가 30일·7일·1일 전과 당일에 알림.
+ * DB 단계에서는 notification_rules 테이블로 옮긴다. V1은 "예정된 알림"을 계산해 보여주기만 한다 (Push 미연결).
  */
 export const REMINDER_RULES = {
   contractEnd: [90, 30, 7],
   renewal: [30, 7],
-  terminationNotice: [7, 1, 0],
+  terminationNotice: [30, 7, 1, 0],
   paymentDaysBefore: 1,
 } as const;
 
@@ -35,6 +47,15 @@ export interface Reminder {
   amount: number | null;
   direction: Direction | null;
   estimated: boolean;
+  /** 일정 종류·중요도·출처 (캘린더와 같은 규칙) — 출처는 일정 날짜의 출처, 알림 시점은 항상 PACTO 정책 */
+  actionType: ActionEventType;
+  priority: NotificationPriority;
+  source: NotificationSource;
+  needsReview: boolean;
+  /** 계약서 근거 (계약서 기준 일정이고 관련 조항을 찾은 경우만) */
+  evidence: NotificationEvidence | null;
+  /** 기한까지 남은 날 (D-30 → 30) */
+  daysBefore: number;
 }
 
 const KIND_TARGET_LABEL: Record<Exclude<ReminderKind, 'payment'>, string> = {
@@ -43,8 +64,19 @@ const KIND_TARGET_LABEL: Record<Exclude<ReminderKind, 'payment'>, string> = {
   termination_notice: '해지 통보기한',
 };
 
-function offsetText(days: number): string {
-  return days === 0 ? '오늘' : `${days}일 남았습니다`;
+/** 통보기한 단계별 문구 — 결제 알림 문법("내일 …입니다")과 다르게, 해야 할 일을 먼저 */
+function noticeMessage(label: string, off: number): string {
+  if (off === 0) return `오늘이 ${label}입니다. 갱신을 원하지 않으면 오늘까지 의사를 알려주세요.`;
+  if (off === 1) return `내일이 ${label}이에요. 갱신을 원하지 않으면 미리 의사를 알려주세요.`;
+  if (off <= 7) return `${label}이 ${off}일 남았어요.`;
+  return `${label}까지 ${off}일 남았어요. 해지·갱신 여부를 미리 확인해보세요.`;
+}
+
+/** 일정 날짜의 출처·중요도·근거 (알림 시점과 무관) */
+function meta(record: ContractRecord, actionType: ActionEventType, fields: readonly string[]) {
+  const source = contractTermSource(record.contract);
+  const needsReview = termNeedsReview(record.contract, fields);
+  return { actionType, source, needsReview, priority: getNotificationPriority(actionType, { source, needsReview }), evidence: findEvidence(record, actionType, source) };
 }
 
 /** today ~ today+horizonDays 사이에 울릴 알림. 계약별 알림이 꺼져 있으면 제외. */
@@ -59,6 +91,7 @@ export function upcomingReminders(records: ContractRecord[], today: ISODate, hor
     const base = { contractId: contract.id, contractTitle: contract.title };
 
     const term = currentTerm(contract, today);
+    const endType: ActionEventType = /만기/.test(profileOf(contract.contractType).endEvent) ? 'maturity' : 'contract_end';
     if (term) {
       const offsets = contract.autoRenewal ? REMINDER_RULES.renewal : REMINDER_RULES.contractEnd;
       for (const off of offsets) {
@@ -66,6 +99,8 @@ export function upcomingReminders(records: ContractRecord[], today: ISODate, hor
         if (!inWindow(fireOn)) continue;
         out.push({
           ...base,
+          ...meta(record, contract.autoRenewal ? 'renewal' : endType, contract.autoRenewal ? ['endDate', 'renewalPeriodMonths'] : ['endDate']),
+          daysBefore: off,
           key: `end:${contract.id}:${off}`,
           kind: contract.autoRenewal ? 'renewal' : 'contract_end',
           fireOn,
@@ -82,24 +117,25 @@ export function upcomingReminders(records: ContractRecord[], today: ISODate, hor
     }
 
     const notice = terminationNoticeDeadline(contract, today);
+    const noticeLabel = profileOf(contract.contractType).noticeLabel;
+    const noticeMeta = meta(record, 'termination_notice', ['endDate', 'terminationNoticeDays']);
     if (notice && !notice.passed) {
       for (const off of REMINDER_RULES.terminationNotice) {
         const fireOn = addDays(notice.date, -off);
         if (!inWindow(fireOn)) continue;
         out.push({
           ...base,
+          ...noticeMeta,
           key: `notice:${contract.id}:${off}`,
           kind: 'termination_notice',
           fireOn,
           targetDate: notice.date,
-          label: KIND_TARGET_LABEL.termination_notice,
+          label: noticeLabel,
           amount: null,
           direction: null,
           estimated: false,
-          message:
-            off === 0
-              ? '오늘은 해지 통보기한입니다. 자동갱신을 원하지 않으면 오늘까지 해지 의사를 전달해주세요.'
-              : `자동갱신 방지를 위한 해지 통보기한이 ${offsetText(off)}.`,
+          daysBefore: off,
+          message: noticeMessage(noticeLabel, off),
         });
       }
     }
@@ -114,6 +150,8 @@ export function upcomingReminders(records: ContractRecord[], today: ISODate, hor
           kind: 'payment',
           fireOn,
           targetDate: o.date,
+          ...meta(record, p.direction === 'income' ? 'income' : 'payment', []),
+          daysBefore: REMINDER_RULES.paymentDaysBefore,
           message: `내일 ${p.label} ${p.direction === 'income' ? '입금' : '결제'}일입니다.`,
           label: o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label,
           amount: o.amount,
