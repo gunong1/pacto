@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -6,8 +7,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { EmptyState, Screen, Section } from '@/components/ui/layout';
 import { importantSchedule } from '@/domain/importantSchedule';
-import { effectiveRulesSummary, formatTimeOfDay, getEffectiveNotificationPreferences } from '@/domain/notifications';
-import { reminderPolicySummary } from '@/domain/reminders';
+import { getEffectiveNotificationPreferences, notificationSettingsSummary } from '@/domain/notifications';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { ImportantScheduleCard } from '@/features/notifications/ImportantScheduleCard';
 import { PushPermissionCard } from '@/features/notifications/PushPermissionCard';
@@ -15,7 +15,8 @@ import { useNotificationPreferences, usePushPermission } from '@/features/notifi
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
 /**
- * 알림 화면 = 놓치면 안 되는 중요한 계약 일정(critical·important, 최대 5개) + 내가 알림을 받는 방식(설정 요약).
+ * 알림 화면 = 놓치면 안 되는 중요한 계약 일정(critical·important, 최대 5개) + 알림 상태 한두 줄 요약.
+ * 종류별 알림 시점은 여기서 나열하지 않는다 (설정 화면에서만 자세히).
  * 앞으로 보낼 푸시 목록은 보여주지 않는다 — 미래 일정 전체는 캘린더, 실제 알림은 푸시가 맡는다 (scheduled_notifications는 서버 발송용으로 그대로).
  * 카드의 날짜는 실제 계약 일정 날짜이고, 푸시 발송 시각은 보여주지 않는다.
  */
@@ -29,6 +30,7 @@ export default function NotificationsScreen() {
   const eff = getEffectiveNotificationPreferences(prefs ?? null);
   // 일정이 있는지와 푸시를 받는지는 별개 — 꺼져 있어도 중요한 일정은 계속 보여준다
   const pushOff = !eff.enabled || permission === 'denied' || permission === 'blocked';
+  const summary = notificationSettingsSummary(prefs ?? null);
 
   return (
     <Screen edges={[]}>
@@ -65,22 +67,30 @@ export default function NotificationsScreen() {
           )}
         </Section>
       )}
-      <Section title="알림 설정" caption="PACTO가 미리 알려드리는 시점" testID="reminder-policy">
-        {reminderPolicySummary(effectiveRulesSummary(prefs ?? null)).map((r) => (
-          <View key={r.label} style={styles.policyRow}>
-            <AppText variant="body2" color="textSecondary">
-              {r.label}
-            </AppText>
-            <AppText variant="body2" tabular>
-              {r.when}
-            </AppText>
+      <View style={styles.settingsCard} testID="reminder-policy">
+        <View style={styles.bell}>
+          <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={styles.settingsHead}>
+            <AppText variant="body2Strong">알림 설정</AppText>
+            <Pressable onPress={() => router.push('/settings/notifications')} accessibilityRole="button" accessibilityLabel="알림 설정 변경" hitSlop={hitSlop} style={styles.change} testID="open-notification-settings">
+              <AppText variant="captionStrong" color="primary">
+                설정 변경
+              </AppText>
+              <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+            </Pressable>
           </View>
-        ))}
-        <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.xs }}>
-          {eff.enabled ? `${formatTimeOfDay(eff.timeOfDay)}에 알려드려요. ` : ''}기한 자체는 계약서나 입력한 계약 정보를 기준으로 해요.
-        </AppText>
-        <Button label="알림 설정 변경" variant="secondary" size="sm" onPress={() => router.push('/settings/notifications')} style={{ marginTop: spacing.md, alignSelf: 'flex-start' }} testID="open-notification-settings" />
-      </Section>
+          <AppText variant="caption" color="textSecondary" style={{ marginTop: 2 }}>
+            {summary.title}
+          </AppText>
+          {summary.detail ? (
+            <AppText variant="caption" color="textSecondary">
+              {summary.detail}
+            </AppText>
+          ) : null}
+        </View>
+      </View>
       <View style={styles.calendar}>
         <AppText variant="caption" color="textSecondary">
           결제와 전체 일정은 캘린더에서 확인할 수 있어요.
@@ -98,6 +108,10 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   info: { margin: spacing.gutter, marginBottom: 0, padding: spacing.md, backgroundColor: colors.bgSubtle, borderRadius: radius.md },
   off: { marginHorizontal: spacing.gutter, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
-  policyRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-  calendar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginHorizontal: spacing.gutter, marginVertical: spacing.xl },
+  settingsCard: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginHorizontal: spacing.gutter, marginTop: spacing.xl, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.bgSubtle },
+  bell: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  settingsHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  change: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingVertical: spacing.xs },
+  // 알림 설정 카드와 한 덩어리로 보이지 않게 간격 + 구분선
+  calendar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginHorizontal: spacing.gutter, marginTop: spacing.xxxl, marginBottom: spacing.xl, paddingTop: spacing.lg, borderTopWidth: 1, borderTopColor: colors.divider },
 });

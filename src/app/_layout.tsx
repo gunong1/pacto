@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, View } from 'react-native';
 
-import { BrandSplash } from '@/components/brand/BrandSplash';
+import { APP_STARTED_AT, BrandSplash, splashRemainingMs } from '@/components/brand/BrandSplash';
 
 import { authService } from '@/features/auth/authService';
 import { contractsQuery } from '@/features/contracts/queries';
@@ -48,7 +48,14 @@ export default function RootLayout() {
       clearTimeout(t);
     };
   }, [status, dataReady, queryClient]);
-  const booted = status === 'signedOut' || dataReady;
+  // 초기화가 빨라도 브랜드 문구를 읽을 수 있게 앱 시작부터 최소 시간은 보여준다
+  const [minShown, setMinShown] = useState(() => splashRemainingMs(APP_STARTED_AT, Date.now()) === 0);
+  useEffect(() => {
+    if (minShown) return;
+    const t = setTimeout(() => setMinShown(true), splashRemainingMs(APP_STARTED_AT, Date.now()));
+    return () => clearTimeout(t);
+  }, [minShown]);
+  const booted = minShown && (status === 'signedOut' || dataReady);
 
   // 푸시를 눌렀을 때 해당 계약으로 (앱이 꺼져 있던 경우 포함) + 이 기기 토큰 갱신
   usePushNavigation(status === 'signedIn');
@@ -111,7 +118,7 @@ export default function RootLayout() {
 
 /** 첫 데이터를 기다리는 최대 시간 — 넘으면 홈으로 넘기고 홈이 로딩·오류를 보여준다 */
 const BOOT_MAX_MS = 15_000;
-const FADE_MS = 180;
+const FADE_MS = 200;
 
 /** 첫 데이터가 준비될 때까지 덮어 두는 브랜드 화면 — 끝나면 짧게 흐려지며 사라진다 (opacity만) */
 function SplashOverlay({ visible }: { visible: boolean }) {

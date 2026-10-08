@@ -71,10 +71,13 @@ const assert = (cond, msg) => {
     log('중요한 계약 일정: 종료 통보기한(중요·입력한 계약 정보 기준·2027. 6. 21.) → 갱신 여부 확인(PACTO 안내, 법령·계약서 기한 아님)');
 
     const policy = await page.locator(tid('reminder-policy')).innerText();
-    assert(policy.includes('알림 설정') && policy.includes('해지·갱신 통보기한') && policy.includes('30·7·1일 전과 당일') && policy.includes('알림 설정 변경'), '알림 설정 요약 없음: ' + policy);
+    assert(policy.includes('알림 설정') && policy.includes('오전 9:00 · 주요 계약 알림 사용 중') && policy.includes('설정 변경'), '알림 설정 요약 없음: ' + policy);
+    assert(!policy.includes('30·7·1일 전') && !policy.includes('해지·갱신 통보기한') && !policy.includes('기한 자체는'), '알림 화면에 종류별 시점이 나열됨: ' + policy);
     const whole = await page.locator('body').innerText();
     assert(!whole.includes('다음 알림') && !whole.includes('850,000원 결제 예정'), '미래 푸시 목록이 남아 있음: ' + whole);
-    log('알림 설정 요약 (결제 하루 전 · 통보기한 30·7·1일 전과 당일 …) · 미래 푸시 목록 없음 · 일반 월세 결제는 중요 일정에 없음');
+    log('알림 설정 요약 한 줄 (오전 9:00 · 주요 계약 알림 사용 중, 종류별 시점 나열 없음) · 미래 푸시 목록 없음 · 일반 월세 결제는 중요 일정에 없음');
+    await page.waitForSelector(tid('brand-splash'), { state: 'detached', timeout: 10000 }).catch(() => undefined);
+    await page.waitForSelector(tid('brand-splash-leaving'), { state: 'detached', timeout: 5000 }).catch(() => undefined);
     await page.screenshot({ path: path.join(SHOTS, 'important-01-notifications.png'), fullPage: true });
 
     // 캘린더도 같은 중요도·출처

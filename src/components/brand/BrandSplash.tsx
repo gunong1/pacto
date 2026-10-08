@@ -9,6 +9,17 @@ import { BrandSymbol } from './Logo';
 /** 브랜드 슬로건 — 개인·가족·기업 계약관리까지 쓰는 문구라 특정 계약 유형을 암시하도록 바꾸지 않는다 */
 export const BRAND_SLOGAN = '모든 계약을 한곳에.';
 
+/** 앱 시작 시점 (이 모듈은 앱 시작 때 불러온다) — 최소 노출 시간·로딩 표시 시점을 여기서부터 센다 */
+export const APP_STARTED_AT = Date.now();
+
+/** 브랜드 문구를 읽을 수 있는 최소 노출 시간 — 앱 시작 시점부터 센다 (초기화가 더 걸리면 추가 대기 없음) */
+export const MIN_SPLASH_DURATION_MS = 800;
+
+/** 최소 노출 시간까지 남은 시간: 초기화 200ms → 600ms 더, 700ms → 100ms 더, 1.5초 → 0 */
+export function splashRemainingMs(startedAt: number, now: number, min = MIN_SPLASH_DURATION_MS): number {
+  return Math.max(0, startedAt + min - now);
+}
+
 /** 이 시간보다 오래 걸릴 때만 문구 아래에 작은 로딩 표시 (짧은 진입에는 브랜드만) */
 export const SPLASH_SPINNER_DELAY_MS = 1200;
 
@@ -20,7 +31,8 @@ export function BrandSplash({ testID = 'brand-splash' }: { testID?: string }) {
   const insets = useSafeAreaInsets();
   const [slow, setSlow] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setSlow(true), SPLASH_SPINNER_DELAY_MS);
+    // 로그인 확인 → 데이터 준비 단계로 화면이 바뀌어도 다시 세지 않도록 앱 시작부터
+    const t = setTimeout(() => setSlow(true), splashRemainingMs(APP_STARTED_AT, Date.now(), SPLASH_SPINNER_DELAY_MS));
     return () => clearTimeout(t);
   }, []);
   return (
@@ -43,7 +55,7 @@ export function BrandSplash({ testID = 'brand-splash' }: { testID?: string }) {
 const styles = StyleSheet.create({
   root: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
   group: { alignItems: 'center', paddingHorizontal: spacing.gutter, marginTop: spacing.xxxl },
-  name: { marginTop: spacing.xl, fontSize: 28, lineHeight: 34, fontWeight: '700', letterSpacing: 1.5, color: colors.primary, textAlign: 'center' },
-  slogan: { marginTop: spacing.sm, fontSize: 16, lineHeight: 24, fontWeight: '500', letterSpacing: -0.2, color: colors.textSecondary, textAlign: 'center' },
+  name: { marginTop: spacing.xl, fontSize: 32, lineHeight: 40, fontWeight: '600', letterSpacing: 1.5, color: colors.primary, textAlign: 'center' },
+  slogan: { marginTop: spacing.sm, fontSize: 17, lineHeight: 24, fontWeight: '500', letterSpacing: -0.2, color: colors.textSecondary, textAlign: 'center' },
   spinnerSlot: { height: 20, marginTop: spacing.xxl, justifyContent: 'center' },
 });

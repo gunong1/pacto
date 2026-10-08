@@ -67,7 +67,7 @@ export default function NotificationSettingsScreen() {
   return (
     <Screen edges={[]}>
       <PushPermissionCard permission={permission} onChanged={refreshPermission} />
-      <Section title="PACTO 알림" caption="알림 시점은 기한 자체가 아니라, 기한을 언제 미리 알려줄지예요">
+      <Section title="PACTO 알림" caption="알림 시점은 기한 자체가 아니라, 기한을 언제 미리 알려줄지예요. 기한은 계약서나 입력한 계약 정보를 기준으로 해요.">
         <SwitchRow label="PACTO 알림 받기" value={eff.enabled} onValueChange={toggleAll} testID="notif-enabled" />
         <View style={{ marginTop: spacing.sm }}>
           <CategoryPrefsEditor value={eff.categories} onChange={setCategory} presets={OFFSET_PRESETS} disabled={!eff.enabled} />

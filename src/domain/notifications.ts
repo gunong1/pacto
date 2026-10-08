@@ -415,3 +415,24 @@ export function planNotifications(input: PlanInput): PlannedNotification[] {
 export function effectiveRulesSummary(prefs: Partial<NotificationPreferences> | null): ReminderRules {
   return toReminderRules(getEffectiveNotificationPreferences(prefs));
 }
+
+/**
+ * 알림 화면용 한두 줄 요약 — 종류별 시점은 설정 화면에서만 자세히 보여준다.
+ * 계약별 설정(override)은 요약에 넣지 않는다.
+ *   모두 켜짐           → "오전 9:00 · 주요 계약 알림 사용 중"
+ *   결제만 꺼짐         → "오전 9:00 · 중요 일정 중심" / "결제 알림 꺼짐"
+ *   계약 알림 일부 꺼짐 → "오전 9:00 · 일부 계약 알림 꺼짐" (+ 결제 꺼짐이면 둘째 줄)
+ *   전체 끔             → "알림이 꺼져 있어요"
+ */
+export function notificationSettingsSummary(prefs: Partial<NotificationPreferences> | null): { title: string; detail: string | null } {
+  const eff = getEffectiveNotificationPreferences(prefs);
+  if (!eff.enabled) return { title: '알림이 꺼져 있어요', detail: null };
+  const on = (c: NotificationCategory) => eff.categories[c].enabled && eff.categories[c].offsets.length > 0;
+  const time = formatTimeOfDay(eff.timeOfDay);
+  const payOn = on('payment');
+  const contractCats = NOTIFICATION_CATEGORIES.filter((c) => c !== 'payment');
+  const contractOn = contractCats.filter(on).length;
+  if (contractOn === 0) return { title: payOn ? `${time} · 결제 알림만 사용 중` : '켜진 알림 종류가 없어요', detail: payOn ? '계약 기한 알림 꺼짐' : null };
+  if (contractOn < contractCats.length) return { title: `${time} · 일부 계약 알림 꺼짐`, detail: payOn ? null : '결제 알림 꺼짐' };
+  return payOn ? { title: `${time} · 주요 계약 알림 사용 중`, detail: null } : { title: `${time} · 중요 일정 중심`, detail: '결제 알림 꺼짐' };
+}

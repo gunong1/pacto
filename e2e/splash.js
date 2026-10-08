@@ -55,6 +55,7 @@ async function splashState(page) {
     await page.goto(BASE + '/', { waitUntil: 'commit' });
     const b = await page.waitForSelector(tid('brand-splash'), { timeout: 10000 }).then(() => true).catch(() => false);
     await page.waitForSelector(tid('signin-email'), { timeout: 15000 });
+    await page.waitForSelector(tid('brand-splash'), { state: 'detached', timeout: 5000 }).catch(() => undefined);
     const bGone = (await page.locator(tid('brand-splash')).count()) === 0;
     check('B', '로그아웃: 실행 화면 → 시작(로그인) 화면', b && bGone, `splash=${b} gone=${bGone}`);
 
@@ -85,11 +86,22 @@ async function splashState(page) {
     const homeTab = await page.locator(tid('tab-home')).isVisible();
     check('A3', '데이터 준비 후 홈으로 (탭바 표시, 실행 화면 사라짐)', homeTab);
 
+    // M. 초기화가 빨라도 최소 노출 (앱 시작부터 800ms)
+    await page.unroute('**/rest/v1/contracts*');
+    await page.goto(BASE + '/', { waitUntil: 'commit' });
+    await page.waitForSelector(tid('brand-splash'), { timeout: 10000 });
+    const seen = Date.now();
+    await page.waitForSelector(tid('brand-splash'), { state: 'detached', timeout: 15000 });
+    const shown = Date.now() - seen;
+    check('M', `초기화가 빨라도 실행 화면을 최소 시간 보여줌 (보인 시간 ${shown}ms)`, shown >= 600, shown);
+    await page.waitForSelector(tid('home-first-run'), { timeout: 15000 });
+
     // C. 느린 네트워크 (목록 요청 4초)
     await slowContracts(page, 4000);
     await page.goto(BASE + '/', { waitUntil: 'commit' });
     await page.waitForSelector(tid('brand-splash'), { timeout: 10000 });
-    await sleep(2000);
+    // 웹(static 출력)은 JS가 실행되기 전에도 미리 그린 실행 화면이 보이므로, 앱이 시작된 뒤 1.2초 안팎에 나타나는지 기다린다
+    await page.waitForSelector(tid('brand-splash-spinner'), { timeout: 6000 }).catch(() => undefined);
     const c = await splashState(page);
     await page.screenshot({ path: path.join(SHOTS, 'splash-02-slow.png') });
     let spinnerBelow = false;

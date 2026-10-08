@@ -128,7 +128,7 @@ const assert = (cond, msg) => {
   const notes = await page.locator('body').innerText();
   assert(notes.includes('지금 확인할 중요한 계약 일정이 없어요.') && !notes.includes('예정된 알림이 없어요'), '중요 일정 빈 상태 문구: ' + notes);
   assert(!notes.includes('다음 알림') && !/결제 예정이에요/.test(notes) && !notes.includes('60일'), '미래 푸시 목록이 남아 있음: ' + notes);
-  assert(notes.includes('결제·입금') && notes.includes('하루 전') && notes.includes('30·7·1일 전과 당일') && notes.includes('90·30·7일 전'), '알림 설정 요약 없음: ' + notes);
+  assert(notes.includes('오전 9:00 · 주요 계약 알림 사용 중') && !notes.includes('30·7·1일 전과 당일'), '알림 설정 요약 없음(또는 시점 나열): ' + notes);
   await shot('04-notifications');
   log('알림 화면: 중요 일정 없음 안내 + 미래 푸시 목록 없음 + 알림 설정 요약');
   await page.goBack();
