@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.pacto.app"
+      "package": "com.pacto.app",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
