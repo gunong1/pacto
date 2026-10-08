@@ -56,6 +56,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "owner": "songchi",
+    "extra": {
+      "eas": {
+        "projectId": "12eda30f-10f9-4032-b430-6812309ba9d4"
+      }
     }
   }
 }
