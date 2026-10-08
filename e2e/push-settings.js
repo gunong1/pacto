@@ -1,7 +1,7 @@
 /**
  * 실제 푸시 알림 — 화면 (실제 데이터 모드, 서버 planner가 만든 예정 알림)
- * 1) 월세 850,000 + 관리비 100,000 (지급일 = 오늘+3일) → 다음 알림: "…일 오전 9:00 · 내일 950,000원 결제 예정이에요."
- * 2) 계약 상세 "계약 알림" → 이 계약만 직접 설정(당일) → 다음 알림이 지급일 당일로
+ * 1) 월세 850,000 + 관리비 100,000만 있는 계약 → 알림 화면 중요 일정 없음 ("지금 확인할 중요한 계약 일정이 없어요."), "다음 알림" 목록 없음
+ * 2) 계약 상세 "계약 알림" → 이 계약만 직접 설정 / 종료가 가까운 계약 → 중요한 계약 일정에 표시 (실제 계약 날짜, 발송 시각 없음)
  * 3) MY > 알림 설정: 웹 기기 상태 안내 · critical(해지 통보기한) 끄기 확인 · 알림 받는 시간 · 미리보기 · 기본값 되돌리기 · 테스트 알림
  * 4) 알림 화면: 중요한 계약 일정이 없으면 섹션 숨김, 규칙은 접힘(내 설정 요약)
  * 사용: BASE_URL=http://localhost:8082 node e2e/push-settings.js
@@ -85,17 +85,17 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     check('D0', '계약 상세 "계약 알림": 현재 내 기본 알림 설정 사용', mode.includes('내 기본 알림 설정 사용'));
     await shot('01-detail');
 
+    const contractId = /\/contract\/([0-9a-f-]{36})/.exec(page.url())[1];
     await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
-    await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
-    const up = await page.locator(tid('upcoming-list')).innerText();
-    check('A', `다음 알림: ${fire.m}월 ${fire.d}일 오전 9:00 · 내일 950,000원 결제 예정이에요. (월세·관리비 1개로)`, up.includes(`${fire.m}월 ${fire.d}일 오전 9:00`) && up.includes('내일 950,000원 결제 예정이에요.') && up.includes('월세 850,000원 · 관리비 100,000원') && (up.match(/950,000원/g) ?? []).length === 1, up);
+    await page.waitForSelector(tid('important-list'), { timeout: 20000 });
     const all = await body();
-    check('H0', '중요한 계약 일정이 없으면 섹션 숨김 / "앞으로 60일" 같은 내부 범위 문구 없음', !(await page.locator(tid('important-list')).count()) && !all.includes('60일'));
-    check('R', '알림 규칙은 접혀 있음', !all.includes('30·7·1일 전과 당일'));
+    check('E', '일반 결제만 있으면 "지금 확인할 중요한 계약 일정이 없어요." (예정된 알림이 없다고 하지 않음)', all.includes('지금 확인할 중요한 계약 일정이 없어요.') && all.includes('결제와 일반 일정은 캘린더에서 확인할 수 있어요.') && !all.includes('예정된 알림이 없어요'));
+    check('A', '"다음 알림"(미래 푸시 목록) 없음 · 결제 알림 문구·발송 시각 없음 · 내부 범위(60일) 문구 없음', !all.includes('다음 알림') && !all.includes('950,000원') && !all.includes('결제 예정') && !all.includes('60일') && (await page.locator(tid('upcoming-list')).count()) === 0);
+    check('R', '알림 설정 요약이 보임 + 캘린더 안내', all.includes('알림 설정') && all.includes('30·7·1일 전과 당일') && all.includes('결제와 전체 일정은 캘린더에서 확인할 수 있어요.') && all.includes('캘린더 보기'));
     await shot('02-notifications');
 
     // 2) 이 계약만 직접 설정: 결제 당일
-    await page.click(tid('upcoming-0'));
+    await page.goto(`${BASE}/contract/${contractId}`, { waitUntil: 'networkidle' });
     await page.waitForSelector(tid('open-contract-notifications'));
     await page.click(tid('open-contract-notifications'));
     await page.waitForSelector(tid('contract-notif-custom'));
@@ -110,15 +110,27 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.waitForSelector(tid('contract-notification-mode'));
     check('D2', '저장 후 "이 계약만 직접 설정"', (await page.locator(tid('contract-notification-mode')).innerText()).includes('이 계약만 직접 설정'));
     // H. 푸시를 눌렀을 때 열리는 경로 (/contract/{id}?from=push&event=…) → 계약 상세 + 어떤 알림인지
-    const contractId = /\/contract\/([0-9a-f-]{36})/.exec(page.url())[1];
     await page.goto(`${BASE}/contract/${contractId}?from=push&event=payment`, { waitUntil: 'networkidle' });
     await page.waitForSelector(tid('push-opened'), { timeout: 15000 });
     check('H', '푸시 클릭 경로 → 해당 계약 상세 + "알림에서 열었어요 · 결제"', (await page.locator(tid('push-opened')).innerText()).includes('알림에서 열었어요 · 결제') && (await body()).includes('주택 임대차계약'));
 
+    // B. 종료가 가까운 계약 → 중요한 계약 일정 (실제 계약 날짜·D-day, 발송 시각 없음)
+    const end = kst(34);
+    await page.goto(BASE + '/register', { waitUntil: 'networkidle' });
+    await page.click(tid('method-manual'));
+    await page.click(tid('type-lease'));
+    await input('field-title').fill('단기 임대차');
+    await page.click(tid('category-real_estate'));
+    await input('field-startDate').fill(yymmdd(kst(-300)));
+    await input('field-endDate').fill(yymmdd(end));
+    await page.click(tid('detail-leaseKind-monthly'));
+    await page.click(tid('submit-contract'));
+    await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
     await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
-    await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
-    const up2 = await page.locator(tid('upcoming-list')).innerText();
-    check('D3', `계약별 설정 반영: ${pay.m}월 ${pay.d}일 오전 9:00 · 오늘 950,000원 결제 예정이에요.`, up2.includes(`${pay.m}월 ${pay.d}일 오전 9:00`) && up2.includes('오늘 950,000원 결제 예정이에요.') && !up2.includes('내일 950,000원'), up2);
+    await page.waitForSelector(tid('important-list'));
+    const imp = await page.locator(tid('important-list')).innerText();
+    check('B', `중요한 계약 일정: 단기 임대차 · ${end.y}. ${end.m}. ${end.d}. · D-34 · 계약 확인 (발송 시각 없음)`, imp.includes('단기 임대차') && imp.includes('다가와요') && imp.includes(`${end.y}. ${end.m}. ${end.d}.`) && imp.includes('D-34') && imp.includes('계약 확인') && !imp.includes('오전 9:00') && !imp.includes('주택 임대차계약'), imp);
+    await shot('02b-important');
 
     // 3) MY > 알림 설정
     await page.goto(BASE + '/my', { waitUntil: 'networkidle' });
@@ -164,12 +176,19 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     }
 
     await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
-    await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
-    const up3 = await page.locator(tid('upcoming-list')).innerText();
-    check('C', '알림 시간 변경 → 다음 알림도 오전 8:00로 다시 계산', up3.includes(`${pay.m}월 ${pay.d}일 오전 8:00`), up3);
-    await page.click(tid('reminder-policy-toggle'));
-    const pol = await page.locator(tid('reminder-policy-body')).innerText();
-    check('R2', '알림 규칙 = 내 설정 요약 (해지·종료 꺼짐, 오전 8:00)', pol.includes('꺼짐') && pol.includes('오전 8:00'), pol);
+    await page.waitForSelector(tid('reminder-policy'));
+    const pol = await page.locator(tid('reminder-policy')).innerText();
+    check('C', '알림 설정 요약 = 내 설정 (해지·종료 꺼짐, 오전 8:00에 알려드려요)', pol.includes('꺼짐') && pol.includes('오전 8:00'), pol);
+
+    // F. PACTO 알림을 모두 끄면: 알림 꺼짐 안내 + 설정 버튼, 중요한 일정은 계속 보임
+    await page.goto(BASE + '/settings/notifications', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-enabled'));
+    await page.click(tid('notif-enabled'));
+    await page.waitForTimeout(1200);
+    await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('push-off'), { timeout: 10000 });
+    const off = await body();
+    check('F', '알림 OFF → "알림이 꺼져 있어요" + 알림 설정 버튼, 중요한 계약 일정은 계속 표시', off.includes('알림이 꺼져 있어요') && (await page.locator(tid('push-off-settings')).count()) === 1 && off.includes('단기 임대차'));
     await shot('06-notifications-after');
 
     // 기본값으로 되돌리기

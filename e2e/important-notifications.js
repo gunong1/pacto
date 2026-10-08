@@ -61,7 +61,7 @@ const assert = (cond, msg) => {
     assert(imp.includes('입력한 계약 정보 기준'), '직접 입력 출처 문구 없음: ' + imp);
     assert(!imp.includes('계약서 기준'), '직접 입력한 계약에 "계약서 기준"이 있으면 안 됨: ' + imp);
     assert(imp.includes('중요') && imp.includes('2027. 6. 21.'), '중요 라벨/기한 날짜 없음: ' + imp);
-    assert(imp.includes('PACTO가 30·7·1일 전과 당일에 미리 알려드려요.'), '알림 정책 문구 없음: ' + imp);
+    assert(!imp.includes('미리 알려드려요.') || imp.includes('PACTO 안내'), '카드에 알림 발송 시점이 적히면 안 됨 (설정 요약에서): ' + imp);
     assert(imp.includes('갱신 여부를 미리 확인해보세요') && imp.includes('PACTO 안내'), 'PACTO 안내 카드 없음: ' + imp);
     assert(imp.includes('계약서나 법령에 정해진 기한이 아니라'), 'PACTO 안내 설명 없음: ' + imp);
     assert(!imp.includes('법령 기준'), '법령 기준 알림이 있으면 안 됨: ' + imp);
@@ -69,15 +69,11 @@ const assert = (cond, msg) => {
     assert(order, 'critical이 먼저가 아님');
     log('중요한 계약 일정: 종료 통보기한(중요·입력한 계약 정보 기준·2027. 6. 21.) → 갱신 여부 확인(PACTO 안내, 법령·계약서 기한 아님)');
 
-    assert(!(await page.locator(tid('reminder-policy')).innerText()).includes('30·7·1일 전과 당일'), '알림 규칙이 기본으로 접혀 있지 않음');
-    await page.click(tid('reminder-policy-toggle'));
-    await page.waitForSelector(tid('reminder-policy-body'));
     const policy = await page.locator(tid('reminder-policy')).innerText();
-    assert(policy.includes('해지·종료 통보기한') && policy.includes('30·7·1일 전과 당일') && policy.includes('알림 시점은 PACTO 설정이에요'), '알림 규칙 없음: ' + policy);
-    await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
-    const upcoming = await page.locator(tid('upcoming-list')).innerText();
-    assert((upcoming.match(/850,000원 결제 예정/g) ?? []).length === 1, '다음 알림: 결제 알림은 가장 가까운 것만 펼침: ' + upcoming);
-    log('알림 규칙 요약 (결제 하루 전 · 통보기한 30·7·1일 전과 당일 …), 다음 알림은 실제 예약 푸시 (결제는 가까운 것만)');
+    assert(policy.includes('알림 설정') && policy.includes('해지·종료 통보기한') && policy.includes('30·7·1일 전과 당일') && policy.includes('알림 설정 변경'), '알림 설정 요약 없음: ' + policy);
+    const whole = await page.locator('body').innerText();
+    assert(!whole.includes('다음 알림') && !whole.includes('850,000원 결제 예정'), '미래 푸시 목록이 남아 있음: ' + whole);
+    log('알림 설정 요약 (결제 하루 전 · 통보기한 30·7·1일 전과 당일 …) · 미래 푸시 목록 없음 · 일반 월세 결제는 중요 일정에 없음');
     await page.screenshot({ path: path.join(SHOTS, 'important-01-notifications.png'), fullPage: true });
 
     // 캘린더도 같은 중요도·출처

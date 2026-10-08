@@ -10,7 +10,6 @@ import { profileOf } from './contractTypes';
 import { addMonths } from './dates';
 import { daysUntil } from './dday';
 import { findEvidence, NOTIFICATION_SOURCE_LABEL, type NotificationEvidence, type NotificationPriority } from './notificationPriority';
-import { REMINDER_RULES } from './reminders';
 import { scheduleForRange, type ScheduleItem } from './schedule';
 import { isLive } from './status';
 import type { ContractRecord, ISODate } from './types';
@@ -52,7 +51,8 @@ function copyFor(item: ScheduleItem, record: ContractRecord): Pick<ImportantSche
         body: record.contract.autoRenewal
           ? '자동갱신을 원하지 않는다면 이 날짜 전까지 해지 의사를 알려야 해요.'
           : '계약을 끝내거나 갱신하지 않으려면 이 날짜 전까지 상대방에게 알려야 해요.',
-        policyNote: `PACTO가 ${REMINDER_RULES.terminationNotice.filter((d) => d > 0).join('·')}일 전과 당일에 미리 알려드려요.`,
+        // 언제 알려줄지는 사용자 설정이라 카드에 적지 않는다 (알림 설정 요약에서 보여줌)
+        policyNote: null,
       };
     case 'prepare': {
       const days = profile.prepare?.daysBefore;

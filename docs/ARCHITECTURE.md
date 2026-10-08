@@ -1199,3 +1199,4 @@ pacto/
 - **테스트 알림**: 서버 `ALLOW_TEST_PUSH=true`일 때만, 앱은 개발 모드 또는 `EXPO_PUBLIC_SHOW_PUSH_TEST=true` 빌드에서만 버튼 표시. 10초 뒤 보내기(앱을 닫은 상태 확인용).
 - **법령 알림**: V1에서 만들지 않음. 임대차 "만료 60일 전 갱신 여부 확인"(PACTO 안내)은 화면의 중요한 계약 일정에만 있고 푸시 대상은 아님.
 - 테스트: `notifications.test.ts`(A~F·K~O·시간대·미리보기), `push-outcome.test.ts`, `step13-notifications`(통합: C·D·E·F·G·J·재시도·만료·수신 결과·RLS), `e2e/push-settings.js`.
+- **알림 화면 역할 (개정 15-1)**: 알림 화면 = 중요한 계약 일정(critical·important, critical 먼저 → 날짜순, 최대 5개) + 알림 설정 요약 + 캘린더 링크. 앞으로 보낼 푸시 목록("다음 알림")은 보여주지 않는다 — 미래 일정은 캘린더, 실제 알림은 푸시. `scheduled_notifications`·planner·발송은 그대로. 카드 날짜는 실제 계약 일정 날짜(발송 시각 아님), 알림 시점은 사용자 설정이라 카드에 적지 않는다. 푸시를 끈 상태(전체 끄기·권한 거부)는 "알림이 꺼져 있어요" + 설정 버튼, 중요 일정은 계속 표시.

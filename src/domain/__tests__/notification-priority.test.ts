@@ -174,11 +174,11 @@ describe('통보기한 사전 알림 (PACTO 알림 정책 30·7·1·0일 전 —
     ]);
   });
 
-  test('카드: 날짜 출처(계약서 기준)와 PACTO 알림 시점 문구가 따로', () => {
+  test('카드: 날짜 출처(계약서 기준)와 실제 기한 날짜 — 언제 알려줄지(사용자 설정)는 카드에 적지 않음', () => {
     const imp = importantSchedule([rental('upload')], '2029-09-05').items.find((x) => x.item.type === 'termination_notice')!;
     expect(imp.sourceLabel).toBe('계약서 기준');
     expect(imp.item.date).toBe('2029-09-11');
-    expect(imp.policyNote).toBe('PACTO가 30·7·1일 전과 당일에 미리 알려드려요.');
+    expect(imp.policyNote).toBeNull();
     expect(imp.badge).toBe('기한 임박');
   });
 

@@ -1,143 +1,93 @@
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/controls';
-import { Divider, EmptyState, Screen, Section } from '@/components/ui/layout';
+import { EmptyState, Screen, Section } from '@/components/ui/layout';
 import { importantSchedule } from '@/domain/importantSchedule';
-import { effectiveRulesSummary, formatSendTime, formatTimeOfDay, getEffectiveNotificationPreferences, upcomingDigest } from '@/domain/notifications';
+import { effectiveRulesSummary, formatTimeOfDay, getEffectiveNotificationPreferences } from '@/domain/notifications';
 import { reminderPolicySummary } from '@/domain/reminders';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { ImportantScheduleCard } from '@/features/notifications/ImportantScheduleCard';
 import { PushPermissionCard } from '@/features/notifications/PushPermissionCard';
-import { useNotificationPreferences, usePushPermission, useUpcomingNotifications } from '@/features/notifications/queries';
+import { useNotificationPreferences, usePushPermission } from '@/features/notifications/queries';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
 /**
- * 알림 화면 — 놓치면 안 되는 "중요한 계약 일정"(없으면 숨김) + 실제로 보낼 "다음 알림" + 내 알림 규칙(접힘) + 설정 변경.
- * "다음 알림"은 서버가 실제 푸시로 보낼 예정 알림이다 (내부 계산 범위 같은 숫자는 보여주지 않는다).
+ * 알림 화면 = 놓치면 안 되는 중요한 계약 일정(critical·important, 최대 5개) + 내가 알림을 받는 방식(설정 요약).
+ * 앞으로 보낼 푸시 목록은 보여주지 않는다 — 미래 일정 전체는 캘린더, 실제 알림은 푸시가 맡는다 (scheduled_notifications는 서버 발송용으로 그대로).
+ * 카드의 날짜는 실제 계약 일정 날짜이고, 푸시 발송 시각은 보여주지 않는다.
  */
 export default function NotificationsScreen() {
   const { data } = useContracts();
   const today = useToday();
   const { data: prefs } = useNotificationPreferences();
-  const { data: upcoming } = useUpcomingNotifications();
-  const [permission, refreshPermission] = usePushPermission();
-  const [policyOpen, setPolicyOpen] = useState(false);
+  const [permission] = usePushPermission();
   const important = useMemo(() => (data ? importantSchedule(data, today) : { items: [], total: 0 }), [data, today]);
-  const digest = useMemo(() => upcomingDigest(upcoming ?? []), [upcoming]);
   const hasContracts = (data?.length ?? 0) > 0;
   const eff = getEffectiveNotificationPreferences(prefs ?? null);
-  const titles = useMemo(() => new Map((data ?? []).map((r) => [r.contract.id, r.contract.title])), [data]);
+  // 일정이 있는지와 푸시를 받는지는 별개 — 꺼져 있어도 중요한 일정은 계속 보여준다
+  const pushOff = !eff.enabled || permission === 'denied' || permission === 'blocked';
 
   return (
     <Screen edges={[]}>
       <View style={styles.info}>
-        <AppText variant="caption" color="textSecondary">
-          계약에서 놓치면 안 되는 순간을 알려드려요.
-        </AppText>
+        <AppText variant="body2Strong">계약에서 놓치면 안 되는 순간을 알려드려요.</AppText>
       </View>
-      {hasContracts ? <PushPermissionCard permission={permission} onChanged={refreshPermission} compact /> : null}
+      {pushOff ? (
+        <View style={styles.off} testID="push-off">
+          <AppText variant="body2Strong">알림이 꺼져 있어요</AppText>
+          <AppText variant="caption" color="textSecondary" style={{ marginTop: 2 }}>
+            계약의 중요한 순간을 알려드리려면 알림을 켜주세요.
+          </AppText>
+          <Button label="알림 설정" size="sm" variant="secondary" onPress={() => router.push('/settings/notifications')} style={{ marginTop: spacing.sm, alignSelf: 'flex-start' }} testID="push-off-settings" />
+        </View>
+      ) : permission === 'undetermined' && hasContracts ? (
+        <PushPermissionCard permission={permission} onChanged={() => undefined} compact />
+      ) : null}
       {!hasContracts ? (
         <EmptyState title="아직 예정된 알림이 없어요." description="계약을 등록하면 결제일, 만료, 갱신, 해지기한 등 중요한 순간을 챙겨드려요." />
       ) : (
-        <>
-          {important.items.length > 0 ? (
-            <Section title="중요한 계약 일정" testID="important-list">
-              {important.items.map((e) => (
-                <ImportantScheduleCard key={e.key} entry={e} />
-              ))}
-              {important.total > important.items.length ? (
-                <AppText variant="small" color="textTertiary">
-                  나머지 중요 일정은 캘린더와 계약 상세에서 확인할 수 있어요.
-                </AppText>
-              ) : null}
-            </Section>
-          ) : null}
-          <Section title="다음 알림" testID="upcoming-list">
-            {!eff.enabled ? (
-              <AppText variant="body2" color="textTertiary" testID="upcoming-off">
-                PACTO 알림이 꺼져 있어요. 알림 설정에서 켤 수 있어요.
+        <Section title="중요한 계약 일정" testID="important-list">
+          {important.items.length === 0 ? (
+            <View testID="important-empty">
+              <AppText variant="body2" color="textSecondary">
+                지금 확인할 중요한 계약 일정이 없어요.
               </AppText>
-            ) : digest.length === 0 ? (
-              <AppText variant="body2" color="textTertiary" testID="upcoming-empty">
-                아직 예정된 알림이 없어요.
+              <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
+                결제와 일반 일정은 캘린더에서 확인할 수 있어요.
               </AppText>
-            ) : (
-              digest.map(({ item, followUp }, i) => (
-                <View key={item.id} testID={`upcoming-${i}`}>
-                  {i > 0 ? <Divider /> : null}
-                  <Pressable style={styles.item} onPress={() => router.push(`/contract/${item.contractId}`)} accessibilityRole="button">
-                    <View style={styles.itemHead}>
-                      <AppText variant="captionStrong" color="textSecondary">
-                        {formatSendTime(item.scheduledAt, eff.timezone)}
-                      </AppText>
-                      {item.priority === 'critical' ? <Badge label="중요" tone="caution" /> : item.priority === 'important' ? <Badge label="확인" tone="check" /> : null}
-                    </View>
-                    <AppText variant="body2Strong" numberOfLines={1} style={{ marginTop: 2 }}>
-                      {titles.get(item.contractId) ?? item.display.contractTitle}
-                    </AppText>
-                    <AppText variant="body2">{item.display.message}</AppText>
-                    {item.display.detail ? (
-                      <AppText variant="caption" color="textSecondary">
-                        {item.display.detail}
-                      </AppText>
-                    ) : null}
-                    {item.display.sourceLabel ? (
-                      <AppText variant="small" color="textTertiary" style={{ marginTop: 2 }}>
-                        {item.display.sourceLabel}
-                      </AppText>
-                    ) : null}
-                    {followUp ? (
-                      <AppText variant="small" color="textTertiary" style={{ marginTop: 2 }} testID={`upcoming-${i}-followup`}>
-                        {followUp}
-                      </AppText>
-                    ) : null}
-                  </Pressable>
-                </View>
-              ))
-            )}
-          </Section>
-        </>
+            </View>
+          ) : (
+            // critical 먼저, 같은 중요도는 날짜가 가까운 순 · 최대 5개 (전체 보기 화면은 아직 없음 — total로 확장 가능)
+            important.items.map((e) => <ImportantScheduleCard key={e.key} entry={e} />)
+          )}
+        </Section>
       )}
-      {/* 알림 규칙 (내 설정 요약): 일정을 가리지 않도록 기본은 접어 둔다 */}
-      <View style={styles.policy} testID="reminder-policy">
-        <Pressable
-          onPress={() => setPolicyOpen((v) => !v)}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: policyOpen }}
-          hitSlop={hitSlop}
-          style={styles.policyToggle}
-          testID="reminder-policy-toggle">
-          <AppText variant="caption" color="textTertiary">
-            알림은 언제 오나요?
-          </AppText>
-          <Ionicons name={policyOpen ? 'chevron-up' : 'chevron-forward'} size={14} color={colors.textTertiary} />
-        </Pressable>
-        {policyOpen ? (
-          <View style={styles.policyBody} testID="reminder-policy-body">
-            {reminderPolicySummary(effectiveRulesSummary(prefs ?? null)).map((r) => (
-              <View key={r.label} style={styles.policyRow}>
-                <AppText variant="caption" color="textSecondary">
-                  {r.label}
-                </AppText>
-                <AppText variant="caption" color="textSecondary" tabular>
-                  {r.when}
-                </AppText>
-              </View>
-            ))}
-            <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.xs }}>
-              알림 시점은 PACTO 설정이에요. 기한 자체는 계약서나 입력한 계약 정보를 기준으로 해요. {formatTimeOfDay(eff.timeOfDay)}에 알려드려요.
+      <Section title="알림 설정" caption="PACTO가 미리 알려드리는 시점" testID="reminder-policy">
+        {reminderPolicySummary(effectiveRulesSummary(prefs ?? null)).map((r) => (
+          <View key={r.label} style={styles.policyRow}>
+            <AppText variant="body2" color="textSecondary">
+              {r.label}
+            </AppText>
+            <AppText variant="body2" tabular>
+              {r.when}
             </AppText>
           </View>
-        ) : null}
+        ))}
+        <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.xs }}>
+          {eff.enabled ? `${formatTimeOfDay(eff.timeOfDay)}에 알려드려요. ` : ''}기한 자체는 계약서나 입력한 계약 정보를 기준으로 해요.
+        </AppText>
         <Button label="알림 설정 변경" variant="secondary" size="sm" onPress={() => router.push('/settings/notifications')} style={{ marginTop: spacing.md, alignSelf: 'flex-start' }} testID="open-notification-settings" />
-        <Pressable onPress={() => router.push('/calendar')} accessibilityRole="button" hitSlop={hitSlop} style={{ marginTop: spacing.md, alignSelf: 'flex-start' }} testID="open-calendar-from-notifications">
+      </Section>
+      <View style={styles.calendar}>
+        <AppText variant="caption" color="textSecondary">
+          결제와 전체 일정은 캘린더에서 확인할 수 있어요.
+        </AppText>
+        <Pressable onPress={() => router.push('/calendar')} accessibilityRole="button" hitSlop={hitSlop} testID="open-calendar-from-notifications">
           <AppText variant="captionStrong" color="primary">
-            결제 일정은 캘린더에서 보기
+            캘린더 보기
           </AppText>
         </Pressable>
       </View>
@@ -147,10 +97,7 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   info: { margin: spacing.gutter, marginBottom: 0, padding: spacing.md, backgroundColor: colors.bgSubtle, borderRadius: radius.md },
-  item: { paddingVertical: spacing.md },
-  itemHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  policy: { marginHorizontal: spacing.gutter, marginTop: spacing.xl, marginBottom: spacing.xl },
-  policyToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' },
-  policyBody: { marginTop: spacing.sm, padding: spacing.md, backgroundColor: colors.bgSubtle, borderRadius: radius.md },
-  policyRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  off: { marginHorizontal: spacing.gutter, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
+  policyRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  calendar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginHorizontal: spacing.gutter, marginVertical: spacing.xl },
 });

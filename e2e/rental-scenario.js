@@ -115,22 +115,16 @@ const assert = (cond, msg) => {
   await shot('03-calendar-2029-10');
   log('2029-09-11 해지 통보기한, 2029-10-11 이용 종료(자동갱신 조건)');
 
-  // 알림 화면: 중요한 계약 일정(12개월) — 2029년 해지 통보기한은 범위 밖이라 섹션 숨김 / 다음 알림 = 서버가 실제로 보낼 푸시 / 규칙은 접힘
+  // 알림 화면: 2029년 해지 통보기한은 12개월 표시 범위 밖 → "지금 확인할 중요한 계약 일정이 없어요." / 미래 푸시 목록 없음 / 알림 설정 요약
   await page.click(tid('tab-home'));
   await page.click(tid('open-notifications'));
   await page.waitForSelector(tid('reminder-policy'));
-  await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
-  const folded = await page.locator('body').innerText();
-  assert(!(await page.locator(tid('important-list')).count()), '12개월 안에 중요 일정이 없으면 섹션을 숨겨야 함');
-  assert(folded.includes('알림은 언제 오나요?') && !folded.includes('30·7·1일 전과 당일'), '알림 규칙이 기본으로 접혀 있지 않음: ' + folded);
-  const upcoming = await page.locator(tid('upcoming-list')).innerText();
-  assert(/결제 예정이에요\./.test(upcoming) && upcoming.includes('오전 9:00') && !folded.includes('60일'), '다음 알림(실제 예약 푸시) 없음: ' + upcoming);
-  await page.click(tid('reminder-policy-toggle'));
-  await page.waitForSelector(tid('reminder-policy-body'));
   const notes = await page.locator('body').innerText();
-  assert(notes.includes('결제·입금') && notes.includes('하루 전') && notes.includes('30·7·1일 전과 당일') && notes.includes('90·30·7일 전'), '알림 규칙 요약 없음: ' + notes);
+  assert(notes.includes('지금 확인할 중요한 계약 일정이 없어요.') && !notes.includes('예정된 알림이 없어요'), '중요 일정 빈 상태 문구: ' + notes);
+  assert(!notes.includes('다음 알림') && !/결제 예정이에요/.test(notes) && !notes.includes('60일'), '미래 푸시 목록이 남아 있음: ' + notes);
+  assert(notes.includes('결제·입금') && notes.includes('하루 전') && notes.includes('30·7·1일 전과 당일') && notes.includes('90·30·7일 전'), '알림 설정 요약 없음: ' + notes);
   await shot('04-notifications');
-  log('알림 화면: 중요 일정 없음(섹션 숨김) + 다음 알림(실제 예약 푸시) + 접힌 알림 규칙');
+  log('알림 화면: 중요 일정 없음 안내 + 미래 푸시 목록 없음 + 알림 설정 요약');
   await page.goBack();
 
   // 수정: 시작일 10/12 → 10/15 → 새로고침 없이 캘린더 반영

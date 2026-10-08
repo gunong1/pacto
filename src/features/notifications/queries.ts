@@ -38,11 +38,6 @@ export function useSaveNotificationPreferences() {
   });
 }
 
-/** 실제로 앞으로 보낼 알림 */
-export function useUpcomingNotifications() {
-  return useQuery({ queryKey: notificationKeys.upcoming, queryFn: () => notificationStore.upcoming(30) });
-}
-
 export function useContractNotificationOverride(contractId: string) {
   return useQuery({ queryKey: notificationKeys.override(contractId), queryFn: () => notificationStore.getOverride(contractId) });
 }
