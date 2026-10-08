@@ -39,3 +39,12 @@ Docs: https://docs.expo.dev/eas/index.md
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+
+## 사용자에게 명령어를 안내할 때 (프로젝트 소유자 요청)
+
+- 사용자는 Windows PowerShell에서 직접 명령어를 실행한다. 안내는 한국어로 한 단계씩.
+- **모든 명령어마다 "이게 무슨 명령어인지"를 초등학생도 이해할 수 있게 한두 줄로 설명한다.** 비유를 써도 좋다.
+  - 예: `git pull` — "인터넷에 있는 최신 코드를 내 컴퓨터로 가져와요. 휴대폰 앱 '업데이트' 버튼과 비슷해요."
+- 바꿔 넣어야 하는 부분(경로·비밀값 등)은 그대로 붙여넣으면 안 된다고 분명히 적고, 무엇으로 바꾸는지 알려준다.
+- 비밀값은 채팅·스크린샷에 올리지 말라고 안내한다.
+- 정식 출시 전에 되돌려야 하는 설정은 `docs/LAUNCH_CHECKLIST.md`에 추가한다.
