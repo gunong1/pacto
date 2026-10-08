@@ -418,3 +418,6 @@ enabled = true
 # 매시간 pg_cron이 호출 — JWT 대신 x-cleanup-secret(CLEANUP_SECRET)으로 확인
 [functions.cleanup-orphans]
 verify_jwt = false
+
+[functions.notifications]
+verify_jwt = false

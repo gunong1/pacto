@@ -196,3 +196,19 @@ export async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Pr
   if (!res.ok) throw new Error(`rpc_${fn}_${res.status}`);
   return await res.json();
 }
+
+/** PostgREST JSON 요청 (service_role) — 실패하면 상태 코드만 담은 오류 (응답 본문은 로그에 남기지 않는다) */
+export async function restJson<T>(path: string, init: RequestInit = {}, label = 'rest'): Promise<T> {
+  const res = await rest(path, init);
+  if (!res.ok) throw new Error(`${label}_${res.status}`);
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+/** 길이가 같을 때만 같은지 — 비밀값 비교 (예약 실행 호출 확인) */
+export function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}

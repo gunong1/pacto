@@ -138,6 +138,25 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"contract_notification_overrides": {
+                  Row: {
+                    "categories": NonNullable<Json>,"contract_id": string,"created_at": string,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "categories": NonNullable<Json>,"contract_id": string,"created_at"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Update: {
+                    "categories"?: NonNullable<Json>,"contract_id"?: string,"created_at"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "contract_notification_overrides_contract_id_fkey"
+      columns: ["contract_id"]
+isOneToOne: true
+      referencedRelation: "contracts"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"contract_payments": {
                   Row: {
                     "amount": number,"business_day_rule": string,"components": NonNullable<Json>,"condition_note": string | null,"contract_id": string,"created_at": string,"currency": string,"day_of_month": number | null,"direction": string,"ends_on": string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id": string,"installment_count": number | null,"is_variable": boolean,"kind": string,"label": string,"month_of_year": number | null,"obligation": string,"sort_order": number,"starts_on": string,"updated_at": string,"user_id": string
@@ -245,6 +264,57 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"notification_deliveries": {
+                  Row: {
+                    "created_at": string,"error_code": string | null,"id": string,"notification_id": string,"push_token_id": string | null,"receipt_checked_at": string | null,"receipt_error": string | null,"receipt_status": string | null,"status": string,"ticket_id": string | null,"user_id": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"error_code"?: string | null,"id"?: string,"notification_id": string,"push_token_id"?: string | null,"receipt_checked_at"?: string | null,"receipt_error"?: string | null,"receipt_status"?: string | null,"status": string,"ticket_id"?: string | null,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"error_code"?: string | null,"id"?: string,"notification_id"?: string,"push_token_id"?: string | null,"receipt_checked_at"?: string | null,"receipt_error"?: string | null,"receipt_status"?: string | null,"status"?: string,"ticket_id"?: string | null,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "notification_deliveries_notification_id_fkey"
+      columns: ["notification_id"]
+isOneToOne: false
+      referencedRelation: "scheduled_notifications"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "notification_deliveries_push_token_id_fkey"
+      columns: ["push_token_id"]
+isOneToOne: false
+      referencedRelation: "push_tokens"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"notification_plan_queue": {
+                  Row: {
+                    "requested_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "requested_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "requested_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"notification_preferences": {
+                  Row: {
+                    "categories": NonNullable<Json>,"created_at": string,"enabled": boolean,"time_of_day": string,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "categories"?: NonNullable<Json>,"created_at"?: string,"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Update: {
+                    "categories"?: NonNullable<Json>,"created_at"?: string,"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"payment_kind_defs": {
                   Row: {
                     "code": string,"default_direction": string,"label": string,"sort_order": number
@@ -271,15 +341,62 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"push_tokens": {
+                  Row: {
+                    "created_at": string,"device_id": string,"disabled_reason": string | null,"enabled": boolean,"expo_push_token": string,"id": string,"last_seen_at": string,"platform": string,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "created_at"?: string,"device_id": string,"disabled_reason"?: string | null,"enabled"?: boolean,"expo_push_token": string,"id"?: string,"last_seen_at"?: string,"platform": string,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"device_id"?: string,"disabled_reason"?: string | null,"enabled"?: boolean,"expo_push_token"?: string,"id"?: string,"last_seen_at"?: string,"platform"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"scheduled_notifications": {
+                  Row: {
+                    "attempts": number,"contract_id": string,"created_at": string,"dedupe_key": string,"display_json": NonNullable<Json>,"event_date": string,"event_key": string,"event_type": string,"fire_on": string,"group_key": string,"id": string,"last_error": string | null,"next_attempt_at": string | null,"offset_days": number,"payload_json": NonNullable<Json>,"priority": string,"processing_started_at": string | null,"scheduled_at": string,"sent_at": string | null,"source": string,"status": string,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "attempts"?: number,"contract_id": string,"created_at"?: string,"dedupe_key": string,"display_json": NonNullable<Json>,"event_date": string,"event_key": string,"event_type": string,"fire_on": string,"group_key": string,"id"?: string,"last_error"?: string | null,"next_attempt_at"?: string | null,"offset_days": number,"payload_json": NonNullable<Json>,"priority": string,"processing_started_at"?: string | null,"scheduled_at": string,"sent_at"?: string | null,"source": string,"status"?: string,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "attempts"?: number,"contract_id"?: string,"created_at"?: string,"dedupe_key"?: string,"display_json"?: NonNullable<Json>,"event_date"?: string,"event_key"?: string,"event_type"?: string,"fire_on"?: string,"group_key"?: string,"id"?: string,"last_error"?: string | null,"next_attempt_at"?: string | null,"offset_days"?: number,"payload_json"?: NonNullable<Json>,"priority"?: string,"processing_started_at"?: string | null,"scheduled_at"?: string,"sent_at"?: string | null,"source"?: string,"status"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "scheduled_notifications_contract_id_fkey"
+      columns: ["contract_id"]
+isOneToOne: false
+      referencedRelation: "contracts"
+      referencedColumns: ["id"]
+    }
+                  ]
                 }
           }
           Views: {
             [_ in never]: never
           }
           Functions: {
-            "claim_orphan_documents":
+            "apply_notification_plan":
+{ Args: { "p_now"?: string,"p_plan": Json,"p_user": string }; Returns: {
+              "cancelled": number,"created": number,"updated": number
+            }[]
+                           },
+"claim_due_notifications":
+{ Args: { "p_limit"?: number }; Returns: {
+              "attempts": number,"contract_id": string,"event_type": string,"id": string,"payload_json": Json,"priority": string,"user_id": string
+            }[]
+                           },
+"claim_orphan_documents":
 { Args: { "p_limit"?: number }; Returns: {
               "document_id": string,"paths": (string)[]
+            }[]
+                           },
+"claim_plan_queue":
+{ Args: { "p_limit"?: number }; Returns: {
+              "user_id": string
             }[]
                            },
 "owns_contract":
@@ -290,8 +407,17 @@ isOneToOne: false
               "cleared_outputs": number,"deleted_jobs": number
             }[]
                            },
+"register_push_token":
+{ Args: { "p_device_id": string,"p_platform": string,"p_token": string }; Returns: undefined
+                           },
 "save_contract":
 { Args: { "p_ai_checks"?: Json,"p_contract": Json,"p_contract_id"?: string,"p_dates"?: Json,"p_document_ids"?: (string)[],"p_payments"?: Json }; Returns: string
+                           },
+"unregister_push_token":
+{ Args: { "p_device_id": string }; Returns: undefined
+                           },
+"valid_notification_categories":
+{ Args: { "c": Json }; Returns: boolean
                            }
           }
           Enums: {
