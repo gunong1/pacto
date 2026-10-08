@@ -25,8 +25,11 @@ export function useToday(): ISODate {
   return useMemo(() => todayInSeoul(), []);
 }
 
+/** 계약 목록 조회 — 화면(useContracts)과 앱 실행 화면의 미리 불러오기가 같은 설정을 쓴다 */
+export const contractsQuery = { queryKey: contractKeys.all, queryFn: () => contractRepository.list() };
+
 export function useContracts() {
-  return useQuery({ queryKey: contractKeys.all, queryFn: () => contractRepository.list() });
+  return useQuery(contractsQuery);
 }
 
 export function useContract(id: string | undefined) {

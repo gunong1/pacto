@@ -1211,3 +1211,11 @@ pacto/
 - 알림 설정: 종류별 키 `termination_notice` / `renewal_notice` / `renewal_decision`을 따로 저장(DB `valid_notification_categories` 확장). 화면은 "해지·갱신 통보기한"(termination_notice + renewal_notice에 같이 저장) / "갱신 여부 확인"으로 묶어 보여준다. 저장값이 없을 때 renewal_notice는 기존 termination_notice 설정을 이어받고(읽을 때 계산 — 저장된 사용자 데이터는 바꾸지 않음), renewal_decision은 PACTO 기본값(30·7일 전)에서 시작. unknown 기한은 놓치지 않도록 해지·종료 통보기한 시점을 쓴다.
 - 배포 순서: DB(`supabase db push`) → Edge Function(`analyze-contract`, `notifications`) → 앱 빌드. DB를 먼저 올리지 않으면 새 앱의 저장(`notice_kind`, 새 알림 설정 키)이 거부된다.
 - 테스트: `notice-kind.test.ts`(A 협의→renewal_decision·important, B 해지 의사 통지→critical, C 갱신 원치 않으면 통보→문맥 판단 유지, D 불확실→unknown·확인 필요, E 기존 계약 unknown·재분류 없음, 설정 이어받기), `step7-crud`·`step13-notifications`(DB 저장·설정 키), `e2e/notice-kind.js`.
+
+### 앱 실행 화면 (개정 17)
+- 순서: 기기 기본 스플래시(app.json `expo-splash-screen`, 흰 배경 + 심볼 이미지) → JS가 그려지는 즉시 브랜드 실행 화면(`BrandSplash`: 심볼 + PACTO + "모든 계약을 한곳에.")으로 바꾸고 기기 스플래시를 내림 → 로그인 확인 → (로그인 상태면) 첫 계약 목록을 `contractsQuery`로 미리 불러온 뒤 180ms opacity로 사라짐.
+- 실행 화면은 루트 레이아웃(`src/app/_layout.tsx`)에서 Stack 위를 덮는 방식이라 그동안 하단 탭바·빈 홈이 보이지 않는다. 라우팅 구조는 바꾸지 않았다.
+- 로딩 문구는 넣지 않는다. 1.2초(`SPLASH_SPINNER_DELAY_MS`)가 넘을 때만 슬로건 아래에 작은 회색 로딩 표시(자리를 미리 잡아 로고가 움직이지 않음). 15초(`BOOT_MAX_MS`)가 지나면 홈으로 넘기고 홈이 로딩·오류를 보여준다.
+- 글자 크기 설정은 1.3배까지만 반영(`maxFontSizeMultiplier`), Safe Area 반영. 슬로건(`BRAND_SLOGAN`)은 개인·가족·기업 계약관리 공통 문구라 특정 유형을 암시하도록 바꾸지 않는다.
+- 기기 기본 스플래시는 이미지 한 장만 지원해 문구를 넣지 않았다(아주 짧게 심볼만 보인다).
+- 테스트: `e2e/splash.js` (A 로그인 → 홈, B 로그아웃 → 시작 화면, C 느린 네트워크 → 작은 로딩 표시, D 320×568·글자 확대 잘림 없음, E 탭바 숨김).
