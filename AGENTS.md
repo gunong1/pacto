@@ -48,3 +48,4 @@ Docs: https://docs.expo.dev/eas/index.md
 - 바꿔 넣어야 하는 부분(경로·비밀값 등)은 그대로 붙여넣으면 안 된다고 분명히 적고, 무엇으로 바꾸는지 알려준다.
 - 비밀값은 채팅·스크린샷에 올리지 말라고 안내한다.
 - 정식 출시 전에 되돌려야 하는 설정은 `docs/LAUNCH_CHECKLIST.md`에 추가한다.
+- 부품 설치 안내는 `npm install` 대신 **`npm ci`**를 쓴다. `npm install`은 사용자 PC(Windows)에서 `package-lock.json`을 바꿔, EAS 빌드(`npm ci`)가 "lock file not in sync"로 실패한 적이 있다 (2026-10-08).
