@@ -1181,3 +1181,21 @@ pacto/
 - 앱: 기준 날짜로 정한 금액은 "계약서에 '계약 당일'로 적혀 있어 계약일(…)로 넣었어요." 안내. 기준 날짜가 없거나 calculated·inferred면 "확인 필요".
 - 한계: 근거 문구(evidence_quote)가 없는 값은 안전장치로 검사할 수 없다. date_source는 확인 화면까지만 쓰고 DB에는 저장하지 않는다.
 - 테스트: `scenario-lease-dates.test.ts` (계약금 2026-10-08 · 잔금 2026-10-20 · 월세·관리비 매월 20일 · 모델 응답 6가지 · 기준 표현 규칙).
+
+### 실제 푸시 알림 (개정 15)
+- **구조 (서버 중심)**: 앱은 권한·토큰 등록·설정만. 계산·발송은 Edge Function `notifications`.
+  - 계약·결제·날짜·일정·설정 변경 → DB 트리거가 `notification_plan_queue`에 사용자 추가 (+ 앱이 저장 직후 `action=plan`으로 바로 계산 요청)
+  - pg_cron 5분마다 `action=tick`: 대기열 계산 → `claim_due_notifications`(SKIP LOCKED, scheduled→processing) → Expo Push → sent/재시도/failed → 15분 지난 발송의 수신 결과 확인
+  - 매일 00:07(한국)에 모든 사용자 재계산 — 반복 결제는 앞으로 35일(`PLAN_WINDOW_DAYS`) 안의 알림만 만든다
+- **계산은 앱과 같은 코드**: `src/domain/notifications.ts`(설정 병합 → 일정·기한 → 시간대·알림 시각 → 같은 계약·같은 시각 묶기 → dedupe 키). 서버는 `scripts/vendor-domain.mjs`가 만든 번들(`_shared/vendor/pacto-domain.js`)을 쓴다. 원본을 고치면 번들을 다시 만들어야 하고, `domain-bundle.test.ts`가 어긋남을 잡는다.
+- **설정 우선순위**: PACTO 기본값(`REMINDER_RULES`) → 사용자 전체(`notification_preferences`) → 계약별(`contract_notification_overrides`). 시점은 선택지만(당일·1·3·7·14·30·60·90일 전, 계약별은 180일 전까지, DB check로도 제한).
+- **시간대**: `profiles.timezone`(기본 Asia/Seoul)을 쓴다. 기기 시간대가 바뀌어도 자동으로 바꾸지 않고, 사용자가 설정에서 바꿀 때만. 알림 시각은 `resolveSendTime` 한 곳(방해 금지 시간 등은 여기에 추가).
+- **중복 방지**: `dedupe_key` UNIQUE(사용자·발송 시각·담긴 일정 키) + 같은 계약·같은 시각 `group_key` 부분 UNIQUE(scheduled/processing/sent) → 같은 시각에 두 번 보내지 않음. `notification_deliveries`는 (알림, 토큰) UNIQUE.
+- **재시도**: 일시적 오류만 5·15·60분 뒤, 3번 실패하면 failed. 24시간 넘게 늦으면 expired. `DeviceNotRegistered` → 토큰 비활성화.
+- **삭제·끄기**: 계약 삭제 → 예정 알림·발송 기록 cascade. 발송 직전에도 계약 알림·전체 알림이 꺼졌는지 다시 확인(cancelled). 로그아웃 → 이 기기 토큰 비활성화.
+- **잠금화면 문구**: 기본(`profiles.push_preview_enabled=false`)은 "확인할 계약 일정이 있어요." / critical·important는 "확인할 계약 기한이 있어요." — 계약명·금액은 사용자가 "알림에 계약 상세 표시"를 켤 때만. 주민번호·계좌·원문은 넣지 않는다. 문구 생성은 `buildNotificationMessage` 한 곳.
+- **눌렀을 때**: `/contract/{id}?from=push&event=…&check=…` → 계약 상세 상단 "알림에서 열었어요" + 관련 조항 보기(계약서 기준 일정의 계약 체크).
+- **Expo Go**: SDK 53부터 원격 푸시 미지원 → 앱은 Expo Go·웹·시뮬레이터에서 expo-notifications를 불러오지 않고 "이 기기에서는 받을 수 없어요"만 안내. 실제 수신은 EAS 빌드(preview APK)에서.
+- **테스트 알림**: 서버 `ALLOW_TEST_PUSH=true`일 때만, 앱은 개발 모드 또는 `EXPO_PUBLIC_SHOW_PUSH_TEST=true` 빌드에서만 버튼 표시. 10초 뒤 보내기(앱을 닫은 상태 확인용).
+- **법령 알림**: V1에서 만들지 않음. 임대차 "만료 60일 전 갱신 여부 확인"(PACTO 안내)은 화면의 중요한 계약 일정에만 있고 푸시 대상은 아님.
+- 테스트: `notifications.test.ts`(A~F·K~O·시간대·미리보기), `push-outcome.test.ts`, `step13-notifications`(통합: C·D·E·F·G·J·재시도·만료·수신 결과·RLS), `e2e/push-settings.js`.

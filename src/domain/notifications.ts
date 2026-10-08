@@ -380,3 +380,29 @@ export function effectiveRulesSummary(prefs: Partial<NotificationPreferences> | 
   return toReminderRules(getEffectiveNotificationPreferences(prefs));
 }
 
+
+/**
+ * "다음 알림" 화면 목록: 같은 계약의 결제 알림은 가장 가까운 것만 펼치고 이후는 한 줄로 ("이후 매월 19일 알림 예정").
+ * 해지 통보기한·만료·갱신이 들어 있는 알림은 줄이지 않는다.
+ */
+export function upcomingDigest<T extends { contractId: string; fireOn: ISODate; eventType: string }>(items: readonly T[]): { item: T; followUp: string | null }[] {
+  const out: { item: T; followUp: string | null; later: ISODate[] }[] = [];
+  const lead = new Map<string, (typeof out)[number]>();
+  for (const it of items) {
+    const payOnly = it.eventType === 'payment' || it.eventType === 'income';
+    const first = payOnly ? lead.get(it.contractId) : undefined;
+    if (first) {
+      first.later.push(it.fireOn);
+      continue;
+    }
+    const entry = { item: it, followUp: null as string | null, later: [] as ISODate[] };
+    if (payOnly) lead.set(it.contractId, entry);
+    out.push(entry);
+  }
+  return out.map(({ item, later }) => {
+    if (!later.length) return { item, followUp: null };
+    const day = Number(item.fireOn.slice(8, 10));
+    const monthly = later.every((d) => Number(d.slice(8, 10)) === day);
+    return { item, followUp: monthly ? `이후 매월 ${day}일 알림 예정` : `이후 알림 ${later.length}건 더` };
+  });
+}

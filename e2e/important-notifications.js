@@ -74,8 +74,10 @@ const assert = (cond, msg) => {
     await page.waitForSelector(tid('reminder-policy-body'));
     const policy = await page.locator(tid('reminder-policy')).innerText();
     assert(policy.includes('해지·종료 통보기한') && policy.includes('30·7·1일 전과 당일') && policy.includes('알림 시점은 PACTO 설정이에요'), '알림 규칙 없음: ' + policy);
-    assert(!(await page.locator('body').innerText()).includes('850,000원 결제 예정'), '결제 알림 목록이 남아 있음');
-    log('알림 규칙 요약 (결제 하루 전 · 통보기한 30·7·1일 전과 당일 …), 결제 알림 목록 없음');
+    await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
+    const upcoming = await page.locator(tid('upcoming-list')).innerText();
+    assert((upcoming.match(/850,000원 결제 예정/g) ?? []).length === 1, '다음 알림: 결제 알림은 가장 가까운 것만 펼침: ' + upcoming);
+    log('알림 규칙 요약 (결제 하루 전 · 통보기한 30·7·1일 전과 당일 …), 다음 알림은 실제 예약 푸시 (결제는 가까운 것만)');
     await page.screenshot({ path: path.join(SHOTS, 'important-01-notifications.png'), fullPage: true });
 
     // 캘린더도 같은 중요도·출처

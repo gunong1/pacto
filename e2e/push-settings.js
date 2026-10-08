@@ -1,0 +1,189 @@
+/**
+ * 실제 푸시 알림 — 화면 (실제 데이터 모드, 서버 planner가 만든 예정 알림)
+ * 1) 월세 850,000 + 관리비 100,000 (지급일 = 오늘+3일) → 다음 알림: "…일 오전 9:00 · 내일 950,000원 결제 예정이에요."
+ * 2) 계약 상세 "계약 알림" → 이 계약만 직접 설정(당일) → 다음 알림이 지급일 당일로
+ * 3) MY > 알림 설정: 웹 기기 상태 안내 · critical(해지 통보기한) 끄기 확인 · 알림 받는 시간 · 미리보기 · 기본값 되돌리기 · 테스트 알림
+ * 4) 알림 화면: 중요한 계약 일정이 없으면 섹션 숨김, 규칙은 접힘(내 설정 요약)
+ * 사용: BASE_URL=http://localhost:8082 node e2e/push-settings.js
+ */
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const path = require('path');
+const BASE = process.env.BASE_URL || 'http://localhost:8082';
+const SHOTS = process.env.SHOTS_DIR || path.join(__dirname, 'shots');
+require('fs').mkdirSync(SHOTS, { recursive: true });
+const tid = (id) => `[data-testid="${id}"]`;
+const results = [];
+const check = (id, name, ok, detail = '') => {
+  results.push({ id, name, ok });
+  console.log(`${ok ? '✔' : '✘'} ${id}. ${name}${detail && !ok ? ` — ${detail}` : ''}`);
+};
+
+// 한국 날짜 기준 오늘+n일
+const kst = (n) => {
+  const d = new Date(Date.now() + 9 * 3600_000 + n * 86_400_000);
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+};
+const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${String(x.d).padStart(2, '0')}`;
+
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 390, height: 1500 }, locale: 'ko-KR' });
+  const errors = [];
+  const dialogs = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  let dialogAnswer = true;
+  page.on('dialog', (d) => {
+    dialogs.push(d.message());
+    (dialogAnswer ? d.accept() : d.dismiss()).catch(() => undefined);
+  });
+  const input = (id) => page.locator(`input${tid(id)}, textarea${tid(id)}`);
+  const body = () => page.locator('body').innerText();
+  const shot = (n) => page.screenshot({ path: path.join(SHOTS, `push-${n}.png`), fullPage: true });
+  const pay = kst(3);
+  const fire = kst(2);
+
+  try {
+    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await page.click(tid('signin-email'));
+    await page.click(tid('go-sign-up'));
+    await input('sign-up-email').fill(`push-${Date.now()}@pacto.test`);
+    await input('sign-up-password').fill('pacto-ui-password-1');
+    await input('sign-up-confirm').fill('pacto-ui-password-1');
+    await page.click(tid('consent-terms'));
+    await page.click(tid('consent-privacy'));
+    await page.click(tid('sign-up-submit'));
+    await page.waitForSelector(tid('home-first-run'), { timeout: 15000 });
+
+    // 계약 없음 → 빈 상태
+    await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('reminder-policy'));
+    const empty = await body();
+    check('Z', '계약이 없으면 "아직 예정된 알림이 없어요." + 등록 안내', empty.includes('아직 예정된 알림이 없어요.') && empty.includes('계약을 등록하면 결제일, 만료, 갱신, 해지기한 등 중요한 순간을 챙겨드려요.'));
+
+    // 1) 월세 + 관리비 (지급일 = 오늘+3)
+    await page.goto(BASE + '/register', { waitUntil: 'networkidle' });
+    await page.click(tid('method-manual'));
+    await page.click(tid('type-lease'));
+    await input('field-title').fill('주택 임대차계약');
+    await page.click(tid('category-real_estate'));
+    await input('field-startDate').fill(yymmdd(pay));
+    await input('field-endDate').fill(yymmdd(kst(700)));
+    await page.click(tid('detail-leaseKind-monthly'));
+    for (const [i, kind, label, amount] of [[0, 'rent', '월세', '850000'], [1, 'maintenance_fee', '관리비', '100000']]) {
+      await page.click(tid('add-payment'));
+      await page.click(tid(`payment-${i}-kind-${kind}`));
+      await page.click(tid(`payment-${i}-frequency-monthly`));
+      await input(`payment-${i}-label`).fill(label);
+      await input(`payment-${i}-amount`).fill(amount);
+      await input(`payment-${i}-dayOfMonth`).fill(String(pay.d));
+    }
+    await page.click(tid('submit-contract'));
+    await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
+    await page.waitForTimeout(800);
+    check('P', '웹(푸시 불가 기기)에서는 저장 직후 알림 권한 안내를 띄우지 않음', !(await page.locator(tid('push-prompt')).isVisible().catch(() => false)));
+    const mode = await page.locator(tid('contract-notification-mode')).innerText();
+    check('D0', '계약 상세 "계약 알림": 현재 내 기본 알림 설정 사용', mode.includes('내 기본 알림 설정 사용'));
+    await shot('01-detail');
+
+    await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
+    const up = await page.locator(tid('upcoming-list')).innerText();
+    check('A', `다음 알림: ${fire.m}월 ${fire.d}일 오전 9:00 · 내일 950,000원 결제 예정이에요. (월세·관리비 1개로)`, up.includes(`${fire.m}월 ${fire.d}일 오전 9:00`) && up.includes('내일 950,000원 결제 예정이에요.') && up.includes('월세 850,000원 · 관리비 100,000원') && (up.match(/950,000원/g) ?? []).length === 1, up);
+    const all = await body();
+    check('H0', '중요한 계약 일정이 없으면 섹션 숨김 / "앞으로 60일" 같은 내부 범위 문구 없음', !(await page.locator(tid('important-list')).count()) && !all.includes('60일'));
+    check('R', '알림 규칙은 접혀 있음', !all.includes('30·7·1일 전과 당일'));
+    await shot('02-notifications');
+
+    // 2) 이 계약만 직접 설정: 결제 당일
+    await page.click(tid('upcoming-0'));
+    await page.waitForSelector(tid('open-contract-notifications'));
+    await page.click(tid('open-contract-notifications'));
+    await page.waitForSelector(tid('contract-notif-custom'));
+    await page.click(tid('contract-notif-custom'));
+    await page.click(tid('contract-notif-payment-1'));
+    await page.click(tid('contract-notif-payment-0'));
+    check('D1', '계약별 설정 선택지에 180일 전 포함', (await page.locator(tid('contract-notif-contract_end-180')).count()) === 1);
+    await shot('03-contract-override');
+    await page.click(tid('contract-notif-save'));
+    await page.waitForTimeout(1500);
+    await page.goBack();
+    await page.waitForSelector(tid('contract-notification-mode'));
+    check('D2', '저장 후 "이 계약만 직접 설정"', (await page.locator(tid('contract-notification-mode')).innerText()).includes('이 계약만 직접 설정'));
+    // H. 푸시를 눌렀을 때 열리는 경로 (/contract/{id}?from=push&event=…) → 계약 상세 + 어떤 알림인지
+    const contractId = /\/contract\/([0-9a-f-]{36})/.exec(page.url())[1];
+    await page.goto(`${BASE}/contract/${contractId}?from=push&event=payment`, { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('push-opened'), { timeout: 15000 });
+    check('H', '푸시 클릭 경로 → 해당 계약 상세 + "알림에서 열었어요 · 결제"', (await page.locator(tid('push-opened')).innerText()).includes('알림에서 열었어요 · 결제') && (await body()).includes('주택 임대차계약'));
+
+    await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
+    const up2 = await page.locator(tid('upcoming-list')).innerText();
+    check('D3', `계약별 설정 반영: ${pay.m}월 ${pay.d}일 오전 9:00 · 오늘 950,000원 결제 예정이에요.`, up2.includes(`${pay.m}월 ${pay.d}일 오전 9:00`) && up2.includes('오늘 950,000원 결제 예정이에요.') && !up2.includes('내일 950,000원'), up2);
+
+    // 3) MY > 알림 설정
+    await page.goto(BASE + '/my', { waitUntil: 'networkidle' });
+    await page.click(tid('open-notification-settings'));
+    await page.waitForSelector(tid('notif-enabled'));
+    const st = await body();
+    check('I', '웹: 이 기기에서는 푸시를 받을 수 없다는 안내 (앱은 정상 동작)', st.includes('이 기기에서는 푸시 알림을 받을 수 없어요') && st.includes('웹에서는 푸시 알림을 받을 수 없어요'));
+    check('S0', '기본값: 결제 1일 전 · 통보기한 30·7·1·당일 · 만료 90·30·7 · 자동갱신 30·7 / 기본값 사용 중', st.includes('PACTO 기본 알림 설정을 쓰고 있어요') && st.includes('해지·종료 통보기한') && st.includes('알림 받는 시간') && st.includes('한국 시간 기준'));
+    await shot('04-settings');
+
+    dialogs.length = 0;
+    dialogAnswer = false; // 유지하기
+    await page.click(tid('notif-termination_notice-switch'));
+    await page.waitForTimeout(600);
+    const kept = (await page.locator(tid('notif-termination_notice-30')).count()) === 1;
+    check('K1', '해지 통보기한 알림을 끄려 하면 확인 → "유지하기"면 그대로', dialogs.some((m) => m.includes('해지·종료 통보기한 알림을 끌까요?') && m.includes('계약상 중요한 기한을 놓칠 수 있어요')) && kept);
+    dialogAnswer = true; // 끄기
+    await page.click(tid('notif-termination_notice-switch'));
+    await page.waitForTimeout(1200);
+    check('K2', '확인 후 끄기 → 꺼짐 (강제로 다시 켜지 않음)', (await page.locator(tid('notif-termination_notice-30')).count()) === 0);
+    dialogs.length = 0;
+    await page.click(tid('notif-payment-switch'));
+    await page.waitForTimeout(800);
+    check('K3', '결제 알림은 확인 없이 끔', dialogs.length === 0 && (await page.locator(tid('notif-payment-1')).count()) === 0);
+    await page.click(tid('notif-payment-switch'));
+    await page.waitForTimeout(800);
+    await page.click(tid('notif-time-08:00'));
+    await page.waitForTimeout(800);
+    await page.click(tid('notif-show-details'));
+    await page.waitForTimeout(800);
+    const st2 = await body();
+    check('S1', '알림 시간 오전 8:00 선택 · 미리보기 켜면 잠금화면 노출 안내', st2.includes('계약명과 금액이 알림에 보여요'));
+    await page.click(tid('notif-show-details'));
+    await page.waitForTimeout(800);
+    await shot('05-settings-changed');
+
+    // 테스트 알림 (개발 환경): 등록된 기기가 없으면 안내
+    if (await page.locator(tid('notif-test-now')).count()) {
+      dialogs.length = 0;
+      await page.click(tid('notif-test-now'));
+      await page.waitForTimeout(2500);
+      check('T', '테스트 알림: 기기가 없으면 "먼저 알림 받기" 안내', dialogs.some((m) => m.includes('알림을 받을 기기가 없어요')), dialogs.join(' | '));
+    }
+
+    await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('upcoming-0'), { timeout: 20000 });
+    const up3 = await page.locator(tid('upcoming-list')).innerText();
+    check('C', '알림 시간 변경 → 다음 알림도 오전 8:00로 다시 계산', up3.includes(`${pay.m}월 ${pay.d}일 오전 8:00`), up3);
+    await page.click(tid('reminder-policy-toggle'));
+    const pol = await page.locator(tid('reminder-policy-body')).innerText();
+    check('R2', '알림 규칙 = 내 설정 요약 (해지·종료 꺼짐, 오전 8:00)', pol.includes('꺼짐') && pol.includes('오전 8:00'), pol);
+    await shot('06-notifications-after');
+
+    // 기본값으로 되돌리기
+    await page.goto(BASE + '/settings/notifications', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-reset'));
+    await page.click(tid('notif-reset'));
+    await page.waitForSelector(tid('notif-is-default'), { timeout: 10000 });
+    check('S2', 'PACTO 기본값으로 되돌리기', (await page.locator(tid('notif-termination_notice-30')).count()) === 1 && (await page.locator(tid('notif-time-09:00')).getAttribute('aria-selected')) !== 'false');
+  } catch (e) {
+    check('X', '예외 없음', false, e.message);
+  }
+
+  console.log('\npage errors:', errors.length ? errors : 'none');
+  require('fs').writeFileSync(path.join(SHOTS, 'push-settings-results.json'), JSON.stringify(results, null, 2));
+  await browser.close();
+  if (results.some((r) => !r.ok)) process.exit(1);
+})();

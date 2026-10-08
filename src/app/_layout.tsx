@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 
 import { authService } from '@/features/auth/authService';
+import { usePushNavigation } from '@/features/notifications/push';
 import { useSession } from '@/features/session/store';
 import { colors, typography } from '@/theme';
 
@@ -33,6 +34,9 @@ export default function RootLayout() {
     if (status !== 'loading') SplashScreen.hideAsync();
   }, [status]);
 
+  // 푸시를 눌렀을 때 해당 계약으로 (앱이 꺼져 있던 경우 포함) + 이 기기 토큰 갱신
+  usePushNavigation(status === 'signedIn');
+
   if (status === 'loading') return null;
   const signedIn = status === 'signedIn';
 
@@ -54,9 +58,11 @@ export default function RootLayout() {
           <Stack.Screen name="contract/[id]/edit" options={{ title: '계약 정보 수정' }} />
           <Stack.Screen name="contract/[id]/event" options={{ title: '일정 추가', presentation: 'modal' }} />
           <Stack.Screen name="contract/[id]/ask" options={{ title: '이 계약에 질문하기' }} />
+          <Stack.Screen name="contract/[id]/notifications" options={{ title: '이 계약의 알림' }} />
           <Stack.Screen name="notifications" options={{ title: '알림' }} />
           <Stack.Screen name="register" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="settings/delete-account" options={{ title: '회원 탈퇴' }} />
+          <Stack.Screen name="settings/notifications" options={{ title: '알림 설정' }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="welcome" options={{ headerShown: false }} />

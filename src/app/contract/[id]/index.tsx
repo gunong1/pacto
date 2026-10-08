@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { CategoryIcon, DDay, EVENT_COLOR, SourceBadge, StatusBadge } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { Badge, SwitchRow } from '@/components/ui/controls';
+import { Badge } from '@/components/ui/controls';
 import { DateField } from '@/components/ui/DateField';
 import { Divider, EmptyState, KeyValueRow, Screen, Section, SectionGap } from '@/components/ui/layout';
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
@@ -24,14 +24,27 @@ import type { AiCheck, ContractRecord } from '@/domain/types';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
 import { viewDocument, viewOriginal } from '@/features/documents/openDocument';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
+import { ContractNotificationSection, PushOpenedBanner, PushPromptSheet } from '@/features/notifications/ContractNotificationParts';
 import { protectionCopy } from '@/features/documents/protectionCopy';
 import { useAttachOriginal, useContract, useContractActions, useProtectDocument, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
+/** 푸시 알림 종류 → 화면 문구 */
+const PUSH_EVENT_LABEL: Record<string, string> = {
+  termination_notice: '해지 통보기한',
+  renewal: '자동갱신 예정일',
+  contract_end: '계약 만료',
+  maturity: '만기',
+  payment: '결제',
+  income: '입금',
+  test: '테스트 알림',
+};
+
 export default function ContractDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // from=push: 알림을 눌러 들어옴 (event = 알림 종류, check = 관련 계약 체크) / created=1: 방금 저장
+  const { id, from, event, check: checkParam, created } = useLocalSearchParams<{ id: string; from?: string; event?: string; check?: string; created?: string }>();
   const today = useToday();
   const { data: record, isLoading } = useContract(id);
   const actions = useContractActions(id);
@@ -67,6 +80,8 @@ export default function ContractDetailScreen() {
 
   const c = record.contract;
   const live = c.lifecycle === 'active';
+  const pushedCheck = checkParam ? (record.aiChecks.find((x) => x.id === checkParam && x.status !== 'dismissed') ?? null) : null;
+  const pushedDoc = pushedCheck ? (record.documents.find((d) => d.id === pushedCheck.evidenceDocumentId) ?? record.documents[0] ?? null) : null;
 
   const removeContract = async () => {
     const ok = await confirm('계약 삭제', `'${c.title}' 계약과 원본 계약서, 일정이 모두 삭제됩니다. 삭제할까요?\n(계약이 끝났다면 삭제 대신 '해지 처리'로 기록을 남길 수 있어요)`, '삭제');
@@ -102,6 +117,14 @@ export default function ContractDetailScreen() {
         }}
       />
       <Screen edges={[]} testID="contract-detail">
+        <PushPromptSheet active={created === '1'} />
+        {from === 'push' ? (
+          <PushOpenedBanner
+            eventLabel={event && event in PUSH_EVENT_LABEL ? PUSH_EVENT_LABEL[event] : null}
+            check={pushedCheck}
+            onOpenCheck={pushedCheck && pushedDoc ? () => viewDocument(pushedDoc, pushedCheck.evidencePage) : undefined}
+          />
+        ) : null}
         {/* 헤더: 이름 · 상대방 · 상태 · D-Day */}
         <View style={styles.head}>
           <View style={styles.headRow}>
@@ -386,15 +409,7 @@ export default function ContractDetailScreen() {
         ) : null}
 
         <SectionGap />
-        <Section title="알림">
-          <SwitchRow
-            label="이 계약 알림 받기"
-            description="만료·해지 통보기한·결제일 알림"
-            value={c.notificationsEnabled}
-            onValueChange={(v) => actions.setNotifications.mutate([v])}
-            testID="detail-notifications"
-          />
-        </Section>
+        <ContractNotificationSection contractId={c.id} enabled={c.notificationsEnabled} onToggle={(v) => actions.setNotifications.mutate([v])} />
 
         {/* 자동 정리 정보 — 보조 영역 */}
         <SectionGap />

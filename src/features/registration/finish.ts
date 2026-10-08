@@ -8,6 +8,6 @@ import { useRegistration } from './store';
  */
 export function finishRegistration(contractId: string) {
   router.dismissTo('/');
-  router.push(`/contract/${contractId}`);
+  router.push(`/contract/${contractId}?created=1`);
   useRegistration.getState().reset();
 }

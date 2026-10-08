@@ -1,0 +1,18 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview",
+      "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_SHOW_PUSH_TEST": "true" }
+    },
+    "production": {
+      "environment": "production",
+      "autoIncrement": true
+    }
+  }
+}

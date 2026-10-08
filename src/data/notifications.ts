@@ -22,6 +22,8 @@ export interface UpcomingNotification {
   id: string;
   contractId: string;
   scheduledAt: string;
+  /** 알림 날짜 (알림 기준 시간대) */
+  fireOn: string;
   priority: PlannedNotification['priority'];
   eventType: string;
   display: PlannedNotification['display'];
@@ -120,7 +122,7 @@ export class SupabaseNotificationStore implements NotificationStore {
   async upcoming(limit = 20): Promise<UpcomingNotification[]> {
     const { data, error } = await this.sb
       .from('scheduled_notifications')
-      .select('id, contract_id, scheduled_at, priority, event_type, display_json')
+      .select('id, contract_id, scheduled_at, fire_on, priority, event_type, display_json')
       .eq('status', 'scheduled')
       .gt('scheduled_at', new Date().toISOString())
       .order('scheduled_at')
@@ -130,6 +132,7 @@ export class SupabaseNotificationStore implements NotificationStore {
       id: r.id,
       contractId: r.contract_id,
       scheduledAt: r.scheduled_at,
+      fireOn: r.fire_on,
       priority: r.priority as UpcomingNotification['priority'],
       eventType: r.event_type,
       display: r.display_json as unknown as UpcomingNotification['display'],
@@ -196,7 +199,7 @@ export class MockNotificationStore implements NotificationStore {
   }
   async upcoming(limit = 20) {
     const planned = planNotifications({ userId: 'preview', records: await this.records(), preferences: this.prefs, overrides: this.overrides, now: this.now() });
-    return planned.slice(0, limit).map((p) => ({ id: p.dedupeKey, contractId: p.contractId, scheduledAt: p.scheduledAt, priority: p.priority, eventType: p.eventType, display: p.display }));
+    return planned.slice(0, limit).map((p) => ({ id: p.dedupeKey, contractId: p.contractId, scheduledAt: p.scheduledAt, fireOn: p.fireOn, priority: p.priority, eventType: p.eventType, display: p.display }));
   }
   async registerToken() {}
   async unregisterToken() {}

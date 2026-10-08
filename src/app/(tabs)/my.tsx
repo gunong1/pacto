@@ -7,13 +7,18 @@ import { Badge } from '@/components/ui/controls';
 import { Divider, ListRow, Screen, Section, SectionGap } from '@/components/ui/layout';
 import { useContracts } from '@/features/contracts/queries';
 import { authErrorMessage, authService } from '@/features/auth/authService';
+import { disablePushForThisDevice } from '@/features/notifications/push';
 import { useSession } from '@/features/session/store';
 import { notify as notice } from '@/lib/dialog';
 import { colors, spacing } from '@/theme';
 
 export default function MyScreen() {
   const user = useSession((s) => s.user);
-  const signOut = () => authService.signOut().catch((e) => notice('로그아웃', authErrorMessage(e)));
+  // 로그아웃: 이 기기로 더 이상 알림을 보내지 않도록 토큰부터 끈다
+  const signOut = () =>
+    disablePushForThisDevice()
+      .then(() => authService.signOut())
+      .catch((e) => notice('로그아웃', authErrorMessage(e)));
   const providerLabel = user?.provider === 'apple' ? 'Apple' : user?.provider === 'google' ? 'Google' : '이메일';
   const { data } = useContracts();
   const docs = data?.reduce((n, r) => n + r.documents.length, 0) ?? 0;
@@ -43,7 +48,7 @@ export default function MyScreen() {
 
       <SectionGap />
       <Section title="설정">
-        <ListRow title="알림 설정" subtitle="만료 90·30·7일 전, 해지 통보기한, 결제일" chevron onPress={() => router.push('/notifications')} />
+        <ListRow title="알림 설정" subtitle="알림 받을 시점·시간, 잠금화면 표시" chevron onPress={() => router.push('/settings/notifications')} testID="open-notification-settings" />
         <Divider />
         <ListRow title="보안" subtitle="앱 잠금(Face ID·지문)" right={<Badge label="준비중" />} />
         <Divider />

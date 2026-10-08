@@ -1,12 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-import { contractRepository, documentStore } from '@/data';
+import { contractRepository, documentStore, notificationStore } from '@/data';
 import type { PickedFile } from '@/data/ai/provider';
 import { activateCost, recordToDraft } from '@/data/draft';
 import type { ContractDraft, CreateContractInput, NewEventInput } from '@/data/repository';
 import { todayInSeoul } from '@/domain/dates';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
+
+export const notificationKeys = {
+  all: ['notifications'] as const,
+  preferences: ['notifications', 'preferences'] as const,
+  upcoming: ['notifications', 'upcoming'] as const,
+  override: (id: string) => ['notifications', 'override', id] as const,
+};
 
 export const contractKeys = {
   all: ['contracts'] as const,
@@ -35,6 +42,8 @@ function useInvalidate() {
   const qc = useQueryClient();
   return (record?: ContractRecord) => {
     if (record) qc.setQueryData(contractKeys.detail(record.contract.id), record);
+    // 계약이 바뀌면 예정 알림도 바로 다시 계산 (실패해도 서버가 5분 안에 다시 계산)
+    notificationStore.requestPlan().then(() => qc.invalidateQueries({ queryKey: notificationKeys.all }));
     return qc.invalidateQueries({ queryKey: contractKeys.all });
   };
 }
@@ -95,6 +104,7 @@ export function useRemoveContract() {
     mutationFn: (id: string) => contractRepository.remove(id),
     onSuccess: (_d, id) => {
       qc.removeQueries({ queryKey: contractKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: notificationKeys.all });
       return qc.invalidateQueries({ queryKey: contractKeys.all });
     },
   });
