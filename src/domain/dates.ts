@@ -117,7 +117,30 @@ export function formatDateKo(date: ISODate, withWeekday = false): string {
   return withWeekday ? `${base} (${WEEKDAYS_KO[weekdayOf(date)]})` : base;
 }
 
-/** '12월 1일' */
+/**
+ * 날짜 표기 규칙 (화면·알림 공통 — 화면마다 직접 문자열을 만들지 않는다)
+ * - 일회성 날짜(종료일·통보기한·만기·잔금일 …)는 항상 연도까지: formatDateKo '2028. 8. 20.' / 문장 안에서는 formatDateLongKo '2028년 8월 20일'
+ * - 반복 일정은 반복 표현: formatRecurringDayKo '매월 20일'
+ * - 상대 표현(오늘·내일)은 실제 날짜를 함께: formatRelativeDateKo '내일 · 2026. 10. 9.'
+ */
+export function formatDateLongKo(date: ISODate): string {
+  const { year, month, day } = parseISODate(date);
+  return `${year}년 ${month}월 ${day}일`;
+}
+
+/** '매월 20일' / '매년 3월 1일' */
+export function formatRecurringDayKo(day: number, month?: number | null): string {
+  return month ? `매년 ${month}월 ${day}일` : `매월 ${day}일`;
+}
+
+/** '오늘 · 2026. 10. 8.' / '내일 · 2026. 10. 9.' / 그 밖에는 '2028. 8. 20.' */
+export function formatRelativeDateKo(date: ISODate, today: ISODate): string {
+  if (date === today) return `오늘 · ${formatDateKo(date)}`;
+  if (date === addDays(today, 1)) return `내일 · ${formatDateKo(date)}`;
+  return formatDateKo(date);
+}
+
+/** '12월 1일' — 연도가 없어 일회성 날짜에는 쓰지 않는다 (같은 달 안 목록·달력 칸처럼 연도가 분명한 곳만) */
 export function formatMonthDayKo(date: ISODate): string {
   const { month, day } = parseISODate(date);
   return `${month}월 ${day}일`;

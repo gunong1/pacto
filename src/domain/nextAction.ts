@@ -1,4 +1,4 @@
-import { addDays, addMonths, parseISODate } from './dates';
+import { addDays, addMonths, formatDateLongKo } from './dates';
 import { daysUntil } from './dday';
 import { formatWon } from './money';
 import { NOTIFICATION_SOURCE_LABEL } from './notificationPriority';
@@ -76,10 +76,8 @@ const KIND_PRIORITY: Record<NextActionKind, number> = {
   payment: 5,
 };
 
-function monthDay(date: ISODate): string {
-  const { month, day } = parseISODate(date);
-  return `${month}월 ${day}일`;
-}
+/** 다음 행동 문장 속 날짜 — 일회성 날짜라 연도까지 ('2028년 8월 20일') */
+const monthDay = formatDateLongKo;
 
 function remaining(label: string, days: number, particle: '이' | '가' | '까지') {
   if (days === 0) return `오늘이 ${label}입니다.`;

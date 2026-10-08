@@ -14,7 +14,7 @@ import {
   SectionGap,
 } from "@/components/ui/layout";
 import { statusSummary, upcomingEnds } from "@/domain/actions";
-import { formatMonthDayKo, yearMonthOf } from "@/domain/dates";
+import { formatDateKo, yearMonthOf } from "@/domain/dates";
 import { categoryLabel } from "@/domain/labels";
 import { formatKRW } from "@/domain/money";
 import { attentionItems } from "@/domain/nextAction";
@@ -142,7 +142,7 @@ export default function HomeScreen() {
                     numberOfLines={1}
                     style={{ marginTop: 2 }}
                   >
-                    {a.label} · {formatMonthDayKo(a.date)}
+                    {a.label} · {formatDateKo(a.date)}
                   </AppText>
                 </View>
                 <DDay days={a.days} variant="title2" />
@@ -222,7 +222,7 @@ export default function HomeScreen() {
                 key={e.contractId}
                 category={e.category}
                 title={e.contractTitle}
-                subtitle={`${e.autoRenewal ? "자동갱신" : "만료"} ${formatMonthDayKo(e.date)}${e.noticeDate ? ` · 해지 통보 ${formatMonthDayKo(e.noticeDate)}까지` : ""}`}
+                subtitle={`${e.autoRenewal ? "자동갱신" : "만료"} ${formatDateKo(e.date)}${e.noticeDate ? ` · 해지 통보 ${formatDateKo(e.noticeDate)}까지` : ""}`}
                 right={<DDay days={e.days} variant="body2Strong" />}
                 onPress={() => router.push(`/contract/${e.contractId}`)}
               />

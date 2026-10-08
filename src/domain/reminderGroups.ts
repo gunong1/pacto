@@ -6,7 +6,7 @@
  * - 화면 목록에서는 같은 계약의 반복 결제 알림을 가장 가까운 것만 펼치고, 이후는 "이후 매월 11일 알림 예정"으로 줄인다.
  *   해지 통보기한·만료·갱신 알림은 줄이지 않는다 (행동이 필요한 알림).
  */
-import { addMonths, formatMonthDayKo, parseISODate } from './dates';
+import { addMonths, formatDateKo, parseISODate } from './dates';
 import { daysUntil } from './dday';
 import { formatWon } from './money';
 import { NOTIFICATION_SOURCE_LABEL, type NotificationPriority } from './notificationPriority';
@@ -127,7 +127,7 @@ function eventLines(list: Reminder[]): string[] {
   }
   return [...lines.entries()].map(([k, labels]) => {
     const [date, kind, dir] = k.split('|');
-    const when = formatMonthDayKo(date);
+    const when = formatDateKo(date);
     return kind === 'payment' ? `${when} ${labels.join(' · ')} ${dir === 'in' ? '입금' : '결제'}` : `${when} ${labels.join(' · ')}`;
   });
 }
@@ -168,5 +168,5 @@ export function reminderDigest(groups: readonly ReminderGroup[]): ReminderDigest
 function followUpText(first: ISODate, dates: ISODate[]): string {
   const day = parseISODate(first).day;
   const monthly = dates.every((d, i) => d === addMonths(first, i + 1) && parseISODate(d).day === day);
-  return monthly ? `이후 매월 ${day}일 알림 예정` : `이후 알림 ${dates.length}건 더 (${formatMonthDayKo(dates[0])}부터)`;
+  return monthly ? `이후 매월 ${day}일 알림 예정` : `이후 알림 ${dates.length}건 더 (${formatDateKo(dates[0])}부터)`;
 }

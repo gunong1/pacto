@@ -65,10 +65,10 @@ describe('알림 묶기', () => {
       title: '가정용 공기청정기 렌탈계약서 · 결제',
       message: '내일 49,900원 결제 예정이에요.',
       detail: '월 렌탈료 29,900원 · 설치비 20,000원',
-      eventLines: ['10월 12일 월 렌탈료 · 설치비 결제'],
+      eventLines: ['2026. 10. 12. 월 렌탈료 · 설치비 결제'],
     });
     expect(groups[0].reminders).toHaveLength(2); // 원본은 그대로
-    expect(groups[1]).toMatchObject({ fireOn: '2026-11-11', message: '내일 29,900원 결제 예정이에요.', detail: '월 렌탈료', eventLines: ['11월 12일 월 렌탈료 결제'] });
+    expect(groups[1]).toMatchObject({ fireOn: '2026-11-11', message: '내일 29,900원 결제 예정이에요.', detail: '월 렌탈료', eventLines: ['2026. 11. 12. 월 렌탈료 결제'] });
   });
 
   test('화면: 반복 결제 알림은 가장 가까운 것만, 이후는 "이후 매월 11일 알림 예정"', () => {
@@ -92,7 +92,7 @@ describe('알림 묶기', () => {
     expect(g.title).toBe('가정용 공기청정기 렌탈계약서 · 해지 통보기한');
     expect(g.reminders).toHaveLength(3);
     expect(g.detail).toBe('자동갱신 예정일까지 30일 남았습니다.\n내일 29,900원 결제 예정 · 월 렌탈료');
-    expect(g.eventLines).toEqual(['9월 11일 해지 통보기한', '10월 11일 자동갱신 예정일', '9월 12일 월 렌탈료 결제']);
+    expect(g.eventLines).toEqual(['2029. 9. 11. 해지 통보기한', '2029. 10. 11. 자동갱신 예정일', '2029. 9. 12. 월 렌탈료 결제']);
     const digest = reminderDigest(groups);
     expect(digest.filter((i) => i.group.kind === 'termination_notice')).toHaveLength(3);
   });
@@ -101,6 +101,6 @@ describe('알림 묶기', () => {
     const job = record('c-job', { title: '근로계약서', category: 'employment', contractType: 'employment', startDate: '2026-10-01', endDate: '2027-09-30', payments: [{ kind: 'salary', direction: 'income', label: '급여', amount: '3,600,000', frequency: 'monthly', dayOfMonth: '25' }] });
     const g = groupReminders(upcomingReminders([job], TODAY, 60))[0];
     expect(g.message).toBe('내일 +3,600,000원 입금 예정이에요.');
-    expect(g.eventLines).toEqual(['10월 25일 급여 입금']);
+    expect(g.eventLines).toEqual(['2026. 10. 25. 급여 입금']);
   });
 });
