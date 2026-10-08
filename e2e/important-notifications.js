@@ -69,6 +69,9 @@ const assert = (cond, msg) => {
     assert(order, 'critical이 먼저가 아님');
     log('중요한 계약 일정: 종료 통보기한(중요·입력한 계약 정보 기준·2027. 6. 21.) → 갱신 여부 확인(PACTO 안내, 법령·계약서 기한 아님)');
 
+    assert(!(await page.locator(tid('reminder-policy')).innerText()).includes('30·7·1일 전과 당일'), '알림 규칙이 기본으로 접혀 있지 않음');
+    await page.click(tid('reminder-policy-toggle'));
+    await page.waitForSelector(tid('reminder-policy-body'));
     const policy = await page.locator(tid('reminder-policy')).innerText();
     assert(policy.includes('해지·종료 통보기한') && policy.includes('30·7·1일 전과 당일') && policy.includes('알림 시점은 PACTO 설정이에요'), '알림 규칙 없음: ' + policy);
     assert(!(await page.locator('body').innerText()).includes('850,000원 결제 예정'), '결제 알림 목록이 남아 있음');

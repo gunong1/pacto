@@ -119,12 +119,16 @@ const assert = (cond, msg) => {
   await page.click(tid('tab-home'));
   await page.click(tid('open-notifications'));
   await page.waitForSelector(tid('reminder-policy'));
+  const folded = await page.locator('body').innerText();
+  assert(folded.includes('알림은 언제 오나요?') && !folded.includes('30·7·1일 전과 당일'), '알림 규칙이 기본으로 접혀 있지 않음: ' + folded);
+  await page.click(tid('reminder-policy-toggle'));
+  await page.waitForSelector(tid('reminder-policy-body'));
   const notes = await page.locator('body').innerText();
   assert(notes.includes('앞으로 12개월 안에 챙길 중요한 계약 일정이 없어요.'), '중요 일정 빈 상태 문구 없음: ' + notes);
   assert(notes.includes('결제·입금') && notes.includes('하루 전') && notes.includes('30·7·1일 전과 당일') && notes.includes('90·30·7일 전'), '알림 규칙 요약 없음: ' + notes);
   assert(!notes.includes('49,900원 결제 예정') && !notes.includes('다음 알림'), '결제 알림 목록이 남아 있음: ' + notes);
   await shot('04-notifications');
-  log('알림 화면: 중요 일정 없음(2029년 기한은 12개월 밖) + 알림 규칙 요약, 결제 알림 목록 없음');
+  log('알림 화면: 중요 일정 없음(2029년 기한은 12개월 밖) + 접힌 알림 규칙(펼치면 요약), 결제 알림 목록 없음');
   await page.goBack();
 
   // 수정: 시작일 10/12 → 10/15 → 새로고침 없이 캘린더 반영
