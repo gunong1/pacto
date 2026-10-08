@@ -1172,3 +1172,12 @@ pacto/
 - **변경 이력**: `updated_at` 트리거 자리에 audit trigger 추가 가능하도록 테이블별 트리거 함수 분리
 - **AI 질문**: `AIProvider.answerQuestion` 시그니처 + `contract/[id]/ask` 라우트 placeholder. 근거 응답 형식 `{answer, citations:[{document_id,page,quote}]}`
 - **사업자 모드**: `contracts.user_id` → 추후 `owner_type/owner_id` 또는 `workspace_id` 마이그레이션 여지
+
+### 결제 날짜 해석 · 날짜 출처 (개정 14, extract-v8)
+- 문제: 임대차 샘플에서 계약금("계약 당일 지급")이 2026-10-20으로 저장됨. 원인 두 가지 — (가) 모델이 날짜를 비우면 저장 시 `draftToPayment`가 계약 시작일로 채움, (나) 모델이 같은 표의 잔금 날짜를 옮겨 적으면 그대로 사용.
+- `payments[].date_source`: `explicit | contract_date | balance_date | move_in_date | start_date | end_date | calculated | inferred`. 프롬프트: 날짜는 그 금액의 문구만 보고 정하고, 같은 표·섹션의 다른 날짜를 옮기지 않는다.
+- 서버 `resolvePaymentDate`(extraction.ts): 기준 날짜(contract_date 등)면 모델이 적은 date 대신 dates의 해당 의미(contract_signed·balance_due/move_in·move_in·contract_start…·contract_end/maturity) 날짜를 쓴다. 없으면 null(다른 날짜로 대신하지 않음).
+  안전장치: explicit인데 근거 문구에 그 날짜가 없으면 문구의 기준 표현("계약 당일·계약 시·계약 체결 시", "잔금일에", "입주일·입주 시", "시작일에", "종료일·만기")으로 바꾸고, 기준 표현도 없으면 inferred로 낮춘다(날짜는 두고 "확인 필요").
+- 앱: 기준 날짜로 정한 금액은 "계약서에 '계약 당일'로 적혀 있어 계약일(…)로 넣었어요." 안내. 기준 날짜가 없거나 calculated·inferred면 "확인 필요".
+- 한계: 근거 문구(evidence_quote)가 없는 값은 안전장치로 검사할 수 없다. date_source는 확인 화면까지만 쓰고 DB에는 저장하지 않는다.
+- 테스트: `scenario-lease-dates.test.ts` (계약금 2026-10-08 · 잔금 2026-10-20 · 월세·관리비 매월 20일 · 모델 응답 6가지 · 기준 표현 규칙).

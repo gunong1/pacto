@@ -1,4 +1,4 @@
-import type { ExtractedDate, ExtractionResult } from '@/data/ai/provider';
+import type { ExtractedDate, ExtractedPayment, ExtractionResult } from '@/data/ai/provider';
 import { EMPTY_DRAFT } from '@/data/draft';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
@@ -13,7 +13,7 @@ import {
   type SourceType,
 } from '@/domain/contractTypes';
 import { formatWon } from '@/domain/money';
-import { addDays, diffDays } from '@/domain/dates';
+import { addDays, diffDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
 
 /**
@@ -24,6 +24,15 @@ import type { AiCheck, Confidence } from '@/domain/types';
  */
 
 type Meaning = ExtractedDate['meaning'];
+
+/** 기준 날짜를 따르는 결제 날짜 안내 (계약서 문구 · 기준 날짜 이름) */
+const DATE_ANCHOR_COPY: Partial<Record<NonNullable<ExtractedPayment['dateSource']>, { phrase: string; label: string }>> = {
+  contract_date: { phrase: '계약 당일', label: '계약일' },
+  balance_date: { phrase: '잔금일', label: '잔금일' },
+  move_in_date: { phrase: '입주일', label: '입주일' },
+  start_date: { phrase: '계약 시작일', label: '계약 시작일' },
+  end_date: { phrase: '종료일', label: '종료일' },
+};
 
 /** 유형별 시작일·종료일로 쓸 날짜 의미 (앞쪽 우선). 없는 유형은 기본값 */
 const START_MEANINGS: Partial<Record<ContractType, Meaning[]>> = {
@@ -189,6 +198,20 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
       notes[`${path}.startsOn`] = draft.startDate
         ? '계약서에 날짜가 없어 계약 시작일로 계산했어요. 다른 날이면 입력해주세요.'
         : '계약서에 날짜가 없어요. 날짜를 입력해주세요.';
+    }
+    // 날짜의 출처: "계약 당일 지급"처럼 다른 날짜를 기준으로 한 금액은 그 기준 날짜로 (옆 줄 날짜를 옮기지 않는다)
+    const anchor = p.dateSource ? DATE_ANCHOR_COPY[p.dateSource] : undefined;
+    if (anchor && p.frequency === 'one_time') {
+      if (startsOn) {
+        notes[`${path}.startsOn`] = `계약서에 '${anchor.phrase}'로 적혀 있어 ${anchor.label}(${formatDateKo(startsOn)})로 넣었어요.`;
+      } else if (confirmed) {
+        flagged.add(`${path}.startsOn`);
+        notes[`${path}.startsOn`] = `계약서에 '${anchor.phrase}'로 적혀 있지만 ${anchor.label}이 계약서에 없어요. 비워두면 계약 시작일로 계산되니 실제 날짜를 입력해주세요.`;
+      }
+    } else if (startsOn && (p.dateSource === 'calculated' || p.dateSource === 'inferred')) {
+      flagged.add(`${path}.startsOn`);
+      notes[`${path}.startsOn`] =
+        p.dateSource === 'calculated' ? '계약서 문구로 계산한 날짜예요. 계약서와 같은지 확인해주세요.' : '계약서에 이 금액의 날짜가 직접 적혀 있지 않아 AI가 추정한 날짜예요. 확인해주세요.';
     }
     let dayOfMonth = p.dayOfMonth;
     if (p.frequency !== 'one_time' && dayOfMonth == null && !startsOn && p.obligation !== 'conditional') {

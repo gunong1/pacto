@@ -27,8 +27,11 @@ import {
 import { DOCUMENT_CHECK_INSTRUCTIONS, documentCheckJsonSchema } from './documentGate.ts';
 import { maskLevel1Deep } from './protection/sensitive.ts';
 
-/** v7: document_check(문서 역할·쪽별 판정·계약 신호) + 모든 추출값에 근거 파일·쪽 */
-export const PROMPT_VERSION = 'extract-v7';
+/**
+ * v7: document_check(문서 역할·쪽별 판정·계약 신호) + 모든 추출값에 근거 파일·쪽
+ * v8: 결제 날짜의 출처(date_source) — "계약 당일 지급"처럼 다른 날짜를 기준으로 하는 금액은 그 기준 날짜를 쓰고, 옆 줄 날짜를 옮기지 않는다
+ */
+export const PROMPT_VERSION = 'extract-v8';
 
 export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export const FREQUENCIES = ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly', 'one_time'] as const;
@@ -56,6 +59,20 @@ export const DATE_MEANINGS = [
   'notice_deadline', // 해지·종료 통보기한 날짜
   'other',
 ] as const;
+/**
+ * 결제 날짜의 출처: explicit 계약서에 날짜가 직접 적힘 / contract_date·balance_date·move_in_date·start_date·end_date 그 날짜를 기준으로 함
+ * ("계약 당일 지급" → contract_date) / calculated 문구로 계산(예: 계약일로부터 7일 이내) / inferred 문맥으로 추정
+ */
+export const DATE_SOURCES = ['explicit', 'contract_date', 'balance_date', 'move_in_date', 'start_date', 'end_date', 'calculated', 'inferred'] as const;
+export type DateSource = (typeof DATE_SOURCES)[number];
+/** 기준 날짜(anchor)가 가리키는 dates의 의미 — 앞에 있는 것부터 찾는다 */
+export const DATE_ANCHORS: Partial<Record<DateSource, readonly (typeof DATE_MEANINGS)[number][]>> = {
+  contract_date: ['contract_signed'],
+  balance_date: ['balance_due', 'move_in'],
+  move_in_date: ['move_in', 'balance_due'],
+  start_date: ['contract_start', 'service_start', 'coverage_start', 'hire'],
+  end_date: ['contract_end', 'maturity'],
+};
 const CONFIDENCE = ['high', 'medium', 'low'] as const;
 /** 모델이 줄 수 있는 출처 (계산·사용자 확인은 앱이 붙인다) */
 const MODEL_SOURCES = ['explicit', 'inferred'] as const;
@@ -156,7 +173,13 @@ export function extractionJsonSchema() {
         amount: { type: 'integer', description: '1회 금액(원)' },
         frequency: { type: 'string', enum: [...FREQUENCIES] },
         day_of_month: { type: ['integer', 'null'], description: '정기 결제·지급일(매월 N일의 N). 명시된 경우만' },
-        date: { type: ['string', 'null'], description: '일시불의 지급일 또는 정기 결제의 첫 결제일 (YYYY-MM-DD). 명시된 경우만' },
+        date: { type: ['string', 'null'], description: '일시불의 지급일 또는 정기 결제의 첫 결제일 (YYYY-MM-DD). 이 금액의 문구에 날짜가 직접 적혀 있을 때만. 기준 날짜(date_source)를 따르면 그 기준 날짜 또는 null' },
+        date_source: {
+          type: 'string',
+          enum: [...DATE_SOURCES],
+          description:
+            'date의 출처. explicit: 이 금액의 문구에 날짜가 직접 적힘 / contract_date: "계약 당일·계약 시·계약 체결 시" / balance_date: "잔금일에" / move_in_date: "입주일에·입주 시" / start_date: "계약 시작일·개시일에" / end_date: "종료일·만기에" / calculated: 기준 날짜에서 계산(…로부터 N일 이내) / inferred: 문맥으로 추정. 정기 결제가 "매월 N일"뿐이면 explicit, date=null',
+        },
         end_date: { type: ['string', 'null'], description: '정기 결제의 마지막 결제일 또는 납입기간 종료일. 명시된 경우만' },
         installment_count: { type: ['integer', 'null'], description: '총 납입 회차 (할부·대출). 명시된 경우만' },
         is_variable: { type: 'boolean', description: '사용량 등으로 매번 금액이 달라지는지' },
@@ -252,6 +275,12 @@ export function extractionInstructions(today: string): string {
     '   임대차 보증금·전세금과 그 계약금·잔금은 kind=deposit, direction=neutral. 매매·용역은 사용자가 어느 쪽인지 보고 정하고, 알 수 없으면 confidence를 low로.',
     '   연납 보험료는 frequency=yearly, 1회 납입액 그대로. 일회성 계약의 계약금/중도금/잔금은 각각 따로, 날짜는 date에.',
     '   결제일이 적혀 있지 않으면 추측하지 말고 null. 다른 결제와 "함께 청구"되면 같은 day_of_month. 같은 돈을 두 번 넣지 않습니다.',
+    '   결제 날짜 해석 (중요): 날짜는 그 금액의 문구만 보고 정합니다. 같은 표·같은 섹션의 다른 줄에 날짜가 있다는 이유로 그 날짜를 옮겨 쓰지 않습니다.',
+    '   - 그 금액의 문구에 날짜가 직접 적혀 있으면 date=그 날짜, date_source=explicit.',
+    '   - "계약 당일·계약 시·계약 체결 시 지급" → date_source=contract_date, date=계약 체결일(dates의 contract_signed, 없으면 null). 예) 계약금 "계약 당일 지급" 바로 아래 줄에 잔금 "2026년 10월 20일 지급"이 있어도 계약금 날짜는 계약 체결일.',
+    '   - "잔금일에 지급" → balance_date, "입주일에·입주 시" → move_in_date, "계약 시작일·개시일에" → start_date, "종료일·만기에" → end_date (date=그 기준 날짜, 없으면 null).',
+    '   - "계약일로부터 7일 이내"처럼 기준 날짜에서 계산하면 calculated, 문맥으로 추정하면 inferred (confidence medium 이하).',
+    '   - "매월 20일"은 정기 결제의 day_of_month=20 (date_source=explicit, date는 첫 결제일이 적혀 있을 때만).',
     '   금액마다 payment_obligation을 판단합니다 (아래 원칙).',
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
@@ -346,6 +375,8 @@ export interface ExtractedPayment {
   dayOfMonth: number | null;
   /** 계약서에 적힌 지급일(일시불) 또는 첫 결제일. 없으면 null — 앱이 시작일로 계산하고 "확인 필요"로 표시 */
   date: string | null;
+  /** date의 출처 — 기준 날짜(contract_date 등)면 date는 그 기준 날짜에서 온 값 (기준 날짜가 없으면 null) */
+  dateSource: DateSource | null;
   endDate: string | null;
   installmentCount: number | null;
   isVariable: boolean;
@@ -506,6 +537,55 @@ function confidenceOf(v: unknown): Confidence {
 }
 
 /** 출처를 모르면 계약서에 적힌 값으로 보지 않는다 */
+/** 금액 문구에서 기준 날짜 표현 찾기 ("계약 당일 지급" → contract_date). "계약 시작일"은 계약 시가 아니다 */
+const ANCHOR_PATTERNS: [DateSource, RegExp][] = [
+  ['contract_date', /계약\s*(당일|체결\s*(일|시|당일|와\s*동시)|시(?!작|점)|과\s*동시)/],
+  ['balance_date', /잔금\s*(지급\s*)?일(에|까지|\s*지급)/],
+  ['move_in_date', /입주\s*(일|시)/],
+  ['start_date', /(계약\s*)?(시작|개시)\s*일(에|까지|\s*지급)/],
+  ['end_date', /(종료|만료|만기)\s*(일|시)(에|까지|\s*지급)?/],
+];
+export function anchorFromQuote(quote: string): DateSource | null {
+  for (const [source, re] of ANCHOR_PATTERNS) if (re.test(quote)) return source;
+  return null;
+}
+
+/** 문구에 그 날짜가 직접 적혀 있는지 (2026년 10월 20일 · 2026.10.20 · 26-10-20 · 10월 20일) */
+export function quoteHasDate(quote: string, iso: string): boolean {
+  const [y, m, d] = iso.split('-').map(Number);
+  const md = new RegExp(`(^|\\D)0?${m}\\s*월\\s*0?${d}\\s*일`);
+  const ymd = new RegExp(`(^|\\D)(${y}|${String(y).slice(2)})\\s*[.\\-/년]\\s*0?${m}\\s*[.\\-/월]\\s*0?${d}(\\D|$)`);
+  return md.test(quote) || ymd.test(quote);
+}
+
+/**
+ * 결제 날짜 정하기 — 옆 줄 날짜가 옮겨 오지 않도록:
+ * 1) 기준 날짜(contract_date 등)를 따르는 금액은 모델이 적은 date 대신 그 기준 날짜(dates)를 쓴다. 기준 날짜가 없으면 null
+ * 2) 안전장치: "explicit"인데 그 금액의 문구에 그 날짜가 없으면 — 문구에 "계약 당일" 같은 기준 표현이 있으면 그 기준으로, 아니면 추정(inferred)
+ */
+export function resolvePaymentDate(
+  modelDate: string | null,
+  rawSource: unknown,
+  quote: string,
+  dates: readonly { date: string; meaning: string }[],
+): { date: string | null; dateSource: DateSource | null } {
+  let source: DateSource | null = oneOf(DATE_SOURCES, rawSource) ?? (modelDate ? 'explicit' : null);
+  const anchor = quote ? anchorFromQuote(quote) : null;
+  if ((source === 'explicit' || source === null) && quote && !(modelDate && quoteHasDate(quote, modelDate))) {
+    if (anchor) source = anchor;
+    else if (source === 'explicit' && modelDate) source = 'inferred';
+  }
+  const meanings = source ? DATE_ANCHORS[source] : undefined;
+  if (meanings) {
+    for (const m of meanings) {
+      const d = dates.find((x) => x.meaning === m);
+      if (d) return { date: d.date, dateSource: source };
+    }
+    return { date: null, dateSource: source };
+  }
+  return { date: modelDate, dateSource: source };
+}
+
 function sourceOf(v: unknown): ModelSource {
   return oneOf(MODEL_SOURCES, v) ?? 'inferred';
 }
@@ -600,7 +680,7 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
     if (frequency === null) continue;
     const oneTime = frequency === 'one_time';
     const kind = oneOf(PAYMENT_KIND_CODES, p.kind) ?? 'other';
-    const date = validDate(p.date) ? p.date.trim() : null;
+    const { date, dateSource } = resolvePaymentDate(validDate(p.date) ? p.date.trim() : null, p.date_source, quoteOf(p).evidence?.[0]?.quote ?? '', dates);
     if (payments.some((x) => x.kind === kind && x.amount === amount && x.frequency === frequency && x.date === date)) continue;
     const kindDefault = PAYMENT_KIND_DEFS.find((k) => k.code === kind)?.direction ?? 'expense';
     payments.push({
@@ -611,6 +691,7 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
       frequency,
       dayOfMonth: oneTime ? null : toInt(p.day_of_month, 1, 31),
       date,
+      dateSource,
       endDate: !oneTime && validDate(p.end_date) ? p.end_date.trim() : null,
       installmentCount: oneTime ? null : toInt(p.installment_count, 1, 600),
       isVariable: p.is_variable === true,

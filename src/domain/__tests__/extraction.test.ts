@@ -66,7 +66,7 @@ const rental = () => ({
 
 describe('분석 v4 — 서버 스키마·프롬프트', () => {
   test('프롬프트 버전 · 분석 순서 · 표현 규칙', () => {
-    expect(PROMPT_VERSION).toBe('extract-v7');
+    expect(PROMPT_VERSION).toBe('extract-v8');
     const ins = extractionInstructions(TODAY);
     for (const s of ['1) category', '2) contract_type', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다']) expect(ins).toContain(s);
   });
