@@ -161,7 +161,7 @@ export interface ContractDocument {
  * - protected: 찾아서 실제로 제거한 보호본이 있음 / no_sensitive_data: 찾지 못함("없다"가 아님)
  * - unsupported_scan: 사진·스캔본이라 자동 가리기 미지원 / failed: 처리 못 함 / pending: 처리 전
  */
-export type ProtectionStatus = 'pending' | 'protected' | 'no_sensitive_data' | 'unsupported_scan' | 'failed';
+export type ProtectionStatus = 'pending' | 'protected' | 'no_sensitive_data' | 'unreadable' | 'unsupported_scan' | 'failed';
 
 export interface SensitiveRegion {
   id: string;

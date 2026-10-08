@@ -9,7 +9,7 @@ import { PDFJS_OPTIONS } from './cmap.ts';
 import { buildProtectedView, extractPage, removeGlyphs, type Box, type Glyph, type PageText, type StreamEntry } from './pdfEngine.ts';
 import { detectSensitive, MASK_LEVEL, type DetectionConfidence, type SensitiveType } from './sensitive.ts';
 
-export type ProtectionStatus = 'protected' | 'no_sensitive_data' | 'unsupported_scan' | 'failed';
+export type ProtectionStatus = 'protected' | 'no_sensitive_data' | 'unreadable' | 'unsupported_scan' | 'failed';
 export type RegionState = 'masked' | 'unmasked' | 'candidate';
 
 export interface ProtectedRegion {

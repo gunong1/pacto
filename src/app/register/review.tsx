@@ -15,6 +15,7 @@ import { draftToForm } from '@/features/contracts/form';
 import { viewDocument } from '@/features/documents/openDocument';
 import { useCreateContract, useDocumentProtection, useProtectDocument, useToday } from '@/features/contracts/queries';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
+import { overallProtectionCopy } from '@/features/documents/protectionCopy';
 import { noticeDeadlineFor, toReviewModel, type ReviewCheck } from '@/features/registration/extraction';
 import { finishRegistration } from '@/features/registration/finish';
 import { useRegistration } from '@/features/registration/store';
@@ -88,6 +89,12 @@ export default function ReviewScreen() {
         </AppText>
       </View>
 
+      {uploaded.length > 1 && overallProtectionCopy(uploaded.map((d) => protection.data?.[d.id])) ? (
+        // 여러 장: 모든 장이 보호됨·감지되지 않음일 때만 완료로 (한 장이라도 읽지 못함·실패면 "일부 완료하지 못함")
+        <AppText variant="captionStrong" color={overallProtectionCopy(uploaded.map((d) => protection.data?.[d.id]))!.tone === 'warning' ? 'check' : 'textSecondary'} style={{ marginTop: spacing.md }} testID="review-protection-overall">
+          {overallProtectionCopy(uploaded.map((d) => protection.data?.[d.id]))!.title}
+        </AppText>
+      ) : null}
       {uploaded.map((d) => (
         <View key={d.id} style={{ marginTop: spacing.md }}>
           <ProtectionCard

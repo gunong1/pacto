@@ -98,16 +98,17 @@ describe('Step 11 — 민감정보 보호', () => {
     expect(view).not.toContain('1234567');
   });
 
-  test('사진·스캔본은 unsupported_scan (보호본·영역 없음 — 보호됨으로 표시하지 않음)', async () => {
+  test('스캔 PDF는 unsupported_scan, 해석할 수 없는 사진 파일은 failed (보호본·영역 없음 — 보호됨으로 표시하지 않음)', async () => {
     const a = await newUser('scan');
     const photo = stores(a.client, new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), 'image/jpeg').docs;
     const p = await photo.upload(file('계약서.jpg', 'image/jpeg'));
-    expect(await photo.protect(p.id)).toEqual({ status: 'unsupported_scan', detail: 'image_file' });
+    expect(await photo.protect(p.id)).toEqual({ status: 'failed', detail: 'image_format' });
     const scan = stores(a.client, fixture('scan')).docs;
     const s = await scan.upload(file('스캔.pdf'));
     expect(await scan.protect(s.id)).toEqual({ status: 'unsupported_scan', detail: 'scanned_pages' });
     const prot = await scan.getProtection([p.id, s.id]);
-    for (const id of [p.id, s.id]) expect(prot[id]).toMatchObject({ status: 'unsupported_scan', protectedViewPath: null, regions: [] });
+    expect(prot[p.id]).toMatchObject({ status: 'failed', protectedViewPath: null, regions: [] });
+    expect(prot[s.id]).toMatchObject({ status: 'unsupported_scan', protectedViewPath: null, regions: [] });
   });
 
   test('다른 계정은 남의 문서를 보호 처리·조회할 수 없고, 사용자는 보호 상태를 직접 바꿀 수 없다', async () => {

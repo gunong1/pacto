@@ -1233,3 +1233,22 @@ pacto/
 - 적용: ① 서버 분석(extraction.ts) → references(total) ② 앱 확인 화면(toReviewModel) — 이전 서버 결과도 ③ 저장된 계약을 읽을 때(rowMapping.toRecord, 앱·서버 알림 공용) 총액 행을 참고 금액(informational)으로 ④ migration `20261014000001_aggregate_payments.sql` — 같은 규칙으로 obligation만 informational로 바꾸고(행·금액 유지), 보증금 총액이 계약 정보에 없으면 deposit_amount를 채운다.
 - 참고 금액(informational)은 캘린더·지출·알림에서 빠지고, "추가로 발생할 수 있는 비용"에도 넣지 않는다. 핵심 정보에 보증금·계약 총액과 같은 금액이면 생략, 아니면 "총액 — 계약금·잔금 등으로 나눠 지급" 참고 행.
 - 테스트: `aggregate-payments.test.ts` (A 구성 합 20M·별도 20M 결제 없음, B 10/20 18,000,000 · 지출 합계 제외, C 월세·관리비 950,000 결제 예정과 분리, D 용역 3M+3M+4M·매매, 원인 재현 38M).
+
+### 사진 계약서 민감정보 보호 — CLOVA OCR (개정 19)
+- **흐름**: 사진(JPG·PNG, HEIC는 prepareFile에서 JPEG) 원본 비공개 저장 → `protect-document` → CLOVA OCR(1차) → 공통 형식(OcrPage) → 기존 탐지기(sensitive.ts) → 위치 연결 → 보호본(실제 픽셀을 덮은 새 JPEG) → 확인 → `document_derivatives`(protected_view, `{id}.protected_view.jpg`) → 앱은 보호본을 기본으로 표시. 원본은 바꾸지 않는다(테스트 L: 해시 동일).
+- **개인정보 처리 흐름**: 사진 계약서 자동 보호를 위해 **원본 이미지를 OCR 공급자 CLOVA OCR(네이버클라우드)로 전송**한다. OCR 결과(전체 텍스트·원본 응답)는 Edge Function 메모리에서만 쓰고 DB·로그에 저장하지 않는다. 저장은 위치(0~1 bbox)·종류·가린 표시값(예: 800101-1******)·문맥 이름뿐. 개인정보처리방침·동의 문구 반영은 출시 전 할 일(LAUNCH_CHECKLIST).
+  PDF는 지금처럼 외부 전송 없이 처리한다. 비밀값 `CLOVA_OCR_URL`·`CLOVA_OCR_SECRET`은 Edge Function secrets에만 (앱에 넣지 않음).
+- **구조 (재사용 — 향후 스캔 PDF는 페이지 이미지 → 같은 OCR → 같은 탐지기 → 같은 가리기)**:
+  `ocrProvider.ts`(OcrProvider 인터페이스 + ClovaOcr: 20초 시간 초과, 오류 구분 auth·rate_limited·timeout·server·bad_request·invalid_response·network, 일시적 오류만 1번 재시도) ·
+  `ocrText.ts`(공급자 응답 → OcrPage, 좌표 0~1, 붙어 있는 숫자·하이픈 조각 합치기 — "1234-" "5678-" … → 한 값, 가릴 상자는 조각 전체) ·
+  `sensitive.ts`(기존 탐지기 + OCR 필드명 오타 한 글자 허용 — "주민동록번호". 값 모양 검증을 통과한 값에만 쓰고, 제외 필드명(계약번호 등)이 우선) ·
+  `imageRedact.ts`(해석 → 가로 1600px로 면적 평균 축소 → 불투명 검정 상자 → JPEG 85로 새로 저장 → 다시 해석해 상자 안이 모두 어두운지 확인) · `protectImage.ts`(판정).
+- **가리기**: 단어 단위 좌표만 있으므로 부분 가리기 없이 값 상자 전체를 덮는다(여유: 좌우 글자 높이의 35%, 상하 20%). 상자는 줄인 뒤의 좌표에 칠한다 → 상자 안에 원본 픽셀 없음.
+- **상태**: protected = OCR 성공 · 모든 가림 영역 칠함 · 보호본 생성 · 보호본 해석 성공 · 덮임 확인 · (가린 값이 있으면) 재-OCR 검증 통과가 모두 맞을 때만. no_sensitive_data = 정상적으로 읽었지만 찾지 못함(재-OCR 안 함). unreadable = 글자 40자 미만 · 평균 신뢰도 0.6 미만 · 신뢰도 0.8 미만 조각이 절반 초과 (migration `20261015000001`). failed = 그 밖(사유 코드만). EXIF 회전이 남은 JPEG는 좌표가 어긋날 수 있어 failed.
+- **재-OCR 검증**: 가린 값이 있는 사진만 보호본을 다시 OCR. 실패 = 가린 값 전체(숫자만 비교, 이메일은 글자)가 한 덩어리 안에 다시 읽힘 · 칠한 상자 안에서 숫자 3개 이상인 조각이 읽힘. 숫자 조각(예: 1111)이 다른 곳에 있는 것만으로는 실패하지 않는다.
+- **가리기 해제·다시 가리기**: 이미 보호된 사진이면 OCR을 다시 하지 않고 저장된 위치로 다시 그린 뒤 해석·덮임만 확인(`redrawImage`). OCR 호출: 처음 1회(+가린 값 있으면 검증 1회), 해제·다시 가리기는 0회.
+- **여러 장**: 사진 한 장 = 문서 한 건, 장별 상태. 앱은 동시에 2장씩 처리(로컬 Edge 측정: 3장 동시는 자원 한도 초과가 있었고 2장은 없었음), 요청 실패 시 1번만 다시. 전체 상태는 모든 장이 protected·no_sensitive_data일 때만 완료, 아니면 "일부 페이지의 민감정보 보호를 완료하지 못했어요".
+- **성능 (로컬 Edge Runtime, 가짜 OCR 지연 0.4초)**: 2400×3391 사진 한 장 — 해석 0.13~0.2초(WASM) · 축소·가리기·저장 0.3~0.45초 · 확인 0.06~0.13초. 순수 JS 해석(0.6~1.1초)일 때는 CPU 한도 초과가 잦아 WASM 해석으로 바꿨다. 실제 배포 측정: `scripts/protect-bench.mjs`.
+- **보호본 해상도**: 원본 2400px 보존, 보호본 가로 1600px. 가독성 fixture(`smallprint.jpg`, A4 사진 기준 6·8·10pt 상당)에서 6pt도 1600px에서 읽을 수 있음을 눈으로 확인(테스트가 결과 이미지를 저장할 수 있음: `PHOTO_READABILITY_OUT`).
+- **AI 분석과 독립**: 보호 상태(protection_status)와 문서 역할(document_role)·분석 결과는 따로 관리한다(보호 실패여도 분석은 진행 가능).
+- **테스트**: `photo-protection.test.ts`(A~I·K·L·N·가리기 해제·EXIF·가독성, 가짜 OCR이 실제로 픽셀을 읽어 덮인 글자는 못 읽음), `photo-protection-copy.test.ts`(문구·J·동시 처리), `step14-photo-protection`(로컬 Edge + 가짜 CLOVA 서버: A~D·H·N·M·가리기 해제), fixture는 `scripts/fixtures/make-photo-fixtures.py`(모든 값 가짜).

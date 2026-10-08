@@ -24,11 +24,16 @@ import { ensureCameraPermission, openAppSettings } from '@/features/registration
 import { checkPhotos, pickPhotos } from '@/features/registration/pickers';
 import { useRegistration } from '@/features/registration/store';
 import { confirm } from '@/lib/dialog';
+import { mapWithConcurrency } from '@/lib/pool';
 import { colors, hitSlop, radius, spacing } from '@/theme';
+
+/** 사진 보호 동시 처리 수 — 로컬 Edge 측정: 3장 동시는 자원 한도 초과가 있었고 2장은 없었음 (실제 배포 측정 후 조정) */
+const PROTECT_CONCURRENCY = 2;
+const PROTECT_RETRY_DELAY_MS = 1500;
 
 /**
  * 진행 단계 — 실제 처리 순서와 같다 (가짜 진행률을 만들지 않는다).
- * ① 계약서 보관 → ② 민감정보 보호(서버, 외부 전송 없음) → ③ 문서 확인·계약 분석(AI 1회) → ④ 계약정보 정리
+ * ① 계약서 보관 → ② 민감정보 보호(서버. PDF는 외부 전송 없음, 사진은 CLOVA OCR로 글자를 읽음) → ③ 문서 확인·계약 분석(AI 1회) → ④ 계약정보 정리
  * ③은 한 번의 요청에서 "계약 관련 문서인지"와 계약 내용을 함께 본다. 통과하지 못하면 확인 화면으로 가지 않는다.
  */
 const PHASES = [
@@ -169,10 +174,17 @@ export default function AnalyzingScreen() {
         }
       }
       if (controller.signal.aborted) return;
-      // ② 민감정보 보호 (사진은 자동 가리기 미지원 — 상태만 기록)
+      // ② 민감정보 보호 — 사진은 OCR을 쓰므로 동시에 PROTECT_CONCURRENCY장씩, 요청이 실패하면 한 번만 다시 (서버 자원 한도 등)
       if (documentStore.mode === 'supabase') setPhase('protect');
       try {
-        const results = await Promise.all(docs.map((d) => documentStore.protect(d.id).catch(() => null)));
+        const protectOnce = (id: string) => documentStore.protect(id).catch(() => null);
+        const results = await mapWithConcurrency(docs, PROTECT_CONCURRENCY, async (d) => {
+          const r = await protectOnce(d.id);
+          if (r && !(r.status === 'failed' && r.detail === 'request_failed')) return r;
+          if (controller.signal.aborted) return r;
+          await new Promise((res) => setTimeout(res, PROTECT_RETRY_DELAY_MS));
+          return protectOnce(d.id);
+        });
         if (documentStore.mode === 'supabase') {
           const prot = await documentStore.getProtection(docs.map((d) => d.id)).catch(() => ({}) as Record<string, never>);
           setProtectedCount(results.some((r) => r?.status === 'protected') ? Object.values(prot).reduce((n, p) => n + p.regions.filter((g) => g.state === 'masked').length, 0) : null);

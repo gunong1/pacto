@@ -17,3 +17,10 @@
   ```
   npx eas-cli@latest build --profile production
   ```
+
+## 출시 전 반영해야 하는 것 — 사진 계약서 보호 (CLOVA OCR)
+
+- [ ] **개인정보처리방침·동의 문구에 CLOVA OCR 반영** — 사진 계약서 자동 보호를 위해 원본 사진이 네이버클라우드 CLOVA OCR로 전송된다 (처리 위탁·국외 이전 여부 등은 확인 필요)
+  - 지금은 AI 분석 동의 문구가 OpenAI만 언급한다. 사진 보호(OCR)는 동의 여부와 관계없이 실행된다 — 동의를 받을지, 동의 전에는 OCR을 하지 않을지 결정 필요
+- [ ] **CLOVA 비밀값은 Supabase secrets에만** — `CLOVA_OCR_URL`, `CLOVA_OCR_SECRET` (앱·GitHub·채팅에 넣지 않기)
+- [ ] **실제 배포 성능 측정 결과 확인 후 동시 처리 수 확정** — `scripts/protect-bench.mjs` (지금 앱은 2장씩)

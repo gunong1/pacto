@@ -148,7 +148,8 @@ const check = (id, name, ok, detail = '') => {
   await page.waitForSelector(tid('submit-contract'), { timeout: 40000 });
   check('K4', '촬영 완료 → 같은 등록 흐름(보관 → 문서 확인 → 분석) → 확인 화면', true);
   const prot = await body();
-  check('P', '사진 계약서: "보호됐다"고 표시하지 않음 (사진 자동 가리기 미지원 안내)', !prot.includes('민감정보를 보호했어요') && prot.includes('사진으로 등록한 계약서'));
+  // 이 E2E는 OCR(CLOVA) 없이 실행 — 사진 보호가 끝나지 못하면 "보호됐다"고 하지 않고 실패 안내 (이전 "사진은 지원하지 않아요" 문구 없음)
+  check('P', '사진 계약서: OCR을 쓸 수 없으면 "보호됐다"고 표시하지 않음 (처리 중 문제 안내, 미지원 문구 없음)', !prot.includes('민감정보를 보호했어요') && !prot.includes('사진 문서의 자동 민감정보 가리기는 지원하지 않아요') && prot.includes('민감정보 보호 처리 중 문제가 발생했어요'));
   await shot('07-review-photo');
 
   console.log('\npage errors:', errors.length ? errors : 'none');

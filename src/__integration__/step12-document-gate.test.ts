@@ -39,7 +39,7 @@ const roles = async (ids: string[]) => {
 };
 
 describe('Step 12 — 문서 확인 게이트', () => {
-  test('B. 계약서 사진 → contract · 분석 진행 · 자동 가리기는 unsupported_scan(사진)', async () => {
+  test('B. 계약서 사진 → contract · 분석 진행 · 보호 실패(해석할 수 없는 테스트용 사진)는 분석과 별개 상태', async () => {
     const { docs, ai, uploaded, input } = await setup('gate-b', ['렌탈계약서_1.jpg', '렌탈계약서_2.jpg']);
     for (const d of uploaded) await docs.protect(d.id);
     const out = await ai.analyze(input);
@@ -47,7 +47,8 @@ describe('Step 12 — 문서 확인 게이트', () => {
     expect(amounts(out.result)).toContain(29_900);
     expect(await roles(uploaded.map((d) => d.id))).toEqual([['contract', false], ['contract', false]]);
     const prot = await docs.getProtection(uploaded.map((d) => d.id));
-    expect(uploaded.map((d) => [prot[d.id].status, prot[d.id].detail])).toEqual([['unsupported_scan', 'image_file'], ['unsupported_scan', 'image_file']]);
+    // 보호 상태와 문서 확인(분석)은 서로 독립 — 이 테스트 사진은 픽셀이 없어 보호는 실패, 분석은 진행
+    expect(uploaded.map((d) => [prot[d.id].status, prot[d.id].detail])).toEqual([['failed', 'image_format'], ['failed', 'image_format']]);
   });
 
   test('C·I. 음식 사진 / 신분증 → 분석 중단 · 결과 없음 · 계약에 연결 불가(서버가 막음)', async () => {

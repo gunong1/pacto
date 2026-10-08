@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/controls';
 import type { DocumentProtection, SensitiveRegion } from '@/domain/types';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
-import { IMAGES_UNCHECKED_NOTE, needsReview, PROTECTION_DISCLAIMER, protectionCopy, sensitiveLabel } from './protectionCopy';
+import { canProtect, IMAGES_UNCHECKED_NOTE, needsReview, PROTECTION_DISCLAIMER, protectionCopy, sensitiveLabel } from './protectionCopy';
 
 /**
  * 민감정보 보호 결과 카드 — 보호 결과를 알리고(신뢰), 항목별로 확인·가리기 해제를 할 수 있게 한다.
@@ -108,7 +108,7 @@ export function ProtectionCard({
 
       {onProtect || onViewOriginal ? (
         <View style={styles.actions}>
-          {onProtect && (protection.status === 'pending' || protection.status === 'failed') ? (
+          {onProtect && canProtect(protection) ? (
             <Button
               label={protection.status === 'failed' ? '다시 시도' : '민감정보 보호하기'}
               size="sm"

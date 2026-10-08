@@ -33,7 +33,22 @@ export interface MappedText {
   owner: number[];
 }
 
-/** 조각을 읽는 순서대로 이어 붙인다 — 조각 사이 공백, 줄이 바뀌면 줄바꿈 */
+/**
+ * 숫자 조각이 붙어 있는지 — OCR이 "1234-5678-9012-3456"을 "1234-" "5678-" …처럼 나눠 돌려줘도 한 값으로 읽기 위해.
+ * 같은 줄(세로 위치가 겹침) + 바로 옆(가로 간격이 글자 높이보다 좁음) + 경계가 숫자·하이픈일 때만 공백 없이 잇는다.
+ */
+export function joinsNumber(a: OcrToken, b: OcrToken): boolean {
+  if (a.lineBreak) return false;
+  if (!/[\d-]$/.test(a.text) || !/^[\d-]/.test(b.text)) return false;
+  // 숫자끼리 바로 붙는 경우는 하이픈이 한쪽에 있을 때만 (금액·날짜 숫자 둘을 하나로 만들지 않도록)
+  if (!/-$/.test(a.text) && !/^-/.test(b.text)) return false;
+  const h = Math.max(a.box.h, b.box.h);
+  const overlap = Math.min(a.box.y + a.box.h, b.box.y + b.box.h) - Math.max(a.box.y, b.box.y);
+  const gap = b.box.x - (a.box.x + a.box.w);
+  return overlap > h * 0.5 && gap > -h && gap < h * 0.8;
+}
+
+/** 조각을 읽는 순서대로 이어 붙인다 — 조각 사이 공백, 줄이 바뀌면 줄바꿈, 붙어 있는 숫자 조각은 그대로 잇는다 */
 export function buildText(tokens: readonly OcrToken[]): MappedText {
   let text = '';
   const owner: number[] = [];
@@ -42,6 +57,8 @@ export function buildText(tokens: readonly OcrToken[]): MappedText {
       text += ch;
       owner.push(i);
     }
+    const next = tokens[i + 1];
+    if (next && joinsNumber(t, next)) return;
     const sep = t.lineBreak ? '\n' : ' ';
     text += sep;
     owner.push(-1);

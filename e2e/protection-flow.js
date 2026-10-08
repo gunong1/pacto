@@ -90,7 +90,7 @@ const leaks = (text) => SECRETS.filter((s) => text.includes(s));
   const card = await page.locator(tid('review-protection-0')).innerText();
   await page.locator(tid('review-protection-0')).screenshot({ path: path.join(SHOTS, 'protection-01-review-card.png') });
   await shot('01-review');
-  check('A', '확인 화면: 민감정보를 보호했어요 · 3건 · 주민번호/연락처/이메일 가린 값', card.includes('민감정보를 보호했어요') && card.includes('개인정보 3건') && card.includes('901225-1******') && card.includes('010-****-5678'), card.split('\n').slice(0, 4).join(' / '));
+  check('A', '확인 화면: 민감정보를 보호했어요 · 3건 · 주민번호/연락처/이메일 가린 값', card.includes('민감정보를 보호했어요') && card.includes('주민등록번호 1건 · 연락처 1건 · 이메일 1건') && card.includes('자동으로 찾아 가려서 표시합니다.') && card.includes('901225-1******') && card.includes('010-****-5678'), card.split('\n').slice(0, 4).join(' / '));
   const reviewText = await body();
   check('H', 'AI 인용문·설명의 주민등록번호·계좌번호도 화면에서 가림', leaks(reviewText).length === 0 && reviewText.includes('901225-1******'), leaks(reviewText).join(','));
   const val = (id) => page.locator(`input${tid(id)}, textarea${tid(id)}`).first().inputValue().catch(() => "");

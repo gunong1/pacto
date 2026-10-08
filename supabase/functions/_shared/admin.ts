@@ -57,11 +57,12 @@ export interface DocumentRow {
   original_filename: string | null;
   size_bytes: number;
   sort_order: number;
+  protection_status?: string;
 }
 
 /** 본인 소유 문서만 조회 (user_id 조건 필수) */
 export async function selectOwnDocuments(userId: string, ids: string[]): Promise<DocumentRow[]> {
-  const res = await rest(`contract_documents?select=id,user_id,storage_path,mime_type,original_filename,size_bytes,sort_order&user_id=eq.${userId}&id=in.(${ids.join(',')})&order=sort_order.asc`);
+  const res = await rest(`contract_documents?select=id,user_id,storage_path,mime_type,original_filename,size_bytes,sort_order,protection_status&user_id=eq.${userId}&id=in.(${ids.join(',')})&order=sort_order.asc`);
   if (!res.ok) throw new Error(`documents_${res.status}`);
   return await res.json();
 }
@@ -106,10 +107,18 @@ export interface RegionRow {
   region_key: string;
   state: 'masked' | 'unmasked' | 'candidate';
   user_confirmed: boolean;
+  /** 사진 보호본을 OCR 없이 다시 그릴 때 쓰는 위치·종류 (원문 값 없음) */
+  page_number: number;
+  sensitive_type: string;
+  mask_level: 1 | 2;
+  confidence: 'high' | 'medium' | 'low';
+  bbox_json: { x: number; y: number; w: number; h: number }[];
+  masked_preview: string;
+  context_label: string | null;
 }
 
 export async function selectRegions(userId: string, documentId: string): Promise<RegionRow[]> {
-  const res = await rest(`document_sensitive_regions?select=id,region_key,state,user_confirmed&user_id=eq.${userId}&document_id=eq.${documentId}`);
+  const res = await rest(`document_sensitive_regions?select=id,region_key,state,user_confirmed,page_number,sensitive_type,mask_level,confidence,bbox_json,masked_preview,context_label&user_id=eq.${userId}&document_id=eq.${documentId}`);
   if (!res.ok) throw new Error(`regions_${res.status}`);
   return await res.json();
 }

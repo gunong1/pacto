@@ -26,7 +26,7 @@ import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
 import { viewDocument, viewOriginal } from '@/features/documents/openDocument';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
 import { ContractNotificationSection, PushOpenedBanner, PushPromptSheet } from '@/features/notifications/ContractNotificationParts';
-import { protectionCopy } from '@/features/documents/protectionCopy';
+import { overallProtectionCopy } from '@/features/documents/protectionCopy';
 import { useAttachOriginal, useContract, useContractActions, useProtectDocument, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
@@ -210,9 +210,9 @@ export default function ContractDetailScreen() {
                 <AppText variant="body2Strong" color="primary">
                   {record.documents[0].protection?.protectedViewPath ? '보호된 계약서 보기' : '계약서 보기'}
                 </AppText>
-                {protectionCopy(record.documents[0].protection) ? (
+                {overallProtectionCopy(record.documents.map((d) => d.protection)) ? (
                   <AppText variant="small" color="textTertiary" testID="detail-protection-status">
-                    {protectionCopy(record.documents[0].protection)!.title}
+                    {overallProtectionCopy(record.documents.map((d) => d.protection))!.title}
                   </AppText>
                 ) : null}
               </View>

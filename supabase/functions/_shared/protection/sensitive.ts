@@ -53,6 +53,61 @@ const POSITIVE_LABEL: Record<SensitiveType, RegExp> = {
   email: /이메일|e-?mail|메일/gi,
 };
 
+/**
+ * OCR이 필드명 글자를 하나 틀리게 읽는 경우 (예: 주민등록번호 → 주민동록번호) — 공백을 뺀 글자에서 한 글자 차이까지 같은 필드명으로 본다.
+ * 필드명은 문맥 근거일 뿐이다: 값 모양 검증(생년월일·Luhn·자리수)을 통과한 값에만 쓰고, 이것만으로 민감정보로 정하지 않는다.
+ * 짧은 이름(3글자 이하)은 오탐이 많아 넣지 않는다.
+ */
+const FUZZY_LABELS: Record<SensitiveType, readonly string[]> = {
+  resident_registration_number: ['주민등록번호', '주민번호'],
+  foreigner_registration_number: ['외국인등록번호', '주민등록번호'],
+  credit_card: ['카드번호', '신용카드', '체크카드'],
+  bank_account: ['계좌번호', '입금계좌', '예금주명'],
+  phone: ['휴대전화', '전화번호', '휴대폰번호'],
+  email: ['이메일주소'],
+};
+
+/** 한 글자 차이까지 (치환·삽입·삭제 1회) */
+function withinOneEdit(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (a.length < b.length) j++;
+    else {
+      i++;
+      j++;
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+/** 공백을 뺀 글자에서 필드명(한 글자 차이 허용)이 끝나는 원래 위치들 */
+function fuzzyLabelEnds(before: string, labels: readonly string[]): { pos: number; label: string }[] {
+  const chars: { ch: string; end: number }[] = [];
+  for (let i = 0; i < before.length; i++) if (!/\s/.test(before[i])) chars.push({ ch: before[i], end: i + 1 });
+  const flat = chars.map((c) => c.ch).join('');
+  const out: { pos: number; label: string }[] = [];
+  for (const label of labels) {
+    for (let len = label.length - 1; len <= label.length + 1; len++) {
+      for (let s = 0; s + len <= flat.length; s++) {
+        const w = flat.slice(s, s + len);
+        // 첫 글자는 맞아야 한다 (엉뚱한 단어와 겹치지 않게)
+        if (w[0] !== label[0] || !withinOneEdit(w, label)) continue;
+        out.push({ pos: chars[s + len - 1].end, label });
+      }
+    }
+  }
+  return out;
+}
+
 /** 값 앞 이 정도 글자 안의 필드명을 문맥으로 본다 */
 const CONTEXT_WINDOW = 28;
 
@@ -72,6 +127,11 @@ function nearestLabel(text: string, start: number, type: SensitiveType): { kind:
   };
   scan(new RegExp(POSITIVE_LABEL[type].source, POSITIVE_LABEL[type].flags), 'positive');
   scan(new RegExp(EXCLUDE_LABEL.source, EXCLUDE_LABEL.flags), 'exclude');
+  // OCR 오타 필드명 (정확히 맞은 필드명이 같은 위치에 있으면 그쪽이 우선)
+  for (const f of fuzzyLabelEnds(before, FUZZY_LABELS[type])) {
+    const cur = best as { pos: number; kind: LabelKind; label: string } | null;
+    if (!cur || f.pos > cur.pos) best = { pos: f.pos, kind: 'positive', label: f.label };
+  }
   const b = best as { pos: number; kind: LabelKind; label: string } | null;
   return b ? { kind: b.kind, label: b.label } : { kind: null, label: null };
 }

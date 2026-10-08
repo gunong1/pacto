@@ -42,15 +42,18 @@ export function protectionCopy(p: DocumentProtection | undefined): { title: stri
     case 'protected': {
       const { total, text } = maskedSummary(p.regions);
       return total > 0
-        ? { title: '민감정보를 보호했어요', body: `이 계약서에서 개인정보 ${total}건을 찾아 가려서 표시합니다.${text ? `\n${text}` : ''}`, tone: 'protected' }
+        ? { title: '민감정보를 보호했어요', body: `${text}\n자동으로 찾아 가려서 표시합니다.`, tone: 'protected' }
         : { title: '민감정보 보호', body: '찾은 개인정보를 모두 표시하도록 설정했어요.', tone: 'neutral' };
     }
     case 'no_sensitive_data':
-      return { title: '민감정보가 감지되지 않았어요', body: '자동으로 찾지 못했을 수 있어요. 중요한 문서는 원본을 직접 확인해주세요.', tone: 'neutral' };
+      return { title: '민감정보가 감지되지 않았어요', body: '자동 탐지가 모든 정보를 찾는 것을 보장하지는 않습니다. 중요한 문서는 원본도 확인해주세요.', tone: 'neutral' };
+    case 'unreadable':
+      // 사진을 충분히 읽지 못함 — "민감정보 없음"으로 보이지 않게
+      return { title: '민감정보 보호를 완료하지 못했어요', body: '문서 일부를 정확하게 읽지 못했습니다. 원본을 직접 확인해주세요.', tone: 'warning' };
     case 'unsupported_scan':
-      // 사진으로 등록한 계약서: AI 분석·등록은 되지만 자동 가리기는 미지원 (두 가지를 나눠서 알린다)
+      // 사진 자동 보호 이전에 등록한 사진 — 지금은 보호할 수 있다 (보호하기 버튼)
       if (p.detail === 'image_file') {
-        return { title: '사진으로 등록한 계약서', body: '현재 사진 문서의 자동 민감정보 가리기는 지원하지 않아요. 원본은 비공개로 보관됩니다. 계약 내용 분석과 등록은 그대로 할 수 있어요.', tone: 'warning' };
+        return { title: '민감정보 보호 전이에요', body: '사진 속 주민등록번호·계좌번호 등을 찾아 가려서 표시할 수 있어요.', tone: 'neutral' };
       }
       return { title: '스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요.', body: '사진·스캔본 속 글자는 아직 자동으로 가리지 못해요. 원본은 비공개로 보관돼요.', tone: 'warning' };
     case 'failed':
@@ -60,9 +63,14 @@ export function protectionCopy(p: DocumentProtection | undefined): { title: stri
   }
 }
 
-/** 실패 사유별 안내 (원문·기술 용어 없이) */
+/** 실패 사유별 안내 (원문·기술 용어 없이 — 내부 오류 코드를 보여주지 않는다) */
 function failedReason(detail: string | null | undefined): string {
+  if (detail && /^ocr_|^verification_/.test(detail)) return '잠시 후 다시 시도해주세요. ';
   switch (detail) {
+    case 'image_orientation':
+    case 'image_format':
+    case 'image_decode':
+      return '이 사진 형식은 자동으로 가리지 못했어요. 다시 촬영하거나 다른 사진으로 등록해주세요. ';
     case 'encrypted':
       return '암호가 걸린 문서는 자동으로 가릴 수 없어요. ';
     case 'form_fields':
@@ -76,6 +84,26 @@ function failedReason(detail: string | null | undefined): string {
     default:
       return '자동 가리기를 적용하지 못했어요. 다시 시도해주세요. ';
   }
+}
+
+/** 이 문서를 지금 보호 처리할 수 있는지 (처리 전·실패·자동 보호 이전에 등록한 사진) */
+export const canProtect = (p: DocumentProtection | undefined) => !!p && (p.status === 'pending' || p.status === 'failed' || (p.status === 'unsupported_scan' && p.detail === 'image_file'));
+
+/**
+ * 여러 장(문서)의 전체 보호 상태 — 보수적으로: 모든 장이 보호됨 또는 감지되지 않음일 때만 완료.
+ * 하나라도 읽지 못함·실패·미지원·처리 전이면 "일부 완료하지 못함"
+ */
+export function overallProtectionCopy(list: (DocumentProtection | undefined)[]): { title: string; tone: ProtectionTone } | null {
+  const ps = list.filter((p): p is DocumentProtection => !!p && !(p.status === 'pending' && p.detail === 'preview_mode'));
+  if (ps.length === 0) return null;
+  if (ps.length === 1) {
+    const c = protectionCopy(ps[0]);
+    return c ? { title: c.title, tone: c.tone } : null;
+  }
+  const done = ps.every((p) => p.status === 'protected' || p.status === 'no_sensitive_data');
+  if (!done) return { title: '일부 페이지의 민감정보 보호를 완료하지 못했어요', tone: 'warning' };
+  const masked = ps.reduce((n, p) => n + p.regions.filter((r) => r.state === 'masked').length, 0);
+  return masked > 0 ? { title: '민감정보를 보호했어요', tone: 'protected' } : { title: '민감정보가 감지되지 않았어요', tone: 'neutral' };
 }
 
 export const PROTECTION_DISCLAIMER = 'PACTO가 민감정보를 자동으로 찾아 보호합니다. 중요한 문서는 원본을 직접 확인해주세요.';
