@@ -58,10 +58,12 @@ export interface NotificationStore {
 export class SupabaseNotificationStore implements NotificationStore {
   constructor(private readonly sb: PactoSupabase) {}
 
+  /** 로그인 사용자 id — 기기에 저장된 세션에서 (서버에 묻지 않는다: 누를 때마다 왕복이 생기지 않도록. 권한은 DB RLS가 확인) */
   private async uid(): Promise<string> {
-    const { data } = await this.sb.auth.getUser();
-    if (!data.user) throw new Error('not_authenticated');
-    return data.user.id;
+    const { data } = await this.sb.auth.getSession();
+    const id = data.session?.user.id;
+    if (!id) throw new Error('not_authenticated');
+    return id;
   }
 
   async getPreferences(): Promise<NotificationPreferences> {
@@ -82,22 +84,29 @@ export class SupabaseNotificationStore implements NotificationStore {
 
   async savePreferences(patch: Partial<NotificationPreferences>): Promise<NotificationPreferences> {
     const uid = await this.uid();
+    // 바뀐 값만 저장 (프로필·알림 설정을 동시에). 화면은 누르는 즉시 바뀌고(useSaveNotificationPreferences), 저장·재계산은 뒤에서 끝난다
+    const writes: PromiseLike<{ error: { message: string } | null }>[] = [];
     if (patch.timezone !== undefined || patch.showDetails !== undefined) {
-      const { error } = await this.sb
-        .from('profiles')
-        .update({ ...(patch.timezone !== undefined ? { timezone: patch.timezone } : {}), ...(patch.showDetails !== undefined ? { push_preview_enabled: patch.showDetails } : {}) })
-        .eq('id', uid);
-      if (error) throw new Error(error.message.includes('invalid_timezone') ? 'invalid_timezone' : 'save_failed');
+      writes.push(
+        this.sb
+          .from('profiles')
+          .update({ ...(patch.timezone !== undefined ? { timezone: patch.timezone } : {}), ...(patch.showDetails !== undefined ? { push_preview_enabled: patch.showDetails } : {}) })
+          .eq('id', uid),
+      );
     }
     if (patch.enabled !== undefined || patch.timeOfDay !== undefined || patch.categories !== undefined) {
-      const current = await this.getPreferences();
-      const { error } = await this.sb.from('notification_preferences').upsert({
-        user_id: uid,
-        enabled: patch.enabled ?? current.enabled,
-        time_of_day: patch.timeOfDay ?? current.timeOfDay,
-        categories: normalizeCategoryPrefs(patch.categories ?? current.categories) as unknown as { [key: string]: Json },
-      });
-      if (error) throw new Error('save_failed');
+      // upsert는 보낸 칸만 덮어쓴다 (처음이면 나머지는 DB 기본값)
+      writes.push(
+        this.sb.from('notification_preferences').upsert({
+          user_id: uid,
+          ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+          ...(patch.timeOfDay !== undefined ? { time_of_day: patch.timeOfDay } : {}),
+          ...(patch.categories !== undefined ? { categories: normalizeCategoryPrefs(patch.categories) as unknown as { [key: string]: Json } } : {}),
+        }),
+      );
+    }
+    for (const { error } of await Promise.all(writes)) {
+      if (error) throw new Error(error.message.includes('invalid_timezone') ? 'invalid_timezone' : 'save_failed');
     }
     await this.requestPlan();
     return this.getPreferences();
