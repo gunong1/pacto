@@ -21,6 +21,46 @@ export function Badge({ label, tone = 'neutral' }: { label: string; tone?: 'neut
   );
 }
 
+/** 세로 선택지 (○ 하나만 고름) — 설명이 필요한 선택에 */
+export function RadioGroup<T extends string>({
+  options,
+  value,
+  onChange,
+  testIDPrefix,
+}: {
+  options: readonly { value: T; label: string; description?: string }[];
+  value: T | null;
+  onChange: (v: T) => void;
+  testIDPrefix?: string;
+}) {
+  return (
+    <View role="radiogroup" style={styles.radioGroup}>
+      {options.map((o) => {
+        const selected = value === o.value;
+        return (
+          <Pressable
+            key={o.value}
+            onPress={() => onChange(o.value)}
+            role="radio"
+            aria-checked={selected}
+            testID={testIDPrefix ? `${testIDPrefix}-${o.value}` : undefined}
+            style={styles.radioRow}>
+            <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>{selected ? <View style={styles.radioInner} /> : null}</View>
+            <View style={{ flex: 1 }}>
+              <AppText variant={selected ? 'body2Strong' : 'body2'}>{o.label}</AppText>
+              {o.description ? (
+                <AppText variant="caption" color="textTertiary">
+                  {o.description}
+                </AppText>
+              ) : null}
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Chip({ label, selected, onPress, testID }: { label: string; selected?: boolean; onPress?: () => void; testID?: string }) {
   return (
     <Pressable
@@ -151,6 +191,11 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 12, height: 34, borderRadius: radius.pill, backgroundColor: colors.bgSubtle, justifyContent: 'center' },
   chipSelected: { backgroundColor: colors.primary },
   chipRow: { flexDirection: 'row', gap: spacing.sm },
+  radioGroup: { gap: 2 },
+  radioRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingVertical: spacing.sm },
+  radioOuter: { width: 20, height: 20, marginTop: 1, borderRadius: 10, borderWidth: 2, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  radioOuterSelected: { borderColor: colors.primary },
+  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
   wrap: { flexWrap: 'wrap' },
   field: { marginBottom: spacing.lg },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 6 },

@@ -46,6 +46,7 @@ describe('1. 렌탈 (월 납입형): 월 렌탈료 + 초기 설치비', () => {
     autoRenewal: true,
     renewalPeriodMonths: 12,
     terminationNoticeDays: 30,
+    noticeKind: 'termination_notice',
     details: { commitmentMonths: 36, ownershipTransferTerms: '계약 종료 후 전액 납부 완료 시 이전' },
     payments: [
       pay({ kind: 'recurring_fee', label: '월 렌탈료', amount: 29_900, frequency: 'monthly', dayOfMonth: 12 }),
@@ -267,7 +268,7 @@ describe('공통', () => {
 describe('상세 화면 핵심 정보 — 유형별로 다른 항목', () => {
   test('렌탈: 월 렌탈료·설치비·이용 기간·자동갱신·해지 통보기한·최소 이용기간', () => {
     const r = build('rental', {
-      contractType: 'recurring', startDate: '2026-10-12', endDate: '2029-10-11', autoRenewal: true, renewalPeriodMonths: 12, terminationNoticeDays: 30,
+      contractType: 'recurring', startDate: '2026-10-12', endDate: '2029-10-11', autoRenewal: true, renewalPeriodMonths: 12, terminationNoticeDays: 30, noticeKind: 'termination_notice',
       details: { commitmentMonths: 36 },
       payments: [pay({ kind: 'recurring_fee', label: '월 렌탈료', amount: 29_900, frequency: 'monthly', dayOfMonth: 12 }), pay({ kind: 'setup_fee', label: '초기 설치비', amount: 20_000, frequency: 'one_time' })],
     });

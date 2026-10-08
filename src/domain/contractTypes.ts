@@ -160,8 +160,8 @@ export interface ContractTypeProfile {
   prepare?: { daysBefore: number; label: string; guidance: string };
   /** 자동갱신 입력을 보여줄지 */
   hasRenewal: boolean;
+  /** 해지·종료 통보기한의 이름 (의미별 이름·문구는 noticeKind.ts) */
   noticeLabel: string;
-  noticeGuidance: (monthDay: string) => string;
   /** 만기가 멀면 "다음 행동" 대신 "다음 결제"를 보여줄지 (할부·대출) */
   deferEndUntilDays?: number;
   /** 결제를 새로 추가할 때 고를 수 있는 의미 (앞쪽이 기본) */
@@ -169,16 +169,13 @@ export interface ContractTypeProfile {
   dateKinds: readonly ContractDateKind[];
 }
 
-// 출처(계약서 기준 / 입력한 계약 정보 기준)는 부르는 쪽에서 붙인다 — 직접 입력한 계약을 "계약서 기준"이라고 하지 않도록
-const RENEWAL_NOTICE = (md: string) => `${md}까지 해지 의사를 전달해야 자동갱신을 피할 수 있습니다.`;
-const GENERIC_NOTICE = (md: string) => `${md}까지 필요한 의사를 전달해주세요.`;
 
 const PROFILES: Record<ContractType, ContractTypeProfile> = {
   recurring: {
     startLabel: '이용 시작일', endLabel: '이용 종료일', periodLabel: '이용 기간',
     startEvent: '이용 시작', endEvent: '이용 종료',
     endGuidance: '종료 후 반납·소유권 이전·재약정 조건을 계약서에서 확인해주세요.',
-    hasRenewal: true, noticeLabel: '해지 통보기한', noticeGuidance: RENEWAL_NOTICE,
+    hasRenewal: true, noticeLabel: '해지 통보기한',
     paymentKinds: ['recurring_fee', 'setup_fee', 'deposit', 'other'],
     dateKinds: ['installation', 'activation', 'other'],
   },
@@ -188,7 +185,6 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     endGuidance: '만기일의 보증금 반환·이사 일정을 확인해주세요.',
     prepare: { daysBefore: 60, label: '갱신 여부 확인', guidance: '만기 전에 재계약 또는 이사 여부를 정하고 상대방과 미리 확인해두세요.' },
     hasRenewal: true, noticeLabel: '종료 통보기한',
-    noticeGuidance: (md) => `종료 또는 갱신 여부를 ${md}까지 상대방에게 알려주세요.`,
     paymentKinds: ['rent', 'maintenance_fee', 'deposit', 'other'],
     dateKinds: ['move_in', 'balance_due', 'other'],
   },
@@ -196,7 +192,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     startLabel: '할부 실행일', endLabel: '만기일', periodLabel: '할부 기간',
     startEvent: null, endEvent: '할부 만기',
     endGuidance: '마지막 회차 납입과 만기 후 처리(소유권 이전 등록 등)를 확인해주세요.',
-    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE, deferEndUntilDays: 90,
+    hasRenewal: false, noticeLabel: '통보기한', deferEndUntilDays: 90,
     paymentKinds: ['installment', 'advance_payment', 'other'],
     dateKinds: ['handover', 'other'],
   },
@@ -204,7 +200,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     startLabel: '대출 실행일', endLabel: '만기일', periodLabel: '대출 기간',
     startEvent: '대출 실행', endEvent: '대출 만기',
     endGuidance: '만기일의 상환·연장 조건을 확인해주세요.',
-    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE, deferEndUntilDays: 90,
+    hasRenewal: false, noticeLabel: '통보기한', deferEndUntilDays: 90,
     paymentKinds: ['loan_repayment', 'interest', 'other'],
     dateKinds: ['other'],
   },
@@ -212,7 +208,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     startLabel: '보험 시작일', endLabel: '보험 만기일', periodLabel: '보험 기간',
     startEvent: '보험 시작', endEvent: '보험 만기',
     endGuidance: '만기 전에 갱신 여부와 보험료를 확인해주세요.',
-    hasRenewal: true, noticeLabel: '해지 통보기한', noticeGuidance: RENEWAL_NOTICE,
+    hasRenewal: true, noticeLabel: '해지 통보기한',
     paymentKinds: ['premium', 'other'],
     dateKinds: ['renewal', 'other'],
   },
@@ -220,7 +216,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     startLabel: '근로 시작일', endLabel: '근로 종료일', periodLabel: '근로 기간',
     startEvent: '근로 시작', endEvent: '근로계약 종료',
     endGuidance: '계약 종료 전에 갱신·전환 여부와 퇴직 관련 조건을 확인해주세요.',
-    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE,
+    hasRenewal: false, noticeLabel: '통보기한',
     paymentKinds: ['salary', 'bonus', 'other'],
     dateKinds: ['hire', 'other'],
   },
@@ -228,7 +224,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     startLabel: '업무 시작일', endLabel: '업무 종료일', periodLabel: '업무 기간',
     startEvent: '업무 시작', endEvent: '업무 종료',
     endGuidance: '납기·검수와 남은 대금 지급 일정을 확인해주세요.',
-    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE,
+    hasRenewal: false, noticeLabel: '통보기한',
     paymentKinds: ['down_payment', 'interim_payment', 'balance_payment', 'service_fee', 'other'],
     dateKinds: ['delivery', 'inspection', 'other'],
   },
@@ -236,7 +232,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     startLabel: '계약 시작일', endLabel: '계약 완료일', periodLabel: '계약 기간',
     startEvent: null, endEvent: '매매 완료',
     endGuidance: '잔금과 인도·소유권 이전 일정을 확인해주세요.',
-    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE,
+    hasRenewal: false, noticeLabel: '통보기한',
     paymentKinds: ['down_payment', 'interim_payment', 'balance_payment', 'other'],
     dateKinds: ['handover', 'ownership_transfer', 'other'],
   },
@@ -244,7 +240,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     startLabel: '계약 시작일', endLabel: '계약 완료일', periodLabel: '계약 기간',
     startEvent: null, endEvent: '계약 완료',
     endGuidance: '완료일에 남은 잔금과 인도·이행 사항을 확인해주세요.',
-    hasRenewal: false, noticeLabel: '통보기한', noticeGuidance: GENERIC_NOTICE,
+    hasRenewal: false, noticeLabel: '통보기한',
     paymentKinds: ['down_payment', 'interim_payment', 'balance_payment', 'other'],
     dateKinds: ['other'],
   },
@@ -252,7 +248,7 @@ const PROFILES: Record<ContractType, ContractTypeProfile> = {
     startLabel: '계약 시작일', endLabel: '계약 종료일', periodLabel: '계약 기간',
     startEvent: '계약 시작', endEvent: '계약 종료',
     endGuidance: '종료 후 처리할 일이 있는지 확인해주세요.',
-    hasRenewal: true, noticeLabel: '해지 통보기한', noticeGuidance: RENEWAL_NOTICE,
+    hasRenewal: true, noticeLabel: '해지 통보기한',
     paymentKinds: ['other', 'recurring_fee', 'setup_fee', 'deposit'],
     dateKinds: ['other'],
   },

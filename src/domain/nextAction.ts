@@ -2,6 +2,7 @@ import { addDays, addMonths, formatDateLongKo } from './dates';
 import { daysUntil } from './dday';
 import { formatWon } from './money';
 import { NOTIFICATION_SOURCE_LABEL } from './notificationPriority';
+import { noticeBy, noticeGuidance, noticeHeadline } from './noticeKind';
 import { profileOf } from './contractTypes';
 import { contractSchedule, nextPayment, prepareDate } from './schedule';
 import { isLive } from './status';
@@ -27,7 +28,7 @@ export interface NextAction {
   days: number;
   /** 짧은 이름 (목록용): '해지 통보기한', '보험 만료' */
   label: string;
-  /** 한 줄 요약: '해지 통보기한이 57일 남았습니다.' */
+  /** 한 줄 요약: '해지 통보기한까지 57일 남았습니다.' */
   headline: string;
   /** 무엇을 해야 하는지: '12월 1일까지 해지 의사를 전달해야 …' */
   guidance: string;
@@ -99,9 +100,9 @@ export function actionCandidates(record: ContractRecord, today: ISODate): NextAc
     if (i.type === 'termination_notice') {
       out.push({
         ...base, key: `notice:${i.date}`, kind: 'termination_notice', date: i.date, days,
-        label: typeProfile.noticeLabel,
-        headline: remaining(typeProfile.noticeLabel, days, '이'),
-        guidance: `${NOTIFICATION_SOURCE_LABEL[i.source]} ${typeProfile.noticeGuidance(monthDay(i.date))}`,
+        label: i.title,
+        headline: noticeHeadline(contract.noticeKind, i.title, days),
+        guidance: noticeGuidance(contract.noticeKind, { by: noticeBy(i.source), date: monthDay(i.date), autoRenewal: contract.autoRenewal }),
       });
     } else if (i.type === 'contract_end' && contract.autoRenewal) {
       out.push({

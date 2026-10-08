@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { NOTICE_KINDS } from '@/domain/noticeKind';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
   BUSINESS_DAY_RULES,
@@ -85,6 +86,7 @@ export const contractFormSchema = z
     autoRenewal: z.boolean(),
     renewalPeriodMonths: optionalInt(1, 120, '1~120개월 사이로 입력해주세요'),
     terminationNoticeDays: optionalInt(0, 365, '0~365일 사이로 입력해주세요'),
+    noticeKind: z.enum(NOTICE_KINDS),
     earlyTerminationTerms: z.string().max(500),
     penaltyTerms: z.string().max(500),
     memo: z.string().max(2000),
@@ -209,6 +211,7 @@ export function draftToForm(d: ContractDraft): ContractFormValues {
     autoRenewal: d.autoRenewal,
     renewalPeriodMonths: num(d.renewalPeriodMonths),
     terminationNoticeDays: num(d.terminationNoticeDays),
+    noticeKind: d.noticeKind,
     earlyTerminationTerms: str(d.earlyTerminationTerms),
     penaltyTerms: str(d.penaltyTerms),
     memo: str(d.memo),
@@ -252,6 +255,7 @@ export function formToDraft(v: ParsedContractForm): ContractDraft {
     autoRenewal: v.autoRenewal,
     renewalPeriodMonths: v.autoRenewal ? intOrNull(v.renewalPeriodMonths) : null,
     terminationNoticeDays: intOrNull(v.terminationNoticeDays),
+    noticeKind: v.noticeKind,
     earlyTerminationTerms: nullable(v.earlyTerminationTerms),
     penaltyTerms: nullable(v.penaltyTerms),
     memo: nullable(v.memo),

@@ -1,4 +1,5 @@
 import type { ExtractedDate, ExtractedPayment, ExtractionResult } from '@/data/ai/provider';
+import { isNoticeKind } from '@/domain/noticeKind';
 import { EMPTY_DRAFT } from '@/data/draft';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
@@ -180,6 +181,17 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     flagged.add('terminationNoticeDays');
     notes.terminationNoticeDays = `계약서의 통보기한 날짜(${noticeDate.date})로 계산했어요.`;
     quote('terminationNoticeDays', noticeDate.evidence);
+  }
+
+  // 통보기한의 의미 — 서버가 원문보다 강하게 해석하지 않도록 정리한 값. 없거나 불확실하면 unknown + 확인 필요
+  const kind = result.fields.noticeKind;
+  draft.noticeKind = draft.terminationNoticeDays != null && isNoticeKind(kind?.value) ? kind.value : 'unknown';
+  if (draft.terminationNoticeDays != null && (draft.noticeKind === 'unknown' || kind?.confidence !== 'high')) {
+    flagged.add('noticeKind');
+    notes.noticeKind =
+      draft.noticeKind === 'unknown'
+        ? '이 기한이 해지 통보인지, 갱신 통보인지, 갱신 여부 협의인지 확실하지 않아요. 원문을 보고 골라주세요.'
+        : `계약서 원문과 비교해 이 기한의 의미를 확인해주세요.${evidence.noticeKind ?? evidence.terminationNoticeDays ? ` 원문: “${evidence.noticeKind ?? evidence.terminationNoticeDays}”` : ''}`;
   }
 
   // 5·6) 결제 — 계약서에 있는 돈을 모두 결제 목록으로 (의미·주기·방향)

@@ -138,7 +138,7 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.waitForSelector(tid('notif-enabled'));
     const st = await body();
     check('I', '웹: 이 기기에서는 푸시를 받을 수 없다는 안내 (앱은 정상 동작)', st.includes('이 기기에서는 푸시 알림을 받을 수 없어요') && st.includes('웹에서는 푸시 알림을 받을 수 없어요'));
-    check('S0', '기본값: 결제 1일 전 · 통보기한 30·7·1·당일 · 만료 90·30·7 · 자동갱신 30·7 / 기본값 사용 중', st.includes('PACTO 기본 알림 설정을 쓰고 있어요') && st.includes('해지·종료 통보기한') && st.includes('알림 받는 시간') && st.includes('한국 시간 기준'));
+    check('S0', '기본값: 결제 1일 전 · 통보기한 30·7·1·당일 · 만료 90·30·7 · 자동갱신 30·7 / 기본값 사용 중', st.includes('PACTO 기본 알림 설정을 쓰고 있어요') && st.includes('해지·갱신 통보기한') && st.includes('알림 받는 시간') && st.includes('한국 시간 기준'));
     await shot('04-settings');
 
     dialogs.length = 0;
@@ -146,7 +146,7 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.click(tid('notif-termination_notice-switch'));
     await page.waitForTimeout(600);
     const kept = (await page.locator(tid('notif-termination_notice-30')).count()) === 1;
-    check('K1', '해지 통보기한 알림을 끄려 하면 확인 → "유지하기"면 그대로', dialogs.some((m) => m.includes('해지·종료 통보기한 알림을 끌까요?') && m.includes('계약상 중요한 기한을 놓칠 수 있어요')) && kept);
+    check('K1', '해지 통보기한 알림을 끄려 하면 확인 → "유지하기"면 그대로', dialogs.some((m) => m.includes('해지·갱신 통보기한 알림을 끌까요?') && m.includes('계약상 중요한 기한을 놓칠 수 있어요')) && kept);
     dialogAnswer = true; // 끄기
     await page.click(tid('notif-termination_notice-switch'));
     await page.waitForTimeout(1200);

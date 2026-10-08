@@ -1,4 +1,5 @@
 import { profileOf } from "./contractTypes";
+import { noticeActionType, noticeLabelOf, type NoticeKind } from "./noticeKind";
 import { addDays } from "./dates";
 import {
   contractTermSource,
@@ -22,7 +23,12 @@ import type { ContractRecord, Direction, ISODate } from "./types";
 export interface ReminderRules {
   contractEnd: readonly number[];
   renewal: readonly number[];
+  /** 해지·종료 통보기한 (의미를 확정할 수 없는 통보기한도 놓치지 않도록 이 시점을 쓴다) */
   terminationNotice: readonly number[];
+  /** 갱신 통보기한 */
+  renewalNotice: readonly number[];
+  /** 갱신 여부 확인·협의 시점 */
+  renewalDecision: readonly number[];
   payment: readonly number[];
 }
 
@@ -31,6 +37,8 @@ export const REMINDER_RULES: ReminderRules = {
   contractEnd: [90, 30, 7],
   renewal: [30, 7],
   terminationNotice: [30, 7, 1, 0],
+  renewalNotice: [30, 7, 1, 0],
+  renewalDecision: [30, 7],
   payment: [1],
 };
 
@@ -50,7 +58,9 @@ export function reminderPolicySummary(
 ): { label: string; when: string }[] {
   return [
     { label: "결제·입금", when: offsetsText(rules.payment) },
-    { label: "해지·종료 통보기한", when: offsetsText(rules.terminationNotice) },
+    // 설정 화면과 같은 묶음 — 해지·종료 통보기한과 갱신 통보기한은 한 줄 (함께 저장된다)
+    { label: "해지·갱신 통보기한", when: offsetsText(rules.terminationNotice) },
+    { label: "갱신 여부 확인", when: offsetsText(rules.renewalDecision) },
     { label: "계약 만료", when: offsetsText(rules.contractEnd) },
     { label: "자동갱신 예정일", when: offsetsText(rules.renewal) },
   ];
@@ -98,8 +108,28 @@ const KIND_TARGET_LABEL: Record<Exclude<ReminderKind, "payment">, string> = {
   termination_notice: "해지 통보기한",
 };
 
-/** 통보기한 단계별 문구 — 결제 알림 문법("내일 …입니다")과 다르게, 해야 할 일을 먼저 */
-function noticeMessage(label: string, off: number): string {
+/** 통보기한 종류별 알림 시점 — 의미가 불확실한 기한(unknown)은 해지·종료 통보기한 시점으로 놓치지 않게 */
+function noticeOffsets(rules: ReminderRules, kind: NoticeKind): readonly number[] {
+  if (kind === "renewal_notice") return rules.renewalNotice;
+  if (kind === "renewal_decision") return rules.renewalDecision;
+  return rules.terminationNotice;
+}
+
+/** 통보기한 단계별 문구 — 결제 알림 문법("내일 …입니다")과 다르게, 해야 할 일을 먼저. 계약서 의미를 더 강하게 쓰지 않는다 */
+function noticeMessage(kind: NoticeKind, label: string, off: number): string {
+  if (kind === "renewal_decision")
+    return off === 0
+      ? "오늘까지 갱신 여부를 상대방과 협의해주세요."
+      : `${label}까지 ${off}일 남았어요. 갱신 여부를 상대방과 협의해보세요.`;
+  if (kind === "unknown")
+    return off === 0
+      ? "오늘이 통보·갱신 관련 기한이에요. 이 일정의 의미를 확인해주세요."
+      : `통보·갱신 관련 기한까지 ${off}일 남았어요. 이 일정의 의미를 확인해주세요.`;
+  if (kind === "renewal_notice") {
+    if (off === 0) return `오늘이 ${label}입니다. 오늘까지 갱신 또는 갱신 거절 의사를 알려주세요.`;
+    if (off === 1) return `내일이 ${label}이에요. 갱신 여부를 미리 정해두세요.`;
+    return `${label}까지 ${off}일 남았어요.`;
+  }
   if (off === 0)
     return `오늘이 ${label}입니다. 갱신을 원하지 않으면 오늘까지 의사를 알려주세요.`;
   if (off === 1)
@@ -193,13 +223,18 @@ export function upcomingReminders(
     }
 
     const notice = terminationNoticeDeadline(contract, today);
-    const noticeLabel = profileOf(contract.contractType).noticeLabel;
-    const noticeMeta = meta(record, "termination_notice", [
+    const noticeLabel = noticeLabelOf(contract.noticeKind, contract.contractType);
+    const noticeMeta = meta(record, noticeActionType(contract.noticeKind), [
       "endDate",
       "terminationNoticeDays",
     ]);
+    // 의미가 불확실한 통보기한은 확인 필요 (critical로 단정하지 않음)
+    if (contract.noticeKind === "unknown") {
+      noticeMeta.needsReview = true;
+      noticeMeta.priority = getNotificationPriority(noticeMeta.actionType, { source: noticeMeta.source, needsReview: true });
+    }
     if (notice && !notice.passed) {
-      for (const off of rules.terminationNotice) {
+      for (const off of noticeOffsets(rules, contract.noticeKind)) {
         const fireOn = addDays(notice.date, -off);
         if (!inWindow(fireOn)) continue;
         out.push({
@@ -214,7 +249,7 @@ export function upcomingReminders(
           direction: null,
           estimated: false,
           daysBefore: off,
-          message: noticeMessage(noticeLabel, off),
+          message: noticeMessage(contract.noticeKind, noticeLabel, off),
         });
       }
     }

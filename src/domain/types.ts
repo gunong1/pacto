@@ -1,3 +1,4 @@
+import type { NoticeKind } from './noticeKind';
 /**
  * PACTO 도메인 타입.
  * DB 스키마(docs/ARCHITECTURE.md §4)의 P0 테이블과 같은 형태를 유지한다.
@@ -75,6 +76,8 @@ export interface Contract {
   autoRenewal: boolean;
   renewalPeriodMonths: number | null;
   terminationNoticeDays: number | null;
+  /** 통보기한의 의미 (noticeKind.ts) — 기존 계약·확신이 낮은 값은 unknown */
+  noticeKind: NoticeKind;
   earlyTerminationTerms: string | null;
   penaltyTerms: string | null;
   depositAmount: number | null;

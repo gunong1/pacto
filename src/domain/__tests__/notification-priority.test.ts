@@ -29,6 +29,7 @@ function record(id: string, o: { title: string; category: string; contractType: 
     autoRenewal: o.autoRenewal ?? false,
     renewalPeriodMonths: o.autoRenewal ? '12' : '',
     terminationNoticeDays: o.notice ?? '',
+    noticeKind: 'termination_notice',
   };
   return draftToRecord(formToDraft(contractFormSchema.parse(form)), id, TODAY);
 }
@@ -85,9 +86,9 @@ describe('출처 구분 (UI 문구 · 데이터)', () => {
     expect(notice(r).every((x) => x.source === 'manual_entry' && x.evidence === null)).toBe(true);
     const imp = importantSchedule([r], '2029-01-01').items.find((x) => x.item.type === 'termination_notice')!;
     expect(imp.sourceLabel).toBe('입력한 계약 정보 기준');
-    expect(nextAction(r, '2029-09-01')!.guidance).toMatch(/^입력한 계약 정보 기준 /);
+    expect(nextAction(r, '2029-09-01')!.guidance).toMatch(/^입력한 계약 정보에 따라 /);
     expect(nextAction(r, '2029-09-01')!.guidance).not.toContain('계약서');
-    expect(nextAction(rental('upload'), '2029-09-01')!.guidance).toMatch(/^계약서 기준 /);
+    expect(nextAction(rental('upload'), '2029-09-01')!.guidance).toMatch(/^계약서에 따라 /);
   });
 
   test('PACTO 기본 60일 사전 안내(임대차 갱신 여부 확인) → PACTO 안내 · critical로 올리지 않음 · 계약서·법령 기한 아님을 표시', () => {

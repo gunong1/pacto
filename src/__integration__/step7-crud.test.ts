@@ -35,6 +35,8 @@ describe('Step 7 — 실제 계약 CRUD (SupabaseContractRepository)', () => {
       ],
     });
     expect(created.contract.title).toBe('헬스장');
+    // 통보기한의 의미: 기본 unknown(확인 필요)
+    expect(created.contract.noticeKind).toBe('unknown');
     expect(created.payments).toHaveLength(1);
     expect(created.payments[0]).toMatchObject({ amount: 55_000, frequency: 'monthly', dayOfMonth: 5, startsOn: '2026-01-01' });
     expect(created.aiChecks[0]).toMatchObject({ title: '자동갱신', status: 'new' });
@@ -59,6 +61,12 @@ describe('Step 7 — 실제 계약 CRUD (SupabaseContractRepository)', () => {
     expect(updated.dates).toEqual([expect.objectContaining({ kind: 'other', label: '락커 배정', date: '2026-10-20' })]);
     expect(updated.contract).toMatchObject({ memo: '락커 포함', contractType: 'recurring', details: { commitmentMonths: 12 } });
     expect(monthSpending([updated], { year: 2026, month: 10 }).total).toBe(90_000);
+
+    // 통보기한의 의미: 수정 화면에서 고른 값 저장 → 다시 읽어도 같음
+    const kinded = await repo.update(id, { ...gymDraft, terminationNoticeDays: 30, noticeKind: 'renewal_decision', payments: [{ ...fee, amount: 60_000, dayOfMonth: 10 }] });
+    expect(kinded.contract.noticeKind).toBe('renewal_decision');
+    expect((await repo.get(id))?.contract.noticeKind).toBe('renewal_decision');
+    await repo.update(id, { ...gymDraft, payments: [{ ...fee, amount: 60_000, dayOfMonth: 10 }, { ...fee, kind: 'setup_fee', label: '가입비', amount: 30_000, frequency: 'one_time', dayOfMonth: null, startsOn: '2026-10-20' }], memo: '락커 포함', details: { commitmentMonths: 12 }, dates: [{ kind: 'other', label: '락커 배정', date: '2026-10-20' }] });
 
     // AI 제안 적용 → 해지 통보기한이 다음 행동으로
     const applied = await repo.applyAiSuggestion(id, created.aiChecks[0].id);

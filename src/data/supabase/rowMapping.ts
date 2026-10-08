@@ -2,6 +2,7 @@
  * DB 행 → 도메인 기록 (앱 저장소와 서버 알림 계획이 같은 변환을 쓴다 — Edge Function용 번들에 포함)
  * 이 파일은 Supabase 클라이언트를 import하지 않는다.
  */
+import { isNoticeKind } from '@/domain/noticeKind';
 import { detailsFromDb } from '@/domain/contractTypes';
 import type {
   AiCheck,
@@ -138,6 +139,8 @@ function toContract(r: Row<'contracts'>): Contract {
     autoRenewal: r.auto_renewal,
     renewalPeriodMonths: r.renewal_period_months,
     terminationNoticeDays: r.termination_notice_days,
+    // 앱이 모르는 값은 unknown (확인 필요)
+    noticeKind: isNoticeKind(r.notice_kind) ? r.notice_kind : 'unknown',
     earlyTerminationTerms: r.early_termination_terms,
     penaltyTerms: r.penalty_terms,
     depositAmount: r.deposit_amount,

@@ -44,6 +44,7 @@ function contractPayload(d: ContractDraft, extra: Record<string, unknown> = {}):
     auto_renewal: d.autoRenewal,
     renewal_period_months: d.autoRenewal ? d.renewalPeriodMonths : null,
     termination_notice_days: d.terminationNoticeDays,
+    notice_kind: d.noticeKind,
     early_termination_terms: d.earlyTerminationTerms,
     penalty_terms: d.penaltyTerms,
     deposit_amount: d.depositAmount,

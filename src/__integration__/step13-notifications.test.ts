@@ -290,5 +290,10 @@ describe('권한 (RLS)', () => {
     expect((await b.client.from('notification_preferences').select('user_id')).data).toEqual([]);
     const bad = await b.client.from('notification_preferences').insert({ user_id: b.user.id, categories: { payment: { enabled: true, offsets: [2] } } });
     expect(bad.error).not.toBeNull(); // 정해진 시점(선택지)만
+    // 갱신 통보기한·갱신 여부 확인은 종류별 키로 따로 저장된다 (모르는 키는 거부)
+    const kinds = await b.client.from('notification_preferences').insert({ user_id: b.user.id, categories: { renewal_notice: { enabled: true, offsets: [30, 7] }, renewal_decision: { enabled: false, offsets: [30] } } });
+    expect(kinds.error).toBeNull();
+    const unknownKey = await b.client.from('notification_preferences').update({ categories: { notice_unknown: { enabled: true, offsets: [30] } } }).eq('user_id', b.user.id).select('user_id');
+    expect(unknownKey.error).not.toBeNull();
   });
 });

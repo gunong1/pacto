@@ -47,7 +47,7 @@ export default function NotificationSettingsScreen() {
   const eff = getEffectiveNotificationPreferences(prefs);
   const patch = (p: Parameters<typeof save.mutate>[0]) => save.mutate(p, { onError: () => notify('저장하지 못했어요', '잠시 후 다시 시도해주세요.') });
 
-  const setCategory = (c: NotificationCategory, next: CategoryPrefs) => patch({ categories: { ...eff.categories, [c]: next } });
+  const setCategory = (changes: Partial<Record<NotificationCategory, CategoryPrefs>>) => patch({ categories: { ...eff.categories, ...changes } });
   const toggleAll = async (on: boolean) => {
     if (!on && !(await confirm('PACTO 알림을 모두 끌까요?', '해지 통보기한 같은 중요한 기한 알림도 오지 않아요.', '끄기', '유지하기'))) return;
     patch({ enabled: on });

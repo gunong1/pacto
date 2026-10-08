@@ -37,6 +37,7 @@ function record(id: string, o: { title: string; category: string; contractType: 
     autoRenewal: o.autoRenewal ?? false,
     renewalPeriodMonths: o.autoRenewal ? '12' : '',
     terminationNoticeDays: o.notice ?? '',
+    noticeKind: 'termination_notice',
   };
   const r = draftToRecord(formToDraft(contractFormSchema.parse(form)), id, TODAY);
   r.contract.source = o.source ?? 'manual';
@@ -114,8 +115,8 @@ describe('B. 결제 + 해지 통보기한이 같은 날 → 푸시 1개, critica
   });
   test('critical 7일 전 문구 + 확인 권유 (판단하지 않음)', () => {
     const p = plan([rental()], { preferences: { showDetails: true }, now: new Date('2026-09-30T00:00:00Z') }).find((x) => x.fireOn === '2026-10-05')!;
-    expect(p.push.title).toBe('공기청정기 렌탈 · 해지 통보기한이 7일 남았어요.');
-    expect(p.push.body).toBe('자동갱신을 원하지 않는다면 계약 내용을 확인해보세요.');
+    expect(p.push.title).toBe('공기청정기 렌탈 · 해지 통보기한까지 7일 남았어요.');
+    expect(p.push.body).toBe('계약을 끝내려면 계약 내용을 확인해보세요.');
   });
   test('Deep Link: 계약 상세 + 관련 계약 체크', () => {
     const p = plan([rental()]).find((x) => x.fireOn === '2026-10-11')!;
@@ -141,7 +142,7 @@ describe('C·D. 설정 병합: PACTO 기본 → 사용자 → 계약별', () => 
     expect(ps.filter((p) => p.contractId === 'b').map((p) => p.fireOn)).toEqual(['2026-10-13']);
     const eff = getEffectiveNotificationPreferences(prefs, { contract_end: { enabled: true, offsets: [180, 90, 30] } });
     expect(eff.categories.contract_end.offsets).toEqual([180, 90, 30]);
-    expect(eff.origin).toEqual({ payment: 'user', termination_notice: 'pacto', contract_end: 'contract', renewal: 'pacto' });
+    expect(eff.origin).toEqual({ payment: 'user', termination_notice: 'pacto', renewal_notice: 'pacto', renewal_decision: 'pacto', contract_end: 'contract', renewal: 'pacto' });
   });
 
   test('종류를 끄면 그 종류 알림 없음 / 전체를 끄면 아무 알림 없음 / 계약별 알림 끔', () => {
@@ -156,6 +157,8 @@ describe('C·D. 설정 병합: PACTO 기본 → 사용자 → 계약별', () => 
     expect(PACTO_DEFAULT_CATEGORIES).toEqual({
       payment: { enabled: true, offsets: [1] },
       termination_notice: { enabled: true, offsets: [30, 7, 1, 0] },
+      renewal_notice: { enabled: true, offsets: [30, 7, 1, 0] },
+      renewal_decision: { enabled: true, offsets: [30, 7] },
       contract_end: { enabled: true, offsets: [90, 30, 7] },
       renewal: { enabled: true, offsets: [30, 7] },
     });
@@ -163,7 +166,8 @@ describe('C·D. 설정 병합: PACTO 기본 → 사용자 → 계약별', () => 
     expect(isPactoDefault({ payment: { enabled: true, offsets: [3] } })).toBe(false);
     expect(reminderPolicySummary(effectiveRulesSummary({ categories: { payment: { enabled: true, offsets: [3, 0] }, renewal: { enabled: false, offsets: [30] } } }))).toEqual([
       { label: '결제·입금', when: '3일 전과 당일' },
-      { label: '해지·종료 통보기한', when: '30·7·1일 전과 당일' },
+      { label: '해지·갱신 통보기한', when: '30·7·1일 전과 당일' },
+      { label: '갱신 여부 확인', when: '30·7일 전' },
       { label: '계약 만료', when: '90·30·7일 전' },
       { label: '자동갱신 예정일', when: '꺼짐' },
     ]);

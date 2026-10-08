@@ -9,6 +9,7 @@
 import { profileOf } from './contractTypes';
 import { addMonths } from './dates';
 import { daysUntil } from './dday';
+import { noticeBy } from './noticeKind';
 import { findEvidence, NOTIFICATION_SOURCE_LABEL, type NotificationEvidence, type NotificationPriority } from './notificationPriority';
 import { scheduleForRange, type ScheduleItem } from './schedule';
 import { isLive } from './status';
@@ -45,15 +46,21 @@ const subj = (word: string) => `${word}${hasBatchim(word) ? '이' : '가'}`;
 function copyFor(item: ScheduleItem, record: ContractRecord): Pick<ImportantScheduleItem, 'title' | 'body' | 'policyNote'> {
   const profile = profileOf(record.contract.contractType);
   switch (item.actionType) {
+    // 언제 알려줄지는 사용자 설정이라 카드에 적지 않는다 (알림 설정 요약에서 보여줌)
     case 'termination_notice':
       return {
-        title: `${subj(profile.noticeLabel)} 다가와요`,
+        title: `${subj(item.title)} 다가와요`,
         body: record.contract.autoRenewal
           ? '자동갱신을 원하지 않는다면 이 날짜 전까지 해지 의사를 알려야 해요.'
-          : '계약을 끝내거나 갱신하지 않으려면 이 날짜 전까지 상대방에게 알려야 해요.',
-        // 언제 알려줄지는 사용자 설정이라 카드에 적지 않는다 (알림 설정 요약에서 보여줌)
+          : '계약을 끝내려면 이 날짜 전까지 상대방에게 알려야 해요.',
         policyNote: null,
       };
+    case 'renewal_notice':
+      return { title: `${subj(item.title)} 다가와요`, body: '이 날짜 전까지 갱신 또는 갱신 거절 의사를 상대방에게 알려야 해요.', policyNote: null };
+    case 'renewal_decision':
+      return { title: '갱신 여부를 확인할 시점이에요', body: `${noticeBy(item.source)} 이 날짜까지 갱신 여부를 상대방과 협의해주세요.`, policyNote: null };
+    case 'notice_unknown':
+      return { title: '통보·갱신 관련 기한이 있어요', body: '이 일정의 의미를 확인해주세요.', policyNote: null };
     case 'prepare': {
       const days = profile.prepare?.daysBefore;
       return {

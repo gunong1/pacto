@@ -58,7 +58,7 @@ function Editor({
     const value = mode === 'default' ? null : Object.fromEntries(NOTIFICATION_CATEGORIES.map((c) => [c, draft[c]]));
     save.mutate(value, { onSuccess: () => notify('저장했어요', mode === 'default' ? '이 계약은 내 기본 알림 설정을 따라요.' : '이 계약에만 직접 설정한 알림 시점을 써요.'), onError: () => notify('저장하지 못했어요', '잠시 후 다시 시도해주세요.') });
   };
-  const set = (c: NotificationCategory, next: CategoryPrefs) => setDraft({ ...draft, [c]: next });
+  const set = (changes: Partial<Record<NotificationCategory, CategoryPrefs>>) => setDraft({ ...draft, ...changes });
 
   return (
     <Screen

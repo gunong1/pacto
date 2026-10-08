@@ -7,8 +7,8 @@ import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Divider, KeyValueRow, Section } from '@/components/ui/layout';
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
-import { profileOf } from '@/domain/contractTypes';
 import { formatWon } from '@/domain/money';
+import { noticeLabelOf } from '@/domain/noticeKind';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
 import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm } from '@/features/contracts/form';
@@ -150,7 +150,7 @@ export default function ReviewScreen() {
                   onOpenOriginal={doc ? () => viewDocument(doc, c.evidencePage) : undefined}
                   deadline={
                     s?.kind === 'set_termination_notice' && noticeDate
-                      ? { label: profileOf(model.draft.contractType).noticeLabel, date: noticeDate }
+                      ? { label: noticeLabelOf(model.draft.noticeKind, model.draft.contractType), date: noticeDate }
                       : s?.kind === 'add_event'
                         ? { label: s.title, date: s.eventDate }
                         : null

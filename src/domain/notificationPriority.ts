@@ -37,6 +37,7 @@ export type ActionEventType =
   | 'termination_notice'
   | 'renewal_notice'
   | 'renewal_decision'
+  | 'notice_unknown'
   | 'renewal_window_start'
   | 'renewal_window_end'
   | 'option_exercise_deadline'
@@ -56,10 +57,13 @@ export type ActionEventType =
 const BASE_PRIORITY: Record<ActionEventType, NotificationPriority> = {
   termination_notice: 'critical',
   renewal_notice: 'critical',
-  renewal_decision: 'critical',
   renewal_window_end: 'critical',
   option_exercise_deadline: 'critical',
   claim_deadline: 'critical',
+  // 갱신 여부를 확인·협의하는 시점 — 의사표시 기한이 아니라 critical로 올리지 않는다
+  renewal_decision: 'important',
+  // 통보기한 숫자는 있으나 의미가 불확실 — 확인 필요 (critical로 단정하지 않음)
+  notice_unknown: 'important',
   renewal_window_start: 'important',
   contract_end: 'important',
   maturity: 'important',
@@ -108,7 +112,8 @@ const EVIDENCE_TOPICS: Partial<Record<ActionEventType, readonly string[]>> = {
   termination_notice: ['notice_deadline', 'auto_renewal', 'renewal_terms'],
   renewal: ['auto_renewal', 'renewal_terms'],
   renewal_notice: ['notice_deadline', 'renewal_terms', 'auto_renewal'],
-  renewal_decision: ['renewal_terms', 'auto_renewal'],
+  renewal_decision: ['renewal_terms', 'notice_deadline', 'auto_renewal'],
+  notice_unknown: ['notice_deadline', 'renewal_terms', 'auto_renewal'],
   contract_end: ['renewal_terms', 'deposit_return'],
   maturity: ['maturity_extension', 'renewal_terms'],
   deposit_return: ['deposit_return'],

@@ -17,15 +17,35 @@ import type { Contract, ContractRecord, ISODate } from './types';
 
 // ===== 3·4·5) 알림 설정 =====
 
-export const NOTIFICATION_CATEGORIES = ['payment', 'termination_notice', 'contract_end', 'renewal'] as const;
+export const NOTIFICATION_CATEGORIES = ['payment', 'termination_notice', 'renewal_notice', 'renewal_decision', 'contract_end', 'renewal'] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_DEFS: Record<NotificationCategory, { label: string; description: string; rule: keyof ReminderRules; critical: boolean }> = {
   payment: { label: '결제·입금', description: '결제일·입금일 전에 알려드려요', rule: 'payment', critical: false },
-  termination_notice: { label: '해지·종료 통보기한', description: '갱신을 원하지 않을 때 알려야 하는 기한', rule: 'terminationNotice', critical: true },
+  termination_notice: { label: '해지·종료 통보기한', description: '계약을 끝내려면 상대방에게 알려야 하는 기한', rule: 'terminationNotice', critical: true },
+  renewal_notice: { label: '갱신 통보기한', description: '갱신 또는 갱신 거절 의사를 알려야 하는 기한', rule: 'renewalNotice', critical: true },
+  renewal_decision: { label: '갱신 여부 확인', description: '갱신 여부를 상대방과 확인·협의하는 시점', rule: 'renewalDecision', critical: false },
   contract_end: { label: '계약 만료', description: '계약·만기가 끝나는 날', rule: 'contractEnd', critical: false },
   renewal: { label: '자동갱신 예정일', description: '자동으로 연장되는 날', rule: 'renewal', critical: false },
 };
+
+/**
+ * 설정 화면에서 함께 보여주는 종류 — 저장은 종류별 키로 따로 한다.
+ * 해지·종료 통보기한과 갱신 통보기한은 "통보기한" 한 줄로 바꾸면 두 키에 같이 저장된다.
+ */
+export const NOTIFICATION_CATEGORY_GROUPS: readonly { key: NotificationCategory; members: readonly NotificationCategory[]; label: string; description: string }[] = [
+  { key: 'payment', members: ['payment'], label: '결제·입금', description: '결제일·입금일 전에 알려드려요' },
+  { key: 'termination_notice', members: ['termination_notice', 'renewal_notice'], label: '해지·갱신 통보기한', description: '상대방에게 해지·갱신 의사를 알려야 하는 기한' },
+  { key: 'renewal_decision', members: ['renewal_decision'], label: '갱신 여부 확인', description: '갱신 여부를 상대방과 확인·협의하는 시점' },
+  { key: 'contract_end', members: ['contract_end'], label: '계약 만료', description: '계약·만기가 끝나는 날' },
+  { key: 'renewal', members: ['renewal'], label: '자동갱신 예정일', description: '자동으로 연장되는 날' },
+];
+
+/**
+ * 저장된 값이 없을 때 이어받을 종류 — 갱신 통보기한이 생기기 전의 해지·종료 통보기한 설정은 갱신 통보기한에도 그대로 적용한다.
+ * (갱신 여부 확인은 이어받지 않고 PACTO 기본값에서 시작)
+ */
+const INHERITS_FROM: Partial<Record<NotificationCategory, NotificationCategory>> = { renewal_notice: 'termination_notice' };
 
 /** 고를 수 있는 알림 시점 (V1은 자유 입력 대신 선택지) — 계약별 설정은 180일 전까지 */
 export const OFFSET_PRESETS = [90, 60, 30, 14, 7, 3, 1, 0] as const;
@@ -116,9 +136,12 @@ export function getEffectiveNotificationPreferences(user: Partial<NotificationPr
   const categories = {} as CategoryPrefsMap;
   const origin = {} as Record<NotificationCategory, PreferenceOrigin>;
   for (const c of NOTIFICATION_CATEGORIES) {
-    const pick = contractCats[c] ?? userCats[c] ?? PACTO_DEFAULT_CATEGORIES[c];
+    const from = INHERITS_FROM[c];
+    const contractPick = contractCats[c] ?? (from ? contractCats[from] : undefined);
+    const userPick = userCats[c] ?? (from ? userCats[from] : undefined);
+    const pick = contractPick ?? userPick ?? PACTO_DEFAULT_CATEGORIES[c];
     categories[c] = { enabled: pick.enabled, offsets: [...pick.offsets] };
-    origin[c] = contractCats[c] ? 'contract' : userCats[c] ? 'user' : 'pacto';
+    origin[c] = contractPick ? 'contract' : userPick ? 'user' : 'pacto';
   }
   return {
     enabled: user?.enabled ?? true,
@@ -133,7 +156,14 @@ export function getEffectiveNotificationPreferences(user: Partial<NotificationPr
 /** 설정 → 일정 계산용 알림 시점 (꺼진 종류는 빈 목록) */
 export function toReminderRules(p: Pick<EffectivePreferences, 'categories'>): ReminderRules {
   const on = (c: NotificationCategory) => (p.categories[c].enabled ? p.categories[c].offsets : []);
-  return { payment: on('payment'), terminationNotice: on('termination_notice'), contractEnd: on('contract_end'), renewal: on('renewal') };
+  return {
+    payment: on('payment'),
+    terminationNotice: on('termination_notice'),
+    renewalNotice: on('renewal_notice'),
+    renewalDecision: on('renewal_decision'),
+    contractEnd: on('contract_end'),
+    renewal: on('renewal'),
+  };
 }
 
 /** 사용자 설정이 PACTO 기본값과 같은지 (되돌리기 버튼 표시용) */
@@ -278,8 +308,11 @@ function eventTypeOf(group: ReminderGroup): ActionEventType {
 }
 
 /** 해야 할 일 안내 (판단하지 않고 확인을 권하는 문장만) */
-function actionHint(kind: ReminderGroup['kind']): string | null {
-  if (kind === 'termination_notice') return '자동갱신을 원하지 않는다면 계약 내용을 확인해보세요.';
+function actionHint(kind: ReminderGroup['kind'], type: ActionEventType): string | null {
+  if (type === 'renewal_notice') return '갱신 여부를 정해 상대방에게 알려야 하는지 계약 내용을 확인해보세요.';
+  if (type === 'renewal_decision') return '갱신 여부를 상대방과 협의해보세요.';
+  if (type === 'notice_unknown') return '이 일정의 의미를 확인해주세요.';
+  if (kind === 'termination_notice') return '계약을 끝내려면 계약 내용을 확인해보세요.';
   if (kind === 'contract_end') return '계약을 계속할지 확인해보세요.';
   if (kind === 'renewal') return '갱신을 원하지 않는다면 해지 통보기한을 확인해보세요.';
   return null;
@@ -289,7 +322,10 @@ function headline(group: ReminderGroup): string {
   const head = group.reminders.find((r) => r.kind === group.kind)!;
   const d = head.daysBefore;
   const left = d === 0 ? '오늘이에요' : d === 1 ? '내일이에요' : `${d}일 남았어요`;
-  if (group.kind === 'termination_notice') return d === 0 ? `오늘이 ${head.label}이에요.` : d === 1 ? `내일이 ${head.label}이에요.` : `${head.label}이 ${d}일 남았어요.`;
+  if (group.kind === 'termination_notice') {
+    if (head.actionType === 'notice_unknown') return '통보·갱신 관련 기한이 있어요.';
+    return d === 0 ? `오늘이 ${head.label}이에요.` : d === 1 ? `내일이 ${head.label}이에요.` : `${head.label}까지 ${d}일 남았어요.`;
+  }
   if (group.kind === 'contract_end') return head.actionType === 'maturity' ? `만기가 ${left}.` : `계약 만료가 ${left}.`;
   if (group.kind === 'renewal') return `자동갱신 예정일이 ${left}.`;
   return group.message;
@@ -308,7 +344,7 @@ export function buildNotificationMessage(group: ReminderGroup, opts: { showDetai
   }
   const pays = group.reminders.filter((r) => r.kind === 'payment');
   const payLine = pays.length ? `${pays.map((p) => `${p.label} ${p.amount != null ? `${p.amount.toLocaleString('ko-KR')}원` : ''}`.trim()).join(' · ')} ${pays.some((p) => p.direction === 'income') ? '입금' : '결제'}도 예정되어 있어요.` : null;
-  return { title: `${group.contractTitle} · ${headline(group)}`, body: [payLine ?? actionHint(group.kind)].filter(Boolean).join('\n') };
+  return { title: `${group.contractTitle} · ${headline(group)}`, body: [payLine ?? actionHint(group.kind, eventTypeOf(group))].filter(Boolean).join('\n') };
 }
 
 /** 같은 알림이면 항상 같은 키 — 사용자·계약·발송 시각·담긴 일정(종류·날짜·며칠 전) */

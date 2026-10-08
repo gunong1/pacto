@@ -1,3 +1,4 @@
+import type { NoticeKind } from '@/domain/noticeKind';
 import type {
   AiCheck,
   BusinessDayRule, PaymentObligation,
@@ -68,6 +69,8 @@ export interface ContractDraft {
   autoRenewal: boolean;
   renewalPeriodMonths: number | null;
   terminationNoticeDays: number | null;
+  /** 통보기한의 의미 — 모르면 unknown (확인 필요) */
+  noticeKind: NoticeKind;
   earlyTerminationTerms: string | null;
   penaltyTerms: string | null;
   memo: string | null;

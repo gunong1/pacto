@@ -31,7 +31,7 @@ import { maskLevel1Deep } from './protection/sensitive.ts';
  * v7: document_check(문서 역할·쪽별 판정·계약 신호) + 모든 추출값에 근거 파일·쪽
  * v8: 결제 날짜의 출처(date_source) — "계약 당일 지급"처럼 다른 날짜를 기준으로 하는 금액은 그 기준 날짜를 쓰고, 옆 줄 날짜를 옮기지 않는다
  */
-export const PROMPT_VERSION = 'extract-v8';
+export const PROMPT_VERSION = 'extract-v9';
 
 export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export const FREQUENCIES = ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly', 'one_time'] as const;
@@ -97,6 +97,10 @@ export const FIELDS: Record<string, { type: FieldType; desc: string }> = {
   terminationNoticeDays: {
     type: 'integer',
     desc: '계약 종료일(만료일) 기준으로 며칠 전까지 해지·갱신 거절을 알려야 하는지(일). 1개월 전이면 30. 자진 퇴직·중도 해지처럼 사용자가 정한 날 기준 통보는 넣지 않는다 (checks의 conditional_rule)',
+  },
+  noticeKind: {
+    type: 'string',
+    desc: 'terminationNoticeDays의 의미 (일수와 같은 조항). termination_notice: 해지·종료 의사를 통지해야 하는 기한 / renewal_notice: 갱신 또는 갱신 거절 의사를 통지해야 하는 기한 / renewal_decision: 갱신 여부를 확인·협의·결정하는 시점 / unknown: 의미가 불확실. 일수가 없으면 null',
   },
   earlyTerminationTerms: { type: 'string', desc: '중도해지(중도상환) 조건 요약 (한 문장)' },
   penaltyTerms: { type: 'string', desc: '위약금 조건 요약 (한 문장)' },
@@ -307,6 +311,10 @@ export function extractionInstructions(today: string): string {
     '- 조건부 의무는 날짜로 바꾸지 않습니다: "근로자가 퇴직하고자 하는 경우 30일 전 통보"는 계약 종료일 기준 통보기한이 아닙니다 →',
     '  checks에 behavior=conditional_rule, condition=자진 퇴직하려는 경우, action=희망 퇴직일 30일 전에 회사에 통보, offset_days=30, related_date=null.',
     '  fields.terminationNoticeDays는 "계약 만료 N일 전까지 해지(갱신 거절) 통보"처럼 종료일 기준일 때만 넣습니다.',
+    '- 통보기한의 의미(fields.noticeKind)는 숫자만 보고 정하지 않고 원문 표현 그대로 고릅니다. 원문보다 강한 의미로 바꾸지 않습니다.',
+    '  "갱신 여부를 협의/확인/결정" → renewal_decision (통지 의무로 바꾸지 않음). "해지 의사를 통지/통보" → termination_notice.',
+    '  "갱신하지 않으려면(갱신을 원하지 않으면) 통지/통보" → 문맥에 따라 termination_notice 또는 renewal_notice. "갱신 의사를 통지" → renewal_notice.',
+    '  어느 쪽인지 원문으로 판단할 수 없으면 unknown (확신이 없을 때 해지 통보기한으로 단정하지 않음). 근거 문장은 terminationNoticeDays와 같은 조항.',
     '- 기간 조건(수습기간 N개월, 수습 중 임금 N%)은 속성(probation_months, probation_pay_rate)으로 넣습니다. 시작일만 따로 일정(related_date)으로 만들지 않습니다.',
     '- 지급일이 휴일일 때 규칙("휴일이면 직전 영업일")은 business_day_rule로.',
     '- 자동갱신이 아니고 갱신을 별도 협의로 정하면 autoRenewal=false, 갱신 조건은 renewal_terms 속성(해당 유형) 또는 checks(topic=renewal_terms).',
@@ -492,10 +500,36 @@ function obligationOf(p: Record<string, unknown>, label: string, quote: string):
   return { obligation, conditionNote: obligation === 'confirmed' ? null : condition };
 }
 
+/** 통보기한의 의미 (앱 src/domain/noticeKind.ts와 동일) */
+export const NOTICE_KIND_CODES = ['termination_notice', 'renewal_notice', 'renewal_decision', 'unknown'] as const;
+/** 협의·확인 표현 — 통지 표현 없이 이것만 있으면 갱신 여부 확인(renewal_decision) */
+const DECISION_WORDS = /협의|확인|논의|결정|상의|합의/;
+/** 통지 표현 */
+const NOTIFY_WORDS = /통지|통보|알려|고지|의사\s*표시|서면으로|신청/;
+
+/**
+ * 통보기한의 의미 안전장치:
+ * - 일수가 없으면 의미도 없음(null)
+ * - 근거 문장이 "협의·확인"만 말하면(통지 표현 없음) 모델 답과 관계없이 renewal_decision — 통지 의무로 강하게 바꾸지 않는다
+ * - 모델이 답하지 않았거나 확신이 낮거나 근거 문장이 없으면 unknown (critical로 단정하지 않음)
+ */
+export function resolveNoticeKind(notice: number | null, kind: Extracted | undefined, days: Extracted | undefined): Extracted {
+  if (notice === null) return { value: null, confidence: 'low' };
+  const quotes = [...(days?.evidence ?? []), ...(kind?.evidence ?? [])].map((e) => e.quote).join(' ');
+  const evidence = kind?.evidence?.length ? kind.evidence : days?.evidence;
+  if (quotes && DECISION_WORDS.test(quotes) && !NOTIFY_WORDS.test(quotes)) {
+    return { value: 'renewal_decision', confidence: kind?.value === 'renewal_decision' ? kind.confidence : 'medium', ...(evidence ? { evidence } : {}) };
+  }
+  const v = oneOf(NOTICE_KIND_CODES, kind?.value);
+  if (!v || v === 'unknown' || !quotes || kind?.confidence === 'low') return { value: 'unknown', confidence: 'low', ...(evidence ? { evidence } : {}) };
+  return { value: v, confidence: kind!.confidence, ...(evidence ? { evidence } : {}) };
+}
+
 function cleanField(key: string, raw: unknown): unknown {
   if (raw === null || raw === undefined) return null;
   switch (FIELDS[key].type) {
     case 'string':
+      if (key === 'noticeKind') return oneOf(NOTICE_KIND_CODES, raw);
       return text(raw, key === 'title' || key === 'counterparty' ? 100 : 500);
     case 'integer':
       if (key === 'renewalPeriodMonths') return toInt(raw, 1, 120);
@@ -812,6 +846,9 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
     fields.terminationNoticeDays = { value: null, confidence: 'low' };
     notice = null;
   }
+  // 8-1) 통보기한의 의미 — 원문보다 강하게 해석하지 않는다
+  fields.noticeKind = resolveNoticeKind(notice, fields.noticeKind, fields.terminationNoticeDays);
+
   // 24) 관리로 연결: 자동갱신·통보기한 → 해지 통보기한 일정, 계약서에 명시된 (다른 데서 이미 관리하지 않는) 날짜 → 캘린더 일정 제안
   for (const c of checks) {
     if (c.behavior === 'conditional_rule') continue;

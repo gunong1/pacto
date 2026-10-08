@@ -5,6 +5,7 @@ import { FREQUENCY_LABEL } from './labels';
 import { formatWon, formatWonCompact } from './money';
 import { amountPeriods, probationPeriod } from './paymentRules';
 import { expandPayment } from './schedule';
+import { noticeLabelOf } from './noticeKind';
 import { terminationNoticeDeadline } from './status';
 import type { ContractPayment, ContractRecord, ISODate } from './types';
 
@@ -99,7 +100,8 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   const notice = () => {
     if (c.terminationNoticeDays == null) return;
     const n = terminationNoticeDeadline(c, today);
-    add('notice', profile.noticeLabel, `종료 ${c.terminationNoticeDays}일 전까지${n ? ` (${formatDateKo(n.date)})` : ''}`, !!n && !n.passed);
+    // 의미가 불확실하면 이름 대신 "확인 필요"를 함께 보여준다 (계약 수정에서 고를 수 있음)
+    add('notice', noticeLabelOf(c.noticeKind, t), `종료 ${c.terminationNoticeDays}일 전까지${n ? ` (${formatDateKo(n.date)})` : ''}${c.noticeKind === 'unknown' ? ' · 확인 필요' : ''}`, !!n && !n.passed);
   };
   const progress = (p: ContractPayment) => {
     const pr = installmentProgress(p, record, today);

@@ -25,6 +25,7 @@ function record(id: string, o: { title: string; category?: string; contractType?
     autoRenewal: o.autoRenewal ?? false,
     renewalPeriodMonths: o.autoRenewal ? '12' : '',
     terminationNoticeDays: o.notice ?? '',
+    noticeKind: 'termination_notice',
   };
   return draftToRecord(formToDraft(contractFormSchema.parse(form)), id, TODAY);
 }

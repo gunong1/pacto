@@ -1200,3 +1200,14 @@ pacto/
 - **법령 알림**: V1에서 만들지 않음. 임대차 "만료 60일 전 갱신 여부 확인"(PACTO 안내)은 화면의 중요한 계약 일정에만 있고 푸시 대상은 아님.
 - 테스트: `notifications.test.ts`(A~F·K~O·시간대·미리보기), `push-outcome.test.ts`, `step13-notifications`(통합: C·D·E·F·G·J·재시도·만료·수신 결과·RLS), `e2e/push-settings.js`.
 - **알림 화면 역할 (개정 15-1)**: 알림 화면 = 중요한 계약 일정(critical·important, critical 먼저 → 날짜순, 최대 5개) + 알림 설정 요약 + 캘린더 링크. 앞으로 보낼 푸시 목록("다음 알림")은 보여주지 않는다 — 미래 일정은 캘린더, 실제 알림은 푸시. `scheduled_notifications`·planner·발송은 그대로. 카드 날짜는 실제 계약 일정 날짜(발송 시각 아님), 알림 시점은 사용자 설정이라 카드에 적지 않는다. 푸시를 끈 상태(전체 끄기·권한 거부)는 "알림이 꺼져 있어요" + 설정 버튼, 중요 일정은 계속 표시.
+
+### 통보기한의 의미 notice_kind (개정 16, extract-v9)
+- 문제: "종료 N일 전"이라는 숫자 하나(`termination_notice_days`)를 모두 "해지 통보기한(critical)"으로 다뤄, 계약서가 "갱신 여부를 협의"라고만 적은 경우도 통보 의무처럼 보였다.
+- `contracts.notice_kind`: `termination_notice`(해지·종료 의사 통지 기한, critical) / `renewal_notice`(갱신 또는 갱신 거절 의사 통지 기한, critical) / `renewal_decision`(갱신 여부 확인·협의·결정 시점, important) / `unknown`(숫자는 있으나 의미 불확실, important + 확인 필요). 기본값 unknown, 기존 계약은 모두 unknown — 자동으로 다시 분류하지 않고 사용자가 계약 수정에서 고른다(○ 해지·종료 통보기한 ○ 갱신 통보기한 ○ 갱신 여부 확인·협의 ○ 잘 모르겠어요). `save_contract`는 수정 시 값이 없으면 기존 값을 유지.
+- 도메인: `src/domain/noticeKind.ts` 한 곳에서 이름·문구·일정 종류를 정한다. 일정 항목 type은 그대로 `termination_notice`(캘린더 색·순서), actionType이 종류별(`termination_notice` / `renewal_notice` / `renewal_decision` / `notice_unknown`)이고 중요도는 `notificationPriority.ts`(renewal_decision·notice_unknown = important). unknown은 항상 needsReview(확인 필요).
+  계약서의 갱신 여부 확인 시점(renewal_decision)이 있으면 임대차 PACTO 기본 안내(만기 60일 전 갱신 여부 확인)를 따로 만들지 않는다(같은 날 중복 방지).
+- 문구: "갱신 여부 확인까지 682일 남았습니다." / "계약서에 따라 2028년 8월 20일까지 갱신 여부를 상대방과 협의해주세요." / "해지 통보기한까지 30일 남았습니다." / "갱신 통보기한까지 30일 남았습니다." / unknown: "통보·갱신 관련 기한이 있어요." + "이 일정의 의미를 확인해주세요." 직접 입력한 계약은 "입력한 계약 정보에 따라".
+- AI(extract-v9): `fields.noticeKind`를 일수와 같은 조항 근거로 받는다. 서버 `resolveNoticeKind` 안전장치 — 근거 문장에 협의·확인 표현만 있고 통지 표현(통지·통보·알려·고지·의사표시·서면으로·신청)이 없으면 모델 답과 관계없이 renewal_decision(원문보다 강하게 바꾸지 않음). 모델이 답하지 않았거나 unknown·확신 낮음·근거 문장 없음이면 unknown. 앱은 unknown이거나 high가 아니면 "확인 필요".
+- 알림 설정: 종류별 키 `termination_notice` / `renewal_notice` / `renewal_decision`을 따로 저장(DB `valid_notification_categories` 확장). 화면은 "해지·갱신 통보기한"(termination_notice + renewal_notice에 같이 저장) / "갱신 여부 확인"으로 묶어 보여준다. 저장값이 없을 때 renewal_notice는 기존 termination_notice 설정을 이어받고(읽을 때 계산 — 저장된 사용자 데이터는 바꾸지 않음), renewal_decision은 PACTO 기본값(30·7일 전)에서 시작. unknown 기한은 놓치지 않도록 해지·종료 통보기한 시점을 쓴다.
+- 배포 순서: DB(`supabase db push`) → Edge Function(`analyze-contract`, `notifications`) → 앱 빌드. DB를 먼저 올리지 않으면 새 앱의 저장(`notice_kind`, 새 알림 설정 키)이 거부된다.
+- 테스트: `notice-kind.test.ts`(A 협의→renewal_decision·important, B 해지 의사 통지→critical, C 갱신 원치 않으면 통보→문맥 판단 유지, D 불확실→unknown·확인 필요, E 기존 계약 unknown·재분류 없음, 설정 이어받기), `step7-crud`·`step13-notifications`(DB 저장·설정 키), `e2e/notice-kind.js`.

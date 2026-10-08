@@ -195,8 +195,8 @@ describe('홈: 처리할 계약 / 곧 종료 / 상태 요약', () => {
 describe('다음 행동', () => {
   test('계약 종류·조건별 다음 행동', () => {
     const gym = nextAction(rec('c-gym'), TODAY)!;
-    expect(gym).toMatchObject({ kind: 'termination_notice', date: '2026-12-01', days: 57, headline: '해지 통보기한이 57일 남았습니다.' });
-    expect(gym.guidance).toContain('12월 1일까지 해지 의사를 전달해야');
+    expect(gym).toMatchObject({ kind: 'termination_notice', date: '2026-12-01', days: 57, headline: '해지 통보기한까지 57일 남았습니다.' });
+    expect(gym.guidance).toContain('12월 1일까지 해지 의사를 알려야');
 
     expect(nextAction(rec('c-car-insurance'), TODAY)).toMatchObject({ kind: 'contract_end', label: '보험 만기', days: 87 });
     expect(nextAction(rec('c-internet'), TODAY)).toMatchObject({ kind: 'renewal', label: '자동갱신 예정', days: 268 });

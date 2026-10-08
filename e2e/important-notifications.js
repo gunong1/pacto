@@ -50,6 +50,7 @@ const assert = (cond, msg) => {
     await input('payment-0-amount').fill('850000');
     await input('payment-0-dayOfMonth').fill('20');
     await input('field-terminationNoticeDays').fill('60');
+    await page.click(tid('notice-kind-termination_notice'));
     await page.click(tid('submit-contract'));
     await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
     log('직접 입력: 월세 계약 (만기 2027-08-20, 종료 통보 60일 전)');
@@ -70,7 +71,7 @@ const assert = (cond, msg) => {
     log('중요한 계약 일정: 종료 통보기한(중요·입력한 계약 정보 기준·2027. 6. 21.) → 갱신 여부 확인(PACTO 안내, 법령·계약서 기한 아님)');
 
     const policy = await page.locator(tid('reminder-policy')).innerText();
-    assert(policy.includes('알림 설정') && policy.includes('해지·종료 통보기한') && policy.includes('30·7·1일 전과 당일') && policy.includes('알림 설정 변경'), '알림 설정 요약 없음: ' + policy);
+    assert(policy.includes('알림 설정') && policy.includes('해지·갱신 통보기한') && policy.includes('30·7·1일 전과 당일') && policy.includes('알림 설정 변경'), '알림 설정 요약 없음: ' + policy);
     const whole = await page.locator('body').innerText();
     assert(!whole.includes('다음 알림') && !whole.includes('850,000원 결제 예정'), '미래 푸시 목록이 남아 있음: ' + whole);
     log('알림 설정 요약 (결제 하루 전 · 통보기한 30·7·1일 전과 당일 …) · 미래 푸시 목록 없음 · 일반 월세 결제는 중요 일정에 없음');

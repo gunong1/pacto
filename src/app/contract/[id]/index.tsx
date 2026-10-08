@@ -12,10 +12,11 @@ import { Divider, EmptyState, KeyValueRow, Screen, Section, SectionGap } from '@
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
 import { addDays, addMonths, formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
-import { contractTypeLabel, profileOf } from '@/domain/contractTypes';
+import { contractTypeLabel } from '@/domain/contractTypes';
 import { coreInfo, extraCosts, otherDetails, type ExtraCostRow } from '@/domain/coreInfo';
 import { categoryLabel, EVENT_TYPE_LABEL } from '@/domain/labels';
 import { formatWon } from '@/domain/money';
+import { noticeLabelOf } from '@/domain/noticeKind';
 import { contractSchedule, nextPayment } from '@/domain/schedule';
 import { contractMonthlyEquivalent } from '@/domain/spending';
 import { currentTerm, deriveStatus, terminationNoticeDeadline } from '@/domain/status';
@@ -34,6 +35,9 @@ import { colors, hitSlop, radius, spacing } from '@/theme';
 /** 푸시 알림 종류 → 화면 문구 */
 const PUSH_EVENT_LABEL: Record<string, string> = {
   termination_notice: '해지 통보기한',
+  renewal_notice: '갱신 통보기한',
+  renewal_decision: '갱신 여부 확인',
+  notice_unknown: '통보·갱신 관련 기한',
   renewal: '자동갱신 예정일',
   contract_end: '계약 만료',
   maturity: '만기',
@@ -469,9 +473,9 @@ function AiSection({
           const deadline =
             s?.kind === 'set_termination_notice'
               ? applied && notice
-                ? { label: profileOf(c.contractType).noticeLabel, date: notice.date }
+                ? { label: noticeLabelOf(c.noticeKind, c.contractType), date: notice.date }
                 : c.endDate
-                  ? { label: profileOf(c.contractType).noticeLabel, date: addDays(c.endDate, -s.terminationNoticeDays) }
+                  ? { label: noticeLabelOf(c.noticeKind, c.contractType), date: addDays(c.endDate, -s.terminationNoticeDays) }
                   : null
               : s?.kind === 'add_event'
                 ? { label: s.title, date: s.eventDate }

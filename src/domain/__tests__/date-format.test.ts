@@ -26,6 +26,7 @@ test('D. 장기 계약 (올해 2026 ↔ 일정 2028) → 다음 행동 안내 �
     startDate: '2026-10-20',
     endDate: '2028-10-19',
     terminationNoticeDays: '60',
+    noticeKind: 'renewal_decision' as const,
   };
   const record = draftToRecord(formToDraft(contractFormSchema.parse(form)), 'lease', '2026-10-08');
   const notice = actionCandidates(record, '2026-10-08').find((a) => a.date === '2028-08-20')!;

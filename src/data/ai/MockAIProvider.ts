@@ -67,6 +67,7 @@ export class MockAIProvider implements AIProvider {
         autoRenewal: f(true, 'medium', '계약 만료 1개월 전까지 별도 의사표시가 없으면 12개월 단위로 연장된다'),
         renewalPeriodMonths: f(12, 'medium'),
         terminationNoticeDays: f(30, 'medium', '계약 만료 1개월 전까지'),
+        noticeKind: f('termination_notice', 'medium', '계약 만료 1개월 전까지 별도 의사표시가 없으면 12개월 단위로 연장된다'),
         earlyTerminationTerms: f('의무사용기간 내 해지 시 위약금이 발생할 수 있습니다.', 'medium'),
         penaltyTerms: f('잔여 렌탈료의 10%', 'medium', '잔여 렌탈료의 10%를 위약금으로 납부한다'),
       },

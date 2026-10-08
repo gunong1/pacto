@@ -2,6 +2,7 @@ import { isConfirmedPayment, profileOf, type PaymentKind } from './contractTypes
 import { adjustToBusinessDay } from './businessDays';
 import { contractTermSource, getNotificationPriority, termNeedsReview, type ActionEventType, type NotificationPriority, type NotificationSource } from './notificationPriority';
 import { addDays, dateInMonth, parseISODate } from './dates';
+import { noticeActionType, noticeLabelOf } from './noticeKind';
 import { amountOn, amountPeriods, periodBoundaries } from './paymentRules';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
 import type {
@@ -200,8 +201,9 @@ function withMeta(record: ContractRecord, item: ScheduleItemDraft): ScheduleItem
       actionType = item.direction === 'income' ? 'income' : 'payment';
       break;
     case 'termination_notice':
-      actionType = 'termination_notice';
-      needsReview = termNeedsReview(contract, ['endDate', 'terminationNoticeDays']);
+      // 통보기한의 의미(해지 통보·갱신 통지·갱신 여부 확인·불확실)에 따라 종류·중요도가 달라진다
+      actionType = noticeActionType(contract.noticeKind);
+      needsReview = contract.noticeKind === 'unknown' || termNeedsReview(contract, ['endDate', 'terminationNoticeDays']);
       break;
     case 'renewal':
       actionType = 'renewal';
@@ -327,10 +329,11 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
     }
     const notice = terminationNoticeDeadline(contract, today);
     if (notice && inRange(notice.date)) {
-      items.push({ ...base, ...plain, key: `notice:${contract.id}:${notice.date}`, date: notice.date, type: 'termination_notice', title: profile.noticeLabel });
+      items.push({ ...base, ...plain, key: `notice:${contract.id}:${notice.date}`, date: notice.date, type: 'termination_notice', title: noticeLabelOf(contract.noticeKind, contract.contractType) });
     }
     const prep = prepareDate(contract);
-    if (prep && inRange(prep.date)) {
+    // 계약서에 갱신 여부 확인 시점이 있으면 PACTO 기본 안내(갱신 여부 확인)를 따로 만들지 않는다
+    if (prep && inRange(prep.date) && !(notice && contract.noticeKind === 'renewal_decision')) {
       items.push({ ...base, ...plain, key: `prepare:${contract.id}:${prep.date}`, date: prep.date, type: 'prepare', title: prep.label });
     }
   } else if (contract.lifecycleChangedOn && inRange(contract.lifecycleChangedOn)) {

@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { EVENT_COLOR } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { Badge, ChipGroup, SwitchRow, TextField, type TextFieldProps } from '@/components/ui/controls';
+import { Badge, ChipGroup, RadioGroup, SwitchRow, TextField, type TextFieldProps } from '@/components/ui/controls';
 import { DateField } from '@/components/ui/DateField';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { draftToRecord } from '@/data/draft';
@@ -35,6 +35,7 @@ import { BUSINESS_DAY_RULE_LABEL } from '@/domain/businessDays';
 import { addMonths, formatDateKo } from '@/domain/dates';
 import { categoryLabel, FREQUENCY_LABEL } from '@/domain/labels';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
+import { NOTICE_KIND_OPTIONS } from '@/domain/noticeKind';
 import { contractSchedule, expandPayment } from '@/domain/schedule';
 import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES, type Confidence } from '@/domain/types';
 import { colors, hitSlop, radius, spacing } from '@/theme';
@@ -432,7 +433,20 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             </AppText>
           ) : null}
           {values.autoRenewal ? field('renewalPeriodMonths', '갱신 주기', { keyboardType: 'number-pad', suffix: '개월', maxLength: 3 }) : null}
-          {field('terminationNoticeDays', `${profile.noticeLabel} (종료 며칠 전까지)`, { keyboardType: 'number-pad', suffix: '일 전', maxLength: 3 })}
+          {field('terminationNoticeDays', '통보·갱신 관련 기한 (종료 며칠 전까지)', { keyboardType: 'number-pad', suffix: '일 전', maxLength: 3 })}
+          {values.terminationNoticeDays?.trim() ? (
+            <View style={{ marginBottom: spacing.lg }} testID="notice-kind">
+              <AppText variant="captionStrong" color="textSecondary">
+                이 기한은 어떤 의미인가요?
+              </AppText>
+              {flagged?.has('noticeKind') ? (
+                <AppText variant="caption" color="check" style={{ marginTop: 2 }}>
+                  {hint('noticeKind') ?? '계약서에서 이 기한의 의미를 확인해주세요'}
+                </AppText>
+              ) : null}
+              <Controller control={control} name="noticeKind" render={({ field: f }) => <RadioGroup options={NOTICE_KIND_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="notice-kind" />} />
+            </View>
+          ) : null}
           {field('earlyTerminationTerms', '중도해지 관련 내용', { multiline: true })}
           {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
         </Section>

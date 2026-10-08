@@ -71,6 +71,12 @@ const assert = (cond, msg) => {
   await page.click(tid('field-autoRenewal'));
   await page.locator('input[aria-label="갱신 주기"]').fill('12');
   await input('field-terminationNoticeDays').fill('30');
+  // 기한의 의미: 기본 "잘 모르겠어요"(확인 필요) → 계약서대로 해지·종료 통보기한 선택
+  await page.waitForSelector(tid('notice-kind'));
+  const radioAttrs = await page.locator(tid('notice-kind-unknown')).evaluate((el) => [...el.attributes].map((a) => `${a.name}=${a.value}`).join(' '));
+  assert((await page.locator(tid('notice-kind-unknown')).getAttribute('aria-checked')) === 'true', '기한 의미 기본값이 "잘 모르겠어요"가 아님: ' + radioAttrs);
+  await page.click(tid('notice-kind-termination_notice'));
+  log('기한의 의미 선택지(해지·종료 / 갱신 통보 / 갱신 여부 확인·협의 / 잘 모르겠어요) → 해지·종료 통보기한');
   await shot('01-form');
   await page.click(tid('submit-contract'));
   await page.waitForSelector(tid('detail-title'), { timeout: 15000 });

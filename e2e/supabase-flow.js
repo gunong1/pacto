@@ -52,6 +52,7 @@ async function signUp(page, email, password) {
   await page.click(tid('field-autoRenewal'));
   await page.fill('input[aria-label="갱신 주기"]', '12');
   await page.fill(`input${tid('field-terminationNoticeDays')}`, '30');
+  await page.click(tid('notice-kind-termination_notice'));
   await page.click(tid('submit-contract'));
   await page.waitForSelector(tid('detail-next-headline'), { timeout: 15000 });
   const headline = await page.locator(tid('detail-next-headline')).innerText();

@@ -27,6 +27,7 @@ function rentalRecord(overrides: Partial<Record<string, string>> = {}): Contract
     autoRenewal: true,
     renewalPeriodMonths: '12',
     terminationNoticeDays: '30',
+    noticeKind: 'termination_notice',
     ...rest,
   };
   const draft = formToDraft(contractFormSchema.parse(form));
