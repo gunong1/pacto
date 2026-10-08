@@ -213,6 +213,12 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   }
   if (c.depositAmount != null) add('deposit', '보증금', formatWonCompact(c.depositAmount));
   if (c.totalAmount != null) add('total', '계약 총액', formatWon(c.totalAmount));
+  // 참고 금액(나눠 지급하는 금액의 합계 등) — 결제가 아니라 정보로만. 이미 보증금·계약 총액으로 보인 같은 금액은 생략
+  for (const p of record.payments) {
+    if (p.obligation !== 'informational') continue;
+    if ((p.kind === 'deposit' && c.depositAmount === p.amount) || c.totalAmount === p.amount) continue;
+    add(`info:${p.id}`, p.label, `${formatWon(p.amount)} · ${p.conditionNote ?? '참고 금액'}`);
+  }
   // 유형 템플릿에 없는 이름의 날짜도 버리지 않고 보여준다
   for (const x of dates) if (!shown.has(`dk:${x.kind}`)) add(`date:${x.id}`, x.label, formatDateKo(x.date));
   return rows;
@@ -242,7 +248,8 @@ export interface ExtraCostRow {
  */
 export function extraCosts(record: ContractRecord): ExtraCostRow[] {
   return record.payments
-    .filter((p) => !isConfirmedPayment(p))
+    // 참고 금액(합계 등)은 발생할 수 있는 비용이 아니다 — 핵심 정보에 참고로만
+    .filter((p) => !isConfirmedPayment(p) && p.obligation !== 'informational')
     .map((p) => ({
       key: `extra:${p.id}`,
       paymentId: p.id,

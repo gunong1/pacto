@@ -25,6 +25,7 @@ import {
   PAYMENT_KIND_DEFS,
 } from './contractRegistry.ts';
 import { DOCUMENT_CHECK_INSTRUCTIONS, documentCheckJsonSchema } from './documentGate.ts';
+import { findAggregateTotals } from './paymentAggregate.ts';
 import { maskLevel1Deep } from './protection/sensitive.ts';
 
 /**
@@ -776,14 +777,10 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
 
   // 안전장치: 총액(보증금·전세금·매매대금)과 그 총액을 나눠 내는 몫(계약금·중도금·잔금)이 함께 결제로 오면 총액은 합계(참고)로
   // — 같은 돈을 두 번 세지 않는다 (예: 보증금 20,000,000 = 계약금 2,000,000 + 잔금 18,000,000 → 실제로 오가는 돈은 계약금·잔금만)
-  const INSTALLMENT_PART = /계약금|중도금|잔금/;
-  for (const total of [...payments]) {
-    if (total.frequency !== 'one_time' || INSTALLMENT_PART.test(total.label)) continue;
-    const parts = payments.filter((x) => x !== total && x.frequency === 'one_time' && x.direction === total.direction && INSTALLMENT_PART.test(x.label));
-    if (parts.length >= 2 && parts.reduce((sum, x) => sum + x.amount, 0) === total.amount) {
-      payments.splice(payments.indexOf(total), 1);
-      references.push({ label: total.label, amount: total.amount, role: 'total' });
-    }
+  // (방향은 보지 않는다 — 모델이 보증금은 neutral, 계약금은 expense처럼 다르게 답해도 같은 돈)
+  for (const total of findAggregateTotals(payments)) {
+    payments.splice(payments.indexOf(total), 1);
+    references.push({ label: total.label, amount: total.amount, role: 'total' });
   }
 
   // 7) 유형별 속성 — 숫자 속성은 계약서에 적힌 경우만 (추정·계산한 연봉 같은 값은 버린다)
