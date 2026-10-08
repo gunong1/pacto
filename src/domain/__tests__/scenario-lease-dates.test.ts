@@ -92,6 +92,27 @@ describe('주택 월세 샘플 — 계약금은 "계약 당일" = 계약일(2026
   });
 });
 
+describe('보증금 총액과 계약금·잔금이 함께 오면 총액은 합계(참고)로 — 같은 돈을 두 번 세지 않음', () => {
+  test('보증금 20,000,000 + 계약금 2,000,000 + 잔금 18,000,000 → 결제는 계약금·잔금만, 10/20 오가는 돈 18,000,000', () => {
+    const out = lease({ date: null, date_source: 'contract_date' });
+    (out.payments as unknown[]).push(pay({ label: '보증금', amount: 20000000, frequency: 'one_time', date: '2026-10-20', ...ev('보증금 20,000,000원 (금 이천만원)') }));
+    const m = toReviewModel(toAppResult(out, 'openai'), ['doc-1']);
+    expect(m.draft.payments.map((p) => p.label)).toEqual(['계약금', '잔금', '월세', '관리비']);
+    expect(m.references).toContainEqual({ label: '보증금', amount: 20000000 });
+    const record = draftToRecord(m.draft, 'lease', TODAY);
+    const oct20 = record.payments.filter((p) => p.frequency === 'one_time' && p.startsOn === '2026-10-20').reduce((s, p) => s + p.amount, 0);
+    expect(oct20).toBe(18000000);
+    expect(record.payments.filter((p) => p.direction === 'neutral').reduce((s, p) => s + p.amount, 0)).toBe(20000000);
+  });
+
+  test('몫의 합이 총액과 다르면 그대로 둠 (함부로 지우지 않음)', () => {
+    const out = lease({ date: null, date_source: 'contract_date' });
+    (out.payments as unknown[]).push(pay({ label: '보증금', amount: 30000000, frequency: 'one_time', date: '2026-10-20', ...ev('보증금 30,000,000원') }));
+    const m = toReviewModel(toAppResult(out, 'openai'), ['doc-1']);
+    expect(m.draft.payments.map((p) => p.label)).toContain('보증금');
+  });
+});
+
 describe('기준 날짜 해석 규칙', () => {
   const dates = [
     { date: '2026-10-08', meaning: 'contract_signed' },

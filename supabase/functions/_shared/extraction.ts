@@ -272,6 +272,7 @@ export function extractionInstructions(today: string): string {
     '5·6) payments — 계약에서 오가는 돈을 모두 나열하고 의미(kind)·주기·방향(direction)을 정합니다. 한 계약에 여러 건일 수 있습니다.',
     `   kind: ${PAYMENT_KIND_DEFS.map((k) => `${k.code}(${k.label})`).join(', ')}`,
     '   direction은 사용자 기준입니다 (사용자 = 근로자·고객·임차인·가입자·차주·프리랜서 수행자 등 개인 쪽). 급여·용역 대금처럼 받는 돈은 income,',
+    '   보증금·전세금·매매대금 총액을 계약금·중도금·잔금으로 나눠 내면, 총액은 role=total(fields의 depositAmount·totalAmount)이고 실제로 오가는 계약금·중도금·잔금만 결제로 넣습니다 (같은 돈을 두 번 넣지 않음).',
     '   임대차 보증금·전세금과 그 계약금·잔금은 kind=deposit, direction=neutral. 매매·용역은 사용자가 어느 쪽인지 보고 정하고, 알 수 없으면 confidence를 low로.',
     '   연납 보험료는 frequency=yearly, 1회 납입액 그대로. 일회성 계약의 계약금/중도금/잔금은 각각 따로, 날짜는 date에.',
     '   결제일이 적혀 있지 않으면 추측하지 말고 null. 다른 결제와 "함께 청구"되면 같은 day_of_month. 같은 돈을 두 번 넣지 않습니다.',
@@ -737,6 +738,18 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
       null;
     if (parent && parent.components.length < 10 && !parent.components.some((x) => x.label === c.label)) parent.components.push({ label: c.label, amount: c.amount });
     else if (!parent) references.push({ label: c.label, amount: c.amount, role: 'reference' });
+  }
+
+  // 안전장치: 총액(보증금·전세금·매매대금)과 그 총액을 나눠 내는 몫(계약금·중도금·잔금)이 함께 결제로 오면 총액은 합계(참고)로
+  // — 같은 돈을 두 번 세지 않는다 (예: 보증금 20,000,000 = 계약금 2,000,000 + 잔금 18,000,000 → 실제로 오가는 돈은 계약금·잔금만)
+  const INSTALLMENT_PART = /계약금|중도금|잔금/;
+  for (const total of [...payments]) {
+    if (total.frequency !== 'one_time' || INSTALLMENT_PART.test(total.label)) continue;
+    const parts = payments.filter((x) => x !== total && x.frequency === 'one_time' && x.direction === total.direction && INSTALLMENT_PART.test(x.label));
+    if (parts.length >= 2 && parts.reduce((sum, x) => sum + x.amount, 0) === total.amount) {
+      payments.splice(payments.indexOf(total), 1);
+      references.push({ label: total.label, amount: total.amount, role: 'total' });
+    }
   }
 
   // 7) 유형별 속성 — 숫자 속성은 계약서에 적힌 경우만 (추정·계산한 연봉 같은 값은 버린다)
