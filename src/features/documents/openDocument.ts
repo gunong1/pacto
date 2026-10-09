@@ -1,9 +1,11 @@
+import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
 import { documentStore } from '@/data';
 import type { DocumentVariant } from '@/data/documents';
 import type { ContractDocument } from '@/domain/types';
+import { putViewerSession } from '@/features/viewer/session';
 import { confirm, notify } from '@/lib/dialog';
 
 type Doc = Pick<ContractDocument, 'storagePath' | 'localUri' | 'mimeType' | 'protection'>;
@@ -16,12 +18,25 @@ export async function requireReveal(): Promise<boolean> {
   return confirm('원본 보기', '원본 계약서를 표시합니다. 민감정보가 포함되어 있을 수 있습니다.\n확인 후 열어주세요.', '원본 보기');
 }
 
-/** 비공개 저장소의 짧은 Signed URL(2분)로만 연다. page가 있으면 PDF 뷰어가 그 쪽으로 이동하도록 #page=N */
+const TITLE: Record<DocumentVariant, string> = { protected_view: '보호된 계약서', original: '원본 계약서' };
+
+/**
+ * 비공개 저장소의 짧은 Signed URL(2분)로만 연다.
+ * 앱(Android·iOS): 앱 안 뷰어(pdf.js, 화면 폭 맞춤·확대) — 외부 브라우저로 넘기지 않는다. page가 있으면 그 쪽으로 이동
+ * 웹: 새 탭 (#page=N)
+ */
 async function openUrl(doc: Doc, variant: DocumentVariant, page?: number | null) {
   // 웹은 팝업 차단을 피하기 위해 탭을 먼저 연 뒤 주소를 넣는다
   const tab = Platform.OS === 'web' ? window.open('', '_blank') : null;
   try {
     let url = await documentStore.openUrl(doc, variant);
+    if (Platform.OS !== 'web' && url.startsWith('https://')) {
+      // 보호본 사진은 JPEG, 원본 사진은 JPG·PNG
+      const image = variant === 'protected_view' ? doc.mimeType !== 'application/pdf' : doc.mimeType.startsWith('image/');
+      const id = putViewerSession({ url, kind: image ? 'image' : 'pdf', page: page ?? null, title: TITLE[variant] ?? '계약서' });
+      router.push({ pathname: '/viewer', params: { id } });
+      return;
+    }
     if (page && doc.mimeType === 'application/pdf') url = `${url}#page=${page}`;
     if (Platform.OS === 'web') {
       if (tab) {
@@ -29,6 +44,7 @@ async function openUrl(doc: Doc, variant: DocumentVariant, page?: number | null)
         tab.location.href = url;
       } else window.location.href = url;
     } else {
+      // 미리보기(기기 안 파일)만 — 실제 저장소 문서는 위의 앱 안 뷰어
       await WebBrowser.openBrowserAsync(url);
     }
   } catch (e) {

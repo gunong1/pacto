@@ -1290,3 +1290,16 @@ pacto/
   한 쪽: CLOVA 1차 평균 1.5~1.8초(최대 3.0) + 재-OCR 1.3~1.6초(최대 3.5) + 해석 0.13~0.16초 + 가리기·저장 0.22~0.29초 + 확인 0.07초 → 시간 대부분은 CLOVA 응답.
   OCR 호출 쪽당 2회(20쪽 = 40회). 크기: 원본 PDF 대비 약 60%(20쪽 10.0MB → 5.9MB), 보호 이미지 1600×2261 약 0.3MB/쪽.
   → `MAX_SCAN_PAGES = 20` 유지 (20쪽 약 44초).
+
+### 앱 내 계약서 뷰어 (개정 21)
+- **왜**: 예전에는 Signed URL을 휴대폰 브라우저(Chrome)로 넘겨, 세로 PDF가 화면 폭에 맞지 않고 오른쪽이 잘렸다(화면 맞춤을 앱이 정할 수 없음).
+- **구조**: `openDocument.ts` → (원본은 `requireReveal()` 확인 후) Signed URL(2분)을 메모리에만 두고(`features/viewer/session.ts`, 라우트 주소에 넣지 않음) → `app/viewer.tsx` → `DocumentViewer`(react-native-webview).
+  WebView HTML(`viewerHtml.ts`)은 앱에 포함된 pdf.js 번들(`viewerScript.generated.js`, `scripts/vendor-viewer.mjs`)을 인라인으로 실행한다. 웹 버전은 지금처럼 새 탭.
+- **화면**: 첫 화면은 페이지 폭 = 화면 폭(축소, 자르지 않음), 원본 비율·/Rotate 그대로, 여러 쪽은 세로로 이어서, 두 손가락 확대(최대 5배)·확대 후 상하좌우 이동(WebView 기본 확대).
+  확대가 끝나면 보이는 쪽만 그 배율로 다시 그려 선명하게(최대 4배, 한 쪽 캔버스 1,200만 화소 이하). 사진(JPG·PNG)도 같은 화면에서 폭 맞춤. 근거 위치가 있으면 그 쪽으로 이동.
+- **메모리**: 쪽 크기만 먼저 읽어 자리를 잡고, 화면 근처(위아래 1.5화면) 쪽만 한 번에 한 쪽씩 그리며, 멀어진 쪽은 캔버스를 비운다. 20쪽 스캔(10MB) 측정: 동시에 남는 캔버스 최대 5~6장(약 33~39MB), 첫 쪽 약 0.1초(Chromium).
+- **보안**: CSP — 네트워크는 문서 Signed URL의 출처 한 곳만(`connect-src`), 스크립트는 인라인·blob worker·wasm만, 외부 스크립트·폰트·이미지 없음. pdf.js·CMap·wasm은 앱에 포함(CDN 없음).
+  WebView는 가상 주소(`https://viewer.pacto.invalid/`) 외 이동·새 창·파일 접근을 막고, `incognito`(캐시·쿠키 안 남김). 문서 내용은 기기 안에서만 그리며 외부로 보내지 않는다.
+  WebView 콘솔 로그는 앱으로 넘기지 않고, 뷰어는 상태 코드·쪽수만 앱에 알린다. 기존 접근 권한(본인 문서 · 비공개 저장소 · 짧은 Signed URL)은 그대로.
+  Supabase Storage Signed URL은 `Access-Control-Allow-Origin: *`라 WebView에서 바로 받을 수 있다(로컬 Supabase로 확인. 배포 환경은 기기 확인 필요).
+- **테스트**: `npm run test:viewer` (Playwright Chromium, 휴대폰 390×844·배율 2.75): 세로·가로·스캔·/Rotate 90·180·보호본·원본·JPG·PNG 첫 화면 폭 맞춤·가로 넘침 없음·비율, 여러 쪽 세로 순서, 근거 쪽 이동, 핀치 2.5배 확대 후 고해상도 다시 그림·이동, 20쪽 스캔 메모리, 외부 요청 차단, 오류 코드.
