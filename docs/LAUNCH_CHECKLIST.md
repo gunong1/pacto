@@ -24,6 +24,6 @@
   - 지금은 AI 분석 동의 문구가 OpenAI만 언급한다. 사진 보호(OCR)는 동의 여부와 관계없이 실행된다 — 동의를 받을지, 동의 전에는 OCR을 하지 않을지 결정 필요
 - [ ] **CLOVA 비밀값은 Supabase secrets에만** — `CLOVA_OCR_URL`, `CLOVA_OCR_SECRET` (앱·GitHub·채팅에 넣지 않기)
 - [ ] **실제 배포 성능 측정 결과 확인 후 동시 처리 수 확정** — `scripts/protect-bench.mjs` (지금 앱은 2장씩)
-- [ ] **스캔 PDF: 실제 배포 측정 후 `MAX_SCAN_PAGES`(지금 20) 확정** — `BENCH_MODE=scan-pdf node scripts/protect-bench.mjs` (1·5·10·20쪽, CPU 한도 초과·시간 초과 여부). 바꾸면 서버 `protect.ts`와 앱 `protectionCopy.ts` 둘 다
+- [x] **스캔 PDF: 실제 배포 측정 후 `MAX_SCAN_PAGES`(지금 20) 확정** — 2026-10-09 측정: 1·5·10·20쪽 모두 protected, 20쪽 약 44초 → 20 유지 — `BENCH_MODE=scan-pdf node scripts/protect-bench.mjs` (1·5·10·20쪽, CPU 한도 초과·시간 초과 여부). 바꾸면 서버 `protect.ts`와 앱 `protectionCopy.ts` 둘 다
   - 스캔 PDF도 페이지 이미지가 CLOVA OCR로 전송된다 — 위 개인정보처리방침·동의 결정에 포함
-- [ ] **`protect-scan-page` 함수 배포** — `npx supabase functions deploy protect-document protect-scan-page` (worker는 service_role 키로만 호출됨 — 별도 비밀값 없음)
+- [x] **`protect-scan-page` 함수 배포** — `npx supabase functions deploy protect-document protect-scan-page` (worker는 service_role 키로만 호출됨 — 별도 비밀값 없음)
