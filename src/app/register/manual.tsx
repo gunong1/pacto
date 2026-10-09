@@ -2,14 +2,17 @@ import { View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { EMPTY_DRAFT } from '@/data/draft';
-import { ContractForm } from '@/features/contracts/ContractForm';
+import { ContractForm, quickDefaultFrequency } from '@/features/contracts/ContractForm';
 import { draftToForm } from '@/features/contracts/form';
 import { useCreateContract, useToday } from '@/features/contracts/queries';
 import { finishRegistration } from '@/features/registration/finish';
 import { useRegistration } from '@/features/registration/store';
 import { spacing } from '@/theme';
 
-/** 직접 입력 — 확인 화면과 같은 폼을 빈 값으로 사용. */
+/**
+ * 직접 입력 — 문서 없는 계약(구독·헬스장·통신 등)을 가계부처럼 빠르게 등록.
+ * 계약명·유형·금액·주기·다음 결제일만 보이고, 나머지는 "상세 정보 추가"로 펼친다 (확인·수정 화면과 같은 폼·저장 로직).
+ */
 export default function ManualEntryScreen() {
   const today = useToday();
   const create = useCreateContract();
@@ -17,13 +20,14 @@ export default function ManualEntryScreen() {
 
   return (
     <ContractForm
-      defaultValues={draftToForm(EMPTY_DRAFT)}
+      defaultValues={{ ...draftToForm({ ...EMPTY_DRAFT, contractType: 'recurring' }), quick: { amount: '', frequency: quickDefaultFrequency('recurring'), nextDate: '' } }}
+      variant="quick"
       today={today}
       header={
         <View style={{ paddingHorizontal: spacing.gutter, paddingTop: spacing.lg }}>
-          <AppText variant="title2">계약 정보를 입력해주세요</AppText>
+          <AppText variant="title2">빠르게 등록하기</AppText>
           <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
-            먼저 계약 유형을 골라주세요. 유형에 맞게 입력 항목이 바뀌어요. 계약명만 있어도 저장할 수 있어요.
+            계약명만 있어도 저장할 수 있어요. 금액과 다음 결제일을 넣으면 캘린더에 결제 일정이 만들어져요.
           </AppText>
         </View>
       }

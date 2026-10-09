@@ -40,6 +40,7 @@ async function signUp(page, email, password) {
   // 직접 입력으로 계약 등록
   await page.click(tid('first-run-register'));
   await page.click(tid('method-manual'));
+  await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
   await page.fill(`input${tid('field-title')}`, '헬스장');
   await page.click(tid('type-recurring'));
   await page.click(tid('category-membership'));

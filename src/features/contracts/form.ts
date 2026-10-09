@@ -11,7 +11,10 @@ import {
   CONTRACT_TYPES,
   detailFields,
   detailSchema,
+  defaultDirection,
   PAYMENT_KINDS,
+  paymentKindLabel,
+  type PaymentKind,
   type ContractDetails,
   type ContractType,
   type DetailFieldSpec,
@@ -63,6 +66,16 @@ const paymentFormSchema = z.object({
   conditionNote: z.string(),
 });
 
+/**
+ * 빠른 입력 (직접 입력 화면) — 금액·결제 주기·다음 결제일 한 줄. 저장할 때 첫 번째 결제로 바뀐다.
+ * 금액을 비우면 결제 없이 저장 (계약명만 있어도 저장 가능).
+ */
+const quickFormSchema = z.object({
+  amount: optionalAmount,
+  frequency: z.enum(PAYMENT_FREQUENCIES),
+  nextDate: optionalDate,
+});
+
 const dateFormSchema = z.object({
   kind: z.enum(CONTRACT_DATE_KINDS),
   label: z.string().trim().min(1, '이름을 입력해주세요').max(40),
@@ -92,10 +105,19 @@ export const contractFormSchema = z
     memo: z.string().max(2000),
     /** 값별 출처 (화면에는 배지로만 표시) */
     valueSources: z.record(z.string(), z.enum(SOURCE_TYPES)),
+    /** 직접 입력 화면에서만 있음 (확인·수정 화면은 결제 목록을 그대로 쓴다) */
+    quick: quickFormSchema.optional(),
   })
   .superRefine((v, ctx) => {
     if (v.startDate && v.endDate && isValidISODate(v.startDate) && isValidISODate(v.endDate) && v.endDate < v.startDate) {
       ctx.addIssue({ code: 'custom', path: ['endDate'], message: '종료일이 시작일보다 빠릅니다' });
+    }
+    if (v.quick) {
+      const hasAmount = v.quick.amount.trim() !== '';
+      if (hasAmount && !v.quick.nextDate) {
+        ctx.addIssue({ code: 'custom', path: ['quick', 'nextDate'], message: v.quick.frequency === 'one_time' ? '결제일을 입력해주세요' : '다음 결제일을 입력해주세요' });
+      }
+      if (!hasAmount && v.quick.nextDate) ctx.addIssue({ code: 'custom', path: ['quick', 'amount'], message: '금액을 입력해주세요' });
     }
     if (v.autoRenewal && v.renewalPeriodMonths.trim() === '') {
       ctx.addIssue({ code: 'custom', path: ['renewalPeriodMonths'], message: '갱신 주기를 입력해주세요' });
@@ -219,7 +241,47 @@ export function draftToForm(d: ContractDraft): ContractFormValues {
   };
 }
 
+/** 빠른 입력의 결제 의미 — 유형의 대표 결제 (월 납입형 → 정기 이용료, 근로 → 급여(수입) …) */
+export function quickPaymentKind(type: ContractType): PaymentKind {
+  const map: Partial<Record<ContractType, PaymentKind>> = {
+    recurring: 'recurring_fee',
+    lease: 'rent',
+    installment: 'installment',
+    loan: 'loan_repayment',
+    insurance: 'premium',
+    employment: 'salary',
+    service: 'service_fee',
+  };
+  return map[type] ?? 'other';
+}
+
+/** 빠른 입력 → 결제 1건. 다음 결제일이 첫 결제일, 그 날짜의 '일'이 매번 결제일 (예: 10월 12일 → 매월 12일) */
+export function quickToPayment(type: ContractType, q: NonNullable<ParsedContractForm['quick']>): PaymentDraft | null {
+  const amount = parseAmount(q.amount);
+  if (amount == null || !q.nextDate) return null;
+  const kind = quickPaymentKind(type);
+  const oneTime = q.frequency === 'one_time';
+  return {
+    kind,
+    direction: defaultDirection(kind),
+    label: paymentKindLabel(kind),
+    amount,
+    frequency: q.frequency,
+    dayOfMonth: oneTime ? null : Number(q.nextDate.slice(8, 10)),
+    monthOfYear: null,
+    startsOn: q.nextDate,
+    endsOn: null,
+    installmentCount: null,
+    isVariable: false,
+    components: [],
+    businessDayRule: 'none',
+    obligation: 'confirmed',
+    conditionNote: null,
+  };
+}
+
 export function formToDraft(v: ParsedContractForm): ContractDraft {
+  const quick = v.quick ? quickToPayment(v.contractType, v.quick) : null;
   return {
     contractType: v.contractType,
     title: v.title.trim(),
@@ -229,7 +291,9 @@ export function formToDraft(v: ParsedContractForm): ContractDraft {
     startDate: nullable(v.startDate),
     endDate: nullable(v.endDate),
     details: detailsFromForm(v.contractType, v.details),
-    payments: v.payments.map((p): PaymentDraft => {
+    payments: [
+      ...(quick ? [quick] : []),
+      ...v.payments.map((p): PaymentDraft => {
       const oneTime = p.frequency === 'one_time';
       return {
         kind: p.kind,
@@ -248,7 +312,8 @@ export function formToDraft(v: ParsedContractForm): ContractDraft {
         obligation: p.obligation,
         conditionNote: p.obligation === 'confirmed' ? null : p.conditionNote.trim() || null,
       };
-    }),
+      }),
+    ],
     dates: v.dates.map((x): DateDraft => ({ kind: x.kind, label: x.label.trim(), date: x.date })),
     totalAmount: parseAmount(v.totalAmount),
     depositAmount: parseAmount(v.depositAmount),

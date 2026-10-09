@@ -47,6 +47,7 @@ function daysToDeadline() {
     // 1) 의미를 고르지 않고 저장 → unknown
     await page.click(tid('first-run-register'));
     await page.click(tid('method-manual'));
+    await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
     await page.click(tid('type-lease'));
     await input('field-title').fill('주택 월세 임대차계약');
     await page.click(tid('category-real_estate'));

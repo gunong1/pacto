@@ -222,6 +222,7 @@ const CONTRACTS = [
     // 직접 입력: 유형 → 기본 → 기간 → 유형별 정보 → 결제 → 주요 날짜
     await page.click(tid('first-run-register'));
     await page.click(tid('method-manual'));
+    await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
     await page.click(tid(`type-${k.type}`));
     await input('field-title').fill(k.title);
     await page.click(tid(`category-${k.category}`));

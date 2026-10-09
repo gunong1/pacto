@@ -32,6 +32,7 @@ npm run test:integration  # 인증 / 계약 CRUD / 원본 보관 통합 테스�
 
 # 웹 미리보기 E2E (playwright 필요)
 node e2e/web-flow.js                                   # mock 모드: Step 4 흐름
+node e2e/quick-entry.js                                # mock 모드: 직접 입력(빠른 입력) 30초 등록
 BASE_URL=http://localhost:8082 node e2e/auth-flow.js   # 실제 모드: 가입·로그인·탈퇴
 BASE_URL=http://localhost:8082 node e2e/supabase-flow.js  # 실제 모드: 계약 CRUD·재실행 유지
 BASE_URL=http://localhost:8082 node e2e/wallet-flow.js    # 실제 모드: 가입→PDF 등록→재실행→원본 열람

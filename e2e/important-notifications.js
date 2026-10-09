@@ -37,6 +37,7 @@ const assert = (cond, msg) => {
     // 직접 입력 (계약서 업로드 없음)
     await page.click(tid('first-run-register'));
     await page.click(tid('method-manual'));
+    await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
     await page.click(tid('type-lease'));
     await input('field-title').fill('주택 임대차계약');
     await page.click(tid('category-real_estate'));

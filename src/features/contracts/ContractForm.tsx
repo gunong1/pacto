@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -45,6 +45,7 @@ import {
   detailFromInput,
   detailsToForm,
   formToDraft,
+  quickPaymentKind,
   type ContractFormValues,
   type ParsedContractForm,
   type PaymentFormValues,
@@ -80,6 +81,11 @@ export interface ContractFormProps {
   submitting?: boolean;
   today: string;
   onSubmit: (draft: ContractDraft) => void;
+  /**
+   * quick: 직접 입력 — 계약명·유형·금액·주기·다음 결제일 + 선택(기간·자동갱신·메모)만 보이고,
+   * 나머지는 "상세 정보 추가"를 눌렀을 때 펼친다. defaultValues.quick이 있어야 한다.
+   */
+  variant?: 'full' | 'quick';
 }
 
 const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
@@ -88,6 +94,13 @@ const TYPE_OPTIONS = CONTRACT_TYPES.map((t) => ({ value: t, label: contractTypeL
 const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABEL[d] }));
 const FREQUENCY_OPTIONS = PAYMENT_FREQUENCIES.map((f) => ({ value: f, label: FREQUENCY_LABEL[f] }));
 const ONE_TIME_KINDS: ReadonlySet<PaymentKind> = new Set(['setup_fee', 'deposit', 'advance_payment', 'down_payment', 'interim_payment', 'balance_payment']);
+
+/** 빠른 입력의 기본 주기 — 매매·일회성·용역은 일시불, 나머지는 매월 */
+export const quickDefaultFrequency = (type: ContractType): PaymentFormValues['frequency'] => (type === 'sale' || type === 'one_time' || type === 'service' ? 'one_time' : 'monthly');
+/** 빠른 입력에서 자동갱신을 켤 때 미리 채우는 갱신 주기 (결제 주기와 같게) */
+const RENEWAL_MONTHS: Record<PaymentFormValues['frequency'], number> = { monthly: 1, bimonthly: 2, quarterly: 3, semiannual: 6, yearly: 12, one_time: 12 };
+/** 빠른 입력 화면에 늘 보이는 값 — 이 밖의 오류는 접힌 상세 정보에 있다 */
+const QUICK_VISIBLE: ReadonlySet<string> = new Set(['title', 'contractType', 'quick', 'startDate', 'endDate', 'autoRenewal', 'renewalPeriodMonths', 'memo']);
 
 const defaultFrequency = (kind: PaymentKind): PaymentFormValues['frequency'] => (ONE_TIME_KINDS.has(kind) ? 'one_time' : kind === 'premium' ? 'yearly' : 'monthly');
 
@@ -116,7 +129,9 @@ function newPayment(kind: PaymentKind): PaymentFormValues {
  * 공통 틀(유형 → 기본 정보 → 기간 → 유형별 정보 → 결제 목록 → 주요 날짜 → 갱신·해지 → 기타)은 같고,
  * 유형에 따라 날짜 이름·유형별 정보·결제 의미 선택지가 바뀐다. 결제·날짜는 여러 건 추가/수정/삭제할 수 있다.
  */
-export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit }: ContractFormProps) {
+export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit, variant = 'full' }: ContractFormProps) {
+  const quick = variant === 'quick' && !!defaultValues.quick;
+  const [more, setMore] = useState(false);
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),
     defaultValues,
@@ -149,6 +164,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
       const v = detailFromInput(spec, current[spec.key] ?? '');
       if (v !== undefined && v !== null) merged[spec.key] = v;
     }
+    // 빠른 입력: 주기를 직접 바꾸지 않았다면 새 유형의 기본 주기로
+    if (quick && getValues('quick.frequency') === quickDefaultFrequency(prev)) setValue('quick.frequency', quickDefaultFrequency(next));
     setValue('contractType', next);
     setValue('details', detailsToForm(next, cleanDetails(next, merged)));
   };
@@ -160,22 +177,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   };
   const dateKindOptions = profile.dateKinds.map((k) => ({ value: k, label: dateKindLabel(k) }));
 
-  return (
-    <Screen
-      edges={['bottom']}
-      footer={
-        <View>
-          {footerNote ? (
-            <AppText variant="caption" color="textTertiary" align="center" style={{ marginBottom: spacing.sm }}>
-              {footerNote}
-            </AppText>
-          ) : null}
-          <Button label={submitLabel} loading={submitting} onPress={handleSubmit((v) => onSubmit(confirmEdited(formToDraft(v), defaultValues, getValues())))} testID="submit-contract" />
-        </View>
-      }>
-      {header}
-
-      <Section title="계약 유형" caption="돈·날짜·의무가 움직이는 구조예요. 이 유형에 맞게 일정과 지출을 관리해요." testID="section-type">
+  const typeBlock = (
+    <>
         {typeSuggestion ? (
           <View style={[styles.suggestion, flagged?.has('contractType') && styles.suggestionFlagged]} testID="type-suggestion">
             {categorySuggestion ? (
@@ -211,26 +214,10 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }}>
           {contractTypeExamples(type)}
         </AppText>
-      </Section>
-
-      <SectionGap />
-      <Section title="기본 정보">
-        {field('title', '계약명', { placeholder: '예: 자동차보험' })}
-        <FormLabel label="분야 (무슨 계약인가요?)" flagged={flagged?.has('category')} />
-        <Controller control={control} name="category" render={({ field: f }) => <ChipGroup options={CATEGORY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="category" />} />
-        <View style={{ height: spacing.lg }} />
-        {field('counterparty', '계약 상대방', { placeholder: '예: 삼성화재' })}
-      </Section>
-
-      <SectionGap />
-      <Section title="기간">
-        <View style={styles.row2}>
-          <View style={styles.col}>{date('startDate', profile.startLabel)}</View>
-          <View style={styles.col}>{date('endDate', profile.endLabel)}</View>
-        </View>
-        {date('contractDate', '계약 체결일 (선택)', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
-      </Section>
-
+    </>
+  );
+  const detailsBlock = (
+    <>
       {detailFields(type).length > 0 || type === 'lease' ? (
         <>
           <SectionGap />
@@ -250,8 +237,10 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         </>
       ) : null}
 
-      <SectionGap />
-      <Section title="결제" caption="오가는 돈을 넣어주세요. 실제로 내야 하는 '확정 결제'만 캘린더·지출에 들어가요. 양도 수수료·락커비처럼 상황이나 선택에 따라 내는 돈은 조건부·선택형으로." testID="section-payments">
+    </>
+  );
+  const paymentsBlock = (
+    <>
         {flagged?.has('payments') && notes?.payments ? (
           <AppText variant="caption" color="check" style={{ marginBottom: spacing.md }}>
             {notes.payments}
@@ -375,10 +364,10 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           );
         })}
         <Button label="+ 결제 추가" variant="secondary" size="md" onPress={() => payments.append(newPayment(profile.paymentKinds[0]))} testID="add-payment" />
-      </Section>
-
-      <SectionGap />
-      <Section title="주요 날짜" caption="설치일·입주일·잔금일처럼 챙겨야 할 날짜. 캘린더에 표시돼요." testID="section-dates">
+    </>
+  );
+  const datesBlock = (
+    <>
         {dates.fields.map((d, i) => (
           <View key={d.id} style={styles.card} testID={`date-${i}`}>
             <View style={styles.cardHeader}>
@@ -421,41 +410,213 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           }}
           testID="add-date"
         />
+    </>
+  );
+  /** 통보기한 · 중도해지 · 위약금 (자동갱신 스위치는 withSwitch일 때만 — 빠른 입력은 위쪽에 있다) */
+  const renewalBlock = (withSwitch: boolean) =>
+    profile.hasRenewal ? (
+      <Section title="갱신 · 해지">
+        {withSwitch ? autoRenewalBlock : null}
+        {field('terminationNoticeDays', quick ? '해지·갱신 통보기한 (종료 며칠 전까지)' : '통보·갱신 관련 기한 (종료 며칠 전까지)', { keyboardType: 'number-pad', suffix: '일 전', maxLength: 3 })}
+        {values.terminationNoticeDays?.trim() ? (
+          <View style={{ marginBottom: spacing.lg }} testID="notice-kind">
+            <AppText variant="captionStrong" color="textSecondary">
+              이 기한은 어떤 의미인가요?
+            </AppText>
+            {flagged?.has('noticeKind') ? (
+              <AppText variant="caption" color="check" style={{ marginTop: 2 }}>
+                {hint('noticeKind') ?? '계약서에서 이 기한의 의미를 확인해주세요'}
+              </AppText>
+            ) : null}
+            <Controller control={control} name="noticeKind" render={({ field: f }) => <RadioGroup options={NOTICE_KIND_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="notice-kind" />} />
+          </View>
+        ) : null}
+        {field('earlyTerminationTerms', quick ? '종료·중도해지 관련 메모' : '중도해지 관련 내용', { multiline: true })}
+        {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
+      </Section>
+    ) : (
+      <Section title="중도해지 · 위약금">
+        {field('earlyTerminationTerms', type === 'loan' ? '중도상환 관련 내용' : quick ? '종료·중도해지 관련 메모' : '중도해지 관련 내용', { multiline: true })}
+        {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
+      </Section>
+    );
+  const autoRenewalBlock = (
+    <>
+      <Controller
+        control={control}
+        name="autoRenewal"
+        render={({ field: f }) => (
+          <SwitchRow
+            label="자동갱신"
+            description="만료 시 자동으로 연장되는 계약 (묵시적 갱신 포함)"
+            value={f.value}
+            onValueChange={(on) => {
+              // 빠른 입력: 갱신 주기를 결제 주기로 미리 채운다 (바꿀 수 있음)
+              if (quick && on && !getValues('renewalPeriodMonths').trim()) setValue('renewalPeriodMonths', String(RENEWAL_MONTHS[getValues('quick.frequency') ?? 'monthly'] ?? 12));
+              f.onChange(on);
+            }}
+            testID="field-autoRenewal"
+          />
+        )}
+      />
+      {flagged?.has('autoRenewal') ? (
+        <AppText variant="caption" color="check" style={{ marginBottom: spacing.sm }}>
+          자동갱신 여부를 확인해주세요{evidence?.autoRenewal ? ` — 원문: “${evidence.autoRenewal}”` : ''}
+        </AppText>
+      ) : null}
+      {values.autoRenewal ? field('renewalPeriodMonths', '갱신 주기', { keyboardType: 'number-pad', suffix: '개월', maxLength: 3 }) : null}
+    </>
+  );
+  const submit = handleSubmit(
+    (v) => onSubmit(confirmEdited(formToDraft(v), defaultValues, getValues())),
+    (errors) => {
+      // 빠른 입력: 접힌 상세 정보에 오류가 있으면 펼쳐서 보여준다
+      if (quick && Object.keys(errors).some((k) => !QUICK_VISIBLE.has(k))) setMore(true);
+    },
+  );
+  const footer = (
+    <View>
+      {footerNote ? (
+        <AppText variant="caption" color="textTertiary" align="center" style={{ marginBottom: spacing.sm }}>
+          {footerNote}
+        </AppText>
+      ) : null}
+      <Button label={submitLabel} loading={submitting} onPress={submit} testID="submit-contract" />
+    </View>
+  );
+
+  if (quick) {
+    const q = values.quick;
+    const income = defaultDirection(quickPaymentKind(type)) === 'income';
+    const oneTime = q?.frequency === 'one_time';
+    const day = q?.nextDate && /^\d{4}-\d{2}-\d{2}$/.test(q.nextDate) ? Number(q.nextDate.slice(8, 10)) : null;
+    return (
+      <Screen edges={['bottom']} footer={footer}>
+        {header}
+        <Section testID="quick-basic">
+          {field('title', '계약명', { placeholder: '예: 유튜브 프리미엄' })}
+          <FormLabel label="계약 유형" />
+          <ChipGroup options={TYPE_OPTIONS} value={type} onChange={changeType} testIDPrefix="type" />
+          <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }}>
+            {contractTypeExamples(type)}
+          </AppText>
+        </Section>
+
+        <SectionGap />
+        <Section title={income ? '받는 돈' : '내는 돈'} caption="비워두면 결제 없이 저장돼요" testID="quick-payment">
+          {field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
+          <FormLabel label={income ? '지급 주기' : '결제 주기'} />
+          <Controller control={control} name="quick.frequency" render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value ?? 'monthly'} onChange={f.onChange} scroll testIDPrefix="quick-frequency" />} />
+          <View style={{ height: spacing.lg }} />
+          {date('quick.nextDate', oneTime ? (income ? '지급일' : '결제일') : income ? '다음 지급일' : '다음 결제일', {
+            testID: 'quick-nextDate',
+            hint: day && !oneTime ? `${FREQUENCY_LABEL[q?.frequency ?? 'monthly']} ${day}일에 ${income ? '받아요' : '결제돼요'}` : undefined,
+          })}
+        </Section>
+
+        <SectionGap />
+        <Section title="선택" testID="quick-optional">
+          <View style={styles.row2}>
+            <View style={styles.col}>{date('startDate', '시작일')}</View>
+            <View style={styles.col}>{date('endDate', '종료일')}</View>
+          </View>
+          {profile.hasRenewal ? autoRenewalBlock : null}
+          {field('memo', '메모', { multiline: true, placeholder: '자유롭게 적어두세요' })}
+        </Section>
+
+        <View style={styles.moreWrap}>
+          <Pressable
+            onPress={() => setMore((m) => !m)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: more }}
+            hitSlop={hitSlop}
+            testID="toggle-more"
+            style={({ pressed }) => [styles.more, pressed && { backgroundColor: colors.bgSubtle }]}>
+            <Ionicons name={more ? 'remove' : 'add'} size={18} color={colors.primary} />
+            <AppText variant="body2Strong" color="primary">
+              {more ? '상세 정보 접기' : '상세 정보 추가'}
+            </AppText>
+            <AppText variant="caption" color="textTertiary" style={{ flex: 1, textAlign: 'right' }} numberOfLines={1}>
+              {more ? '' : '상대방 · 통보기한 · 주요 날짜 · 위약금 …'}
+            </AppText>
+          </Pressable>
+        </View>
+
+        {more ? (
+          <View testID="quick-more">
+            <SectionGap />
+            <Section title="상세 정보">
+              {field('counterparty', '계약 상대방', { placeholder: '예: 구글' })}
+              {date('contractDate', '계약 체결일', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
+              <FormLabel label="분야" />
+              <Controller control={control} name="category" render={({ field: f }) => <ChipGroup options={CATEGORY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="category" />} />
+            </Section>
+            {detailsBlock}
+            <SectionGap />
+            <Section title="추가 결제" caption="위 결제 말고 다른 돈이 있으면 (설치비·보증금 등)" testID="section-payments">
+              {paymentsBlock}
+            </Section>
+            <SectionGap />
+            <Section title="주요 날짜" caption="설치일·입주일처럼 챙겨야 할 날짜. 캘린더에 표시돼요." testID="section-dates">
+              {datesBlock}
+            </Section>
+            <SectionGap />
+            {renewalBlock(false)}
+            <SectionGap />
+            <Section title="기타 조건">
+              {amount('totalAmount', '계약 총액')}
+              {type !== 'lease' ? amount('depositAmount', '보증금') : null}
+            </Section>
+          </View>
+        ) : null}
+
+        <SectionGap />
+        <SchedulePreview values={values} today={today} />
+        {trailing}
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen edges={['bottom']} footer={footer}>
+      {header}
+
+      <Section title="계약 유형" caption="돈·날짜·의무가 움직이는 구조예요. 이 유형에 맞게 일정과 지출을 관리해요." testID="section-type">
+        {typeBlock}
       </Section>
 
       <SectionGap />
-      {profile.hasRenewal ? (
-        <Section title="갱신 · 해지">
-          <Controller control={control} name="autoRenewal" render={({ field: f }) => <SwitchRow label="자동갱신" description="만료 시 자동으로 연장되는 계약 (묵시적 갱신 포함)" value={f.value} onValueChange={f.onChange} testID="field-autoRenewal" />} />
-          {flagged?.has('autoRenewal') ? (
-            <AppText variant="caption" color="check" style={{ marginBottom: spacing.sm }}>
-              자동갱신 여부를 확인해주세요{evidence?.autoRenewal ? ` — 원문: “${evidence.autoRenewal}”` : ''}
-            </AppText>
-          ) : null}
-          {values.autoRenewal ? field('renewalPeriodMonths', '갱신 주기', { keyboardType: 'number-pad', suffix: '개월', maxLength: 3 }) : null}
-          {field('terminationNoticeDays', '통보·갱신 관련 기한 (종료 며칠 전까지)', { keyboardType: 'number-pad', suffix: '일 전', maxLength: 3 })}
-          {values.terminationNoticeDays?.trim() ? (
-            <View style={{ marginBottom: spacing.lg }} testID="notice-kind">
-              <AppText variant="captionStrong" color="textSecondary">
-                이 기한은 어떤 의미인가요?
-              </AppText>
-              {flagged?.has('noticeKind') ? (
-                <AppText variant="caption" color="check" style={{ marginTop: 2 }}>
-                  {hint('noticeKind') ?? '계약서에서 이 기한의 의미를 확인해주세요'}
-                </AppText>
-              ) : null}
-              <Controller control={control} name="noticeKind" render={({ field: f }) => <RadioGroup options={NOTICE_KIND_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="notice-kind" />} />
-            </View>
-          ) : null}
-          {field('earlyTerminationTerms', '중도해지 관련 내용', { multiline: true })}
-          {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
-        </Section>
-      ) : (
-        <Section title="중도해지 · 위약금">
-          {field('earlyTerminationTerms', type === 'loan' ? '중도상환 관련 내용' : '중도해지 관련 내용', { multiline: true })}
-          {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
-        </Section>
-      )}
+      <Section title="기본 정보">
+        {field('title', '계약명', { placeholder: '예: 자동차보험' })}
+        <FormLabel label="분야 (무슨 계약인가요?)" flagged={flagged?.has('category')} />
+        <Controller control={control} name="category" render={({ field: f }) => <ChipGroup options={CATEGORY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="category" />} />
+        <View style={{ height: spacing.lg }} />
+        {field('counterparty', '계약 상대방', { placeholder: '예: 삼성화재' })}
+      </Section>
+
+      <SectionGap />
+      <Section title="기간">
+        <View style={styles.row2}>
+          <View style={styles.col}>{date('startDate', profile.startLabel)}</View>
+          <View style={styles.col}>{date('endDate', profile.endLabel)}</View>
+        </View>
+        {date('contractDate', '계약 체결일 (선택)', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
+      </Section>
+
+      {detailsBlock}
+
+      <SectionGap />
+      <Section title="결제" caption="오가는 돈을 넣어주세요. 실제로 내야 하는 '확정 결제'만 캘린더·지출에 들어가요. 양도 수수료·락커비처럼 상황이나 선택에 따라 내는 돈은 조건부·선택형으로." testID="section-payments">
+        {paymentsBlock}
+      </Section>
+
+      <SectionGap />
+      <Section title="주요 날짜" caption="설치일·입주일·잔금일처럼 챙겨야 할 날짜. 캘린더에 표시돼요." testID="section-dates">
+        {datesBlock}
+      </Section>
+
+      <SectionGap />
+      {renewalBlock(true)}
 
       <SectionGap />
       <Section title="기타">
@@ -649,6 +810,8 @@ const OBLIGATION_OPTIONS = [
 const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
 
 const styles = StyleSheet.create({
+  moreWrap: { paddingHorizontal: spacing.gutter, paddingTop: spacing.sm },
+  more: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   components: { marginTop: spacing.md, padding: spacing.md, gap: 4, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
   componentRow: { flexDirection: 'row', alignItems: 'center' },
   row2: { flexDirection: 'row', gap: spacing.md },
