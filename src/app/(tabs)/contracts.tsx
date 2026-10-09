@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { ContractLine, DDay, StatusBadge } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
@@ -44,16 +44,23 @@ function matches(filter: StatusFilter, s: ContractStatus) {
 export default function ContractsScreen() {
   const today = useToday();
   // 홈 상태 요약에서 진입: ?status=...&t=<nonce> (같은 필터로 다시 들어와도 적용되도록 nonce 사용)
-  const params = useLocalSearchParams<{ status?: StatusFilter; t?: string }>();
+  // MY 바로가기: docs=1 → 보관 문서(원본 계약서·사진·PDF 등)가 있는 계약만, docs=0 → 해제
+  const params = useLocalSearchParams<{ status?: StatusFilter; docs?: string; t?: string }>();
   const { data: records, isLoading } = useContracts();
   const [status, setStatus] = useState<StatusFilter>(params.status ?? 'all');
   const [category, setCategory] = useState<ContractCategory | 'all'>('all');
   const [query, setQuery] = useState('');
+  const [onlyDocs, setOnlyDocs] = useState(params.docs === '1');
 
   const [appliedNonce, setAppliedNonce] = useState(params.t);
   if (params.t !== appliedNonce) {
     setAppliedNonce(params.t);
     if (params.status) setStatus(params.status);
+    if (params.docs != null) {
+      setOnlyDocs(params.docs === '1');
+      setCategory('all');
+      setQuery('');
+    }
   }
 
   const rows = useMemo(() => {
@@ -67,6 +74,7 @@ export default function ContractsScreen() {
       })
       .filter((x) => matches(status, x.status))
       .filter((x) => category === 'all' || x.r.contract.category === category)
+      .filter((x) => !onlyDocs || x.r.documents.length > 0)
       .filter((x) => !q || `${x.r.contract.title} ${x.r.contract.counterparty ?? ''}`.toLowerCase().includes(q))
       .sort((a, b) => {
         const closedA = a.status === 'ended' || a.status === 'cancelled';
@@ -74,7 +82,7 @@ export default function ContractsScreen() {
         if (closedA !== closedB) return closedA ? 1 : -1;
         return (a.days ?? 99999) - (b.days ?? 99999);
       });
-  }, [records, today, status, category, query]);
+  }, [records, today, status, category, query, onlyDocs]);
 
   const usedCategories = useMemo(() => {
     const set = new Set(records?.map((r) => r.contract.category));
@@ -105,6 +113,20 @@ export default function ContractsScreen() {
           onChange={setCategory}
           scroll
         />
+        {onlyDocs ? (
+          <Pressable
+            onPress={() => setOnlyDocs(false)}
+            accessibilityRole="button"
+            accessibilityLabel="보관 문서가 있는 계약만 보기 해제"
+            testID="filter-docs-clear"
+            style={({ pressed }) => [styles.docsFilter, pressed && { opacity: 0.7 }]}>
+            <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+            <AppText variant="captionStrong" color="primary">
+              보관 문서가 있는 계약만
+            </AppText>
+            <Ionicons name="close" size={14} color={colors.primary} />
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.list} testID="contracts-list">
@@ -112,7 +134,7 @@ export default function ContractsScreen() {
           <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
         ) : rows.length === 0 ? (
           <EmptyState
-            title={records?.length ? '조건에 맞는 계약이 없어요' : '아직 등록한 계약이 없어요'}
+            title={records?.length ? (onlyDocs ? '보관 문서가 있는 계약이 없어요' : '조건에 맞는 계약이 없어요') : '아직 등록한 계약이 없어요'}
             action={records?.length ? undefined : <Button label="계약 등록하기" size="md" onPress={() => router.push('/register')} />}
           />
         ) : (
@@ -151,6 +173,7 @@ export default function ContractsScreen() {
 const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.md, gap: spacing.md },
   search: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.bgSubtle, borderRadius: radius.md, paddingHorizontal: spacing.md, height: 44 },
+  docsFilter: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 4, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: 999, borderWidth: 1, borderColor: colors.primary },
   searchInput: { flex: 1, ...typography.body2, color: colors.text },
   list: { paddingHorizontal: spacing.gutter, paddingTop: spacing.md },
 });

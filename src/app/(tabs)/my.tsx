@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
@@ -43,8 +43,20 @@ export default function MyScreen() {
         </View>
       </View>
       <View style={styles.stats}>
-        <Stat label="보관 중인 계약" value={`${data?.length ?? 0}건`} />
-        <Stat label="원본 계약서" value={`${docs}개`} />
+        {/* 바로가기 — 계약 탭으로 (t: 같은 바로가기로 다시 들어와도 필터가 다시 적용되도록) */}
+        <Stat
+          label="보관 중인 계약"
+          value={`${data?.length ?? 0}건`}
+          onPress={() => router.push({ pathname: '/contracts', params: { status: 'all', docs: '0', t: String(Date.now()) } })}
+          testID="my-stat-contracts"
+        />
+        {/* 원본 계약서·사진·PDF (향후 부속합의서·첨부문서 포함) — 보관 문서가 있는 계약만 */}
+        <Stat
+          label="보관 문서"
+          value={`${docs}개`}
+          onPress={() => router.push({ pathname: '/contracts', params: { status: 'all', docs: '1', t: String(Date.now()) } })}
+          testID="my-stat-documents"
+        />
       </View>
 
       <SectionGap />
@@ -83,16 +95,25 @@ export default function MyScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, onPress, testID }: { label: string; value: string; onPress: () => void; testID?: string }) {
   return (
-    <View style={styles.stat}>
-      <AppText variant="caption" color="textTertiary">
-        {label}
-      </AppText>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label} ${value}`}
+      hitSlop={8}
+      testID={testID}
+      style={({ pressed }) => [styles.stat, pressed && styles.statPressed]}>
+      <View style={styles.statLabel}>
+        <AppText variant="caption" color="textTertiary">
+          {label}
+        </AppText>
+        <Ionicons name="chevron-forward" size={12} color={colors.textDisabled} />
+      </View>
       <AppText variant="title3" tabular>
         {value}
       </AppText>
-    </View>
+    </Pressable>
   );
 }
 
@@ -101,5 +122,7 @@ const styles = StyleSheet.create({
   profile: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.gutter, paddingTop: spacing.xl },
   avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.bgSubtle, alignItems: 'center', justifyContent: 'center' },
   stats: { flexDirection: 'row', paddingHorizontal: spacing.gutter, paddingVertical: spacing.xl, gap: spacing.xl },
-  stat: { gap: 2 },
+  stat: { gap: 2, paddingVertical: spacing.xs, paddingHorizontal: spacing.xs, marginHorizontal: -spacing.xs, borderRadius: 8 },
+  statPressed: { backgroundColor: colors.bgSubtle },
+  statLabel: { flexDirection: 'row', alignItems: 'center', gap: 2 },
 });
