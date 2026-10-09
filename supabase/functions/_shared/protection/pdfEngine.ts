@@ -21,7 +21,7 @@ import {
 import { builtInCMap, splitCodes, type CMap } from './cmap.ts';
 import { fmtNum, hexString, tokenize, type Op, type Operand } from './contentStream.ts';
 
-type M = [number, number, number, number, number, number];
+export type M = [number, number, number, number, number, number];
 const mul = (a: M, b: M): M => [
   a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3],
   a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3],
@@ -83,10 +83,21 @@ export interface PageText {
   unsupportedVisibleText: number;
   /** 그려진 이미지 수 (스캔본 판단용) */
   images: number;
+  /** 그려진 이미지마다 위치(CTM: 이미지 단위 사각형 → 페이지 기본 좌표)·참조 — 스캔 페이지 판단용 */
+  placements: ImagePlacement[];
+  /** 선·면을 칠하는 연산자 수 (글자를 윤곽선으로 바꾼 PDF 구분용) */
+  paints: number;
   /** 입력 양식(위젯) 수 — 값이 콘텐츠 밖에 있어 V1은 처리하지 않는다 */
   widgets: number;
   /** 진단용: 이 페이지에서 쓴 글꼴의 형식 (글꼴 이름·글자 내용 없음) */
   fonts: FontNote[];
+}
+
+export interface ImagePlacement {
+  /** 이미지 XObject 참조 (인라인 이미지는 null) */
+  ref: PDFRef | null;
+  inline: boolean;
+  ctm: M;
 }
 
 /** 진단용 글꼴 형식 — 해석 가능 여부 판단 근거 */
@@ -350,6 +361,8 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
   let unsupportedText = 0;
   let unsupportedVisibleText = 0;
   let images = 0;
+  let paints = 0;
+  const placements: ImagePlacement[] = [];
   const annots = page.node.lookup(PDFName.of('Annots'));
   let widgets = 0;
   if (annots instanceof PDFArray) {
@@ -435,14 +448,18 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
           }
           break;
         }
-        case 'BI': images++; break;
+        case 'BI': images++; placements.push({ ref: null, inline: true, ctm }); break;
+        case 'f': case 'F': case 'f*': case 'B': case 'B*': case 'b': case 'b*': case 'S': case 's': case 'sh': paints++; break;
         case 'Do': {
           const name = a[0]?.t === 'name' ? a[0].v : '';
           const ref = xobjs instanceof PDFDict ? xobjs.get(PDFName.of(name)) : undefined;
           const xo = ref ? doc.context.lookup(ref) : undefined;
           if (!(xo instanceof PDFStream)) break;
           const st = xo.dict.lookup(PDFName.of('Subtype'));
-          if (st === PDFName.of('Image')) images++;
+          if (st === PDFName.of('Image')) {
+            images++;
+            placements.push({ ref: ref instanceof PDFRef ? ref : null, inline: false, ctm });
+          }
           else if (st === PDFName.of('Form') && depth < 8) {
             const key = ref instanceof PDFRef ? `ref:${ref.objectNumber}:${ref.generationNumber}` : `xo:${pageIndex}:${name}`;
             let child = streams.get(key);
@@ -467,7 +484,7 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
   const entry: StreamEntry = { key, stream: undefined as unknown as PDFStream, ref: null, src, ops: tokenize(src), resources: page.node.Resources() };
   streams.set(key, entry);
   walk(entry, I, 0);
-  return { pageIndex, box: { x: mb.x, y: mb.y, width: mb.width, height: mb.height }, glyphs, undecodable, unsupportedText, unsupportedVisibleText, images, widgets, fonts: [...fontNotes.values()] };
+  return { pageIndex, box: { x: mb.x, y: mb.y, width: mb.width, height: mb.height }, glyphs, undecodable, unsupportedText, unsupportedVisibleText, images, placements, paints, widgets, fonts: [...fontNotes.values()] };
 }
 
 /** 표시용 대체 텍스트(ActualText/Alt/E)에 원문이 남지 않도록 marked-content 속성에서 제거 */

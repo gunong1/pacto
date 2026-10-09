@@ -132,27 +132,25 @@ describe('상태 구분 (보호됨으로 잘못 표시하지 않기)', () => {
     assert.equal(r.protectedPdf, null);
   });
 
-  test('사진·스캔본(이미지만) → unsupported_scan', async () => {
+  // 스캔 페이지 처리(OCR)는 tests/protection/scan.test.ts — 여기서는 OCR 처리기가 없을 때 보호됨으로 표시하지 않는지만
+  test('스캔 페이지(이미지만) + OCR 처리기 없음 → failed(ocr_not_configured), 보호본 없음 (예전처럼 문서 전체 미지원으로 돌리지 않음)', async () => {
     const c = await ContractPdf.create();
     await c.scanPage();
     const r = await protectPdf(await c.save());
-    assert.equal(r.status, 'unsupported_scan');
+    assert.equal(r.status, 'failed');
+    assert.equal(r.detail, 'ocr_not_configured');
     assert.equal(r.protectedPdf, null);
+    assert.deepEqual(r.pages, [{ page: 1, kind: 'scan', status: 'failed', detail: 'ocr_not_configured' }]);
   });
 
-  test('스캔 이미지 위 투명 OCR 글자층 → unsupported_scan (글자만 지워도 이미지에 보이므로)', async () => {
-    const c = await ContractPdf.create();
-    await c.scanPage('901225-1234567');
-    assert.equal((await protectPdf(await c.save())).status, 'unsupported_scan');
-  });
-
-  test('텍스트 + 스캔 페이지가 섞이면 문서 전체 unsupported_scan', async () => {
+  test('텍스트 + 스캔 페이지, OCR 처리기 없음 → failed, 영역·보호본 없음 (텍스트 페이지만 보호됨으로 표시하지 않음)', async () => {
     const c = await ContractPdf.create();
     await c.page(['주민등록번호: 901225-1234567']);
-    await c.scanPage();
+    await c.scanPage('901225-1234567');
     const r = await protectPdf(await c.save());
-    assert.equal(r.status, 'unsupported_scan');
+    assert.equal(r.status, 'failed');
     assert.deepEqual(r.regions, []);
+    assert.equal(r.protectedPdf, null);
   });
 
   test('PDF가 아니거나 깨진 파일 → failed', async () => {

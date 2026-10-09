@@ -5,14 +5,16 @@ import { fromClova, type OcrPage } from './ocrText.ts';
 
 export type OcrErrorCode = 'ocr_not_configured' | 'ocr_auth' | 'ocr_rate_limited' | 'ocr_timeout' | 'ocr_server' | 'ocr_bad_request' | 'ocr_invalid_response' | 'ocr_network';
 
+// (Node 테스트의 타입 제거 실행과 같이 쓰도록 생성자 매개변수 속성 문법은 쓰지 않는다)
 export class OcrError extends Error {
-  constructor(
-    readonly code: OcrErrorCode,
-    /** 잠시 후 다시 시도하면 될 수 있는 오류 */
-    readonly retryable: boolean,
-  ) {
+  readonly code: OcrErrorCode;
+  /** 잠시 후 다시 시도하면 될 수 있는 오류 */
+  readonly retryable: boolean;
+  constructor(code: OcrErrorCode, retryable: boolean) {
     super(code);
     this.name = 'OcrError';
+    this.code = code;
+    this.retryable = retryable;
   }
 }
 
@@ -43,11 +45,14 @@ function base64(bytes: Uint8Array): string {
 /** CLOVA OCR General (V2). 비밀값은 Edge Function 환경변수에서만 (앱에 넣지 않는다) */
 export class ClovaOcr implements OcrProvider {
   readonly name = 'clova';
-  constructor(
-    private readonly url: string,
-    private readonly secret: string,
-    private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+  private readonly url: string;
+  private readonly secret: string;
+  private readonly fetchImpl: typeof fetch;
+  constructor(url: string, secret: string, fetchImpl: typeof fetch = fetch) {
+    this.url = url;
+    this.secret = secret;
+    this.fetchImpl = fetchImpl;
+  }
 
   static fromEnv(env: { get(name: string): string | undefined }): ClovaOcr | null {
     const url = env.get('CLOVA_OCR_URL');

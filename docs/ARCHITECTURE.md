@@ -1031,10 +1031,10 @@ pacto/
 - **삭제**: 계약 삭제·초안 폐기 시 원본 + 파생 파일을 먼저 지우고 행을 지운다(영역·파생본 기록은 cascade). 회원 탈퇴는 사용자 폴더 전체 삭제.
 - **로그**: 문서 id·상태·종류별 개수·시간만.
 - **라이브러리**: pdf-lib 1.17.1(MIT)·unpdf 1.8.1(pdf.js, Apache-2.0)을 `scripts/vendor-pdf.mjs`로 고정 번들(`_shared/vendor`). MuPDF는 AGPL이라 사용하지 않음.
-- **화면 문구**: `unsupported_scan` → "스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요." / `failed` → "민감정보 보호 처리 중 문제가 발생했어요." (+ 사유별 짧은 안내)
+- **화면 문구**: `unsupported_scan` → 특수 형식 페이지만 "자동 가리기를 지원하지 않는 형식의 페이지가 있어요"(개정 20 — 일반 스캔 페이지는 OCR로 보호) / `failed` → "민감정보 보호 처리 중 문제가 발생했어요." (+ 사유별 짧은 안내)
 - **테스트**: `npm run test:protection`(Node 내장 테스트 — 실제 제거·구조 분석·상태·반복 숫자 회귀·눈으로만 가린 경우 실패·pdftotext 교차 확인·한글 CMap·Type3·위치 불일치), `step11-protection`(통합, Deno Edge Function), `e2e/protection-flow.js`.
   진단: `npm run diagnose:pdf -- <파일>` (상태·개수만 출력, 원문 없음).
-- **다음 단계**: OCR 기반 스캔본 보호, 주소·여권·면허·서명·도장, 사용자 직접 가리기·이름 가리기, 공유용 보호본, AI 전송 전 redaction, 입력 양식 PDF.
+- **다음 단계**: ~~OCR 기반 스캔본 보호~~(개정 20), 주소·여권·면허·서명·도장, 사용자 직접 가리기·이름 가리기, 공유용 보호본, AI 전송 전 redaction, 입력 양식 PDF.
 
 ## 8. 예상 기술 문제와 리스크
 
@@ -1255,3 +1255,33 @@ pacto/
 - **실제 배포 측정 (2026-10-09, Supabase + 실제 CLOVA, fixture lease-a4.jpg 2400×3391 가짜 값, 동시 2장)**: 1장·5장·10장 모두 protected(16/16, 자원 한도 초과·시간 초과 0).
   서버 한 장 평균 약 3.4~3.8초 = CLOVA 1차 1.5~1.8초 + 재-OCR 1.3~1.5초 + 해석 0.16초 + 축소·가리기·저장 0.27초 + 확인 0.07초 → 시간 대부분은 CLOVA 응답. 10장 전체 약 19초. 첫 요청은 함수 시작 시간 때문에 앱에서 약 7초.
   동시 3장으로 10장 2회 측정: 20/20 protected, 전체 약 18.9~19.5초 — 동시 2장(약 19.1초)과 차이 없음(시간 대부분이 CLOVA 응답). 앱은 동시 2장 유지.
+
+### 스캔 PDF 민감정보 보호 — 페이지 이미지 OCR (개정 20)
+- **페이지 분류** (`scanPdf.ts` `classifyPage`): 보이는 글자 10개 이상 → 텍스트 페이지(기존 방식). 보이는 글자가 거의 없고 이미지가 있으면,
+  **이미지 한 장이 보이는 영역(CropBox)의 85% 이상을 축에 맞게(0·90·180·270도·뒤집기) 덮을 때만 스캔 페이지**(dominant image, CTM 기준).
+  작은 로고·서명 이미지가 있는 일반 텍스트 페이지는 글자가 많으므로 텍스트 페이지로 남는다(이미지 속 내용은 기존처럼 "확인하지 못함" 안내).
+  글자도 이미지도 없는 페이지: 칠하는 연산이 많으면 윤곽선 글자(읽을 수 없음 → unsupported_scan `no_text`), 아니면 빈 페이지.
+- **V1 지원 형식**: JPEG(DCTDecode) 회색·RGB 8비트, Flate 8비트 회색·RGB(PNG 예측자 10~15 포함, 해석은 fast-png가 이미 쓰는 pako `inflate`).
+  **unsupported_scan**: CCITT·JBIG2·JPEG2000·CMYK·특수 색공간(Indexed 등)·마스크·1비트 (`scan_format`), 여러 이미지로 나뉜 페이지·작은(85% 미만) 이미지·기울어진 이미지·인라인 이미지 (`scan_layout`), 2500만 화소 초과 (`scan_too_large`).
+  특수 페이지가 하나라도 있으면 **OCR 없이** 바로 중단(비용 없음).
+- **구조 — 별도 worker** (`protect-scan-page`): `protect-document`는 PDF 분석·분류·조정·재조합·최종 검증, worker는 스캔 페이지 1장(이미지 해석 → 화면 방향으로 바로 세움 → CLOVA OCR → 탐지 → 실제 픽셀 덮기(1600px) → 덮임 확인 → 재-OCR 검증).
+  - 인증: worker는 `Authorization: Bearer <service_role 키>`만 받는다(함수 안에서 비교, `verify_jwt=false`). 앱에는 이 키가 없으므로 사용자 토큰·anon 키로는 401(통합 테스트로 확인).
+  - worker는 DB·저장소에 접근하지 않고 받은 이미지 스트림만 처리(요청: 길이 + JSON(쪽 번호·형식·방향·이 쪽의 가림 상태) + 이미지 바이트, 응답: 상태·영역(바로 선 이미지 0~1)·보호 JPEG). 원본 PDF 전체를 보내지 않는다.
+  - 페이지마다 따로 호출되므로 CPU·메모리 한도가 페이지 단위. 동시 2장(`SCAN_CONCURRENCY`), worker 5xx·네트워크 오류는 1번만 다시. 하나라도 실패·읽지 못함·미지원이면 남은 페이지는 처리하지 않는다(`skipped`).
+  - 한 문서의 스캔 페이지 최대 **`MAX_SCAN_PAGES = 20`**(protect.ts, 앱 문구 protectionCopy.ts) — 넘으면 unsupported_scan `too_many_scan_pages`("20쪽 이하로 나눠서 올려주세요"). 실제 측정 후 조정.
+- **좌표** (`scanGeometry.ts`): CLOVA 상자(바로 선 이미지 0~1) → 저장된 이미지 좌표(회전·뒤집기 역변환) → PDF 이미지 단위 공간(y 뒤집기) → CTM → 페이지 기본 좌표 → 회전 전 MediaBox 기준 0~1(텍스트 페이지 영역과 같은 기준, DB `bbox_json`).
+  OCR은 사람이 보는 방향(CTM + /Rotate)으로 돌린 이미지에 한다. 회전이 없는 JPEG(긴 변 3600 이하)는 원본 바이트를 그대로 OCR에 보내고, 그 밖은 바로 세워 긴 변 2400 이하 JPEG로 다시 저장해 보낸다.
+- **보호본 재조합** (`assembleProtectedPdf`): 텍스트 페이지 = 기존 방식으로 글자를 제거·검증한 문서에서 복사. **스캔 페이지 = 원본 페이지를 복사하지 않고, 가린 이미지 한 장으로 새 페이지**(같은 MediaBox·CropBox·/Rotate·순서, 원래 이미지 자리에 같은 방향으로)
+  → 숨은 OCR 글자층·원본 이미지·주석·링크가 남지 않는다(V1: 스캔 페이지의 링크·주석은 보호본에서 빠짐). 민감정보가 없는 스캔 페이지도 문서가 protected이면 같은 방식으로 새로 만든다.
+- **검증**: 페이지별(덮임 확인 + 가린 값이 있으면 재-OCR) + 최종(보호본의 쪽수·MediaBox·회전이 원본과 같음 · pdf.js로 스캔 페이지에서 글자 조각 0개 · 텍스트 페이지에 놓친 Level 1 없음).
+  숨은 OCR 글자층에서 찾은 Level 1 값 위치(값은 쓰지 않고 위치만)가 OCR 영역과 맞지 않으면(OCR이 놓쳤을 수 있음) failed `ocr_layer_mismatch`.
+- **문서 상태 규칙**: 특수 페이지 → unsupported_scan(처리 전 중단) / 처리 중에는 우선순위 failed → unsupported_scan(worker가 알아낸 형식 문제) → unreadable / 모든 페이지 no_sensitive_data → no_sensitive_data / protected·no_sensitive_data 섞임 → protected.
+  unreadable·failed·unsupported_scan이 하나라도 있으면 보호 PDF 파생본을 만들지 않는다(기존 파생본도 지움).
+- **페이지별 상태** (migration `20261016000001`): `contract_documents.protection_pages` jsonb — `[{"page":1,"kind":"text","status":"protected","detail":null},{"page":2,"kind":"scan","status":"no_sensitive_data","detail":null}]`. 원문·OCR 텍스트·민감값 없음. 사용자가 바꿀 수 없음(보호 상태 보호 함수에 추가). 스캔 페이지 영역은 `source='ocr'`.
+- **가리기 해제·다시 가리기**: 이미 protected인 문서는 스캔 페이지를 저장된 위치로 다시 그린다(OCR 0회, 페이지 좌표 → 바로 선 이미지 좌표로 되돌려 칠함). 텍스트 페이지는 원본에서 다시(외부 호출 없음).
+- **앱 문구**: 예전 "스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요."는 삭제. 특수 형식 → "자동 가리기를 지원하지 않는 형식의 페이지가 있어요"(+ 쪽 번호), 20쪽 초과 → 나눠서 올리라는 안내, 읽지 못함·실패는 문제 페이지 번호를 함께. 예전 버전에서 미지원 처리된 스캔 PDF(`scanned_pages`)는 다시 보호할 수 있다.
+- **테스트**: `tests/protection/scan.test.ts`(좌표 왕복·픽셀 회전 / 회전 0·CTM 90·180·270·/Rotate 90·180·270·여백·CTM 축소+이동·CTM+Rotate+원점 이동 — poppler로 원본·보호본을 실제로 그려 주민번호 자리가 검고 계약번호는 그대로인지 확인 / Flate 4종 / 미지원 7종·레이아웃 3종 / 로고 있는 텍스트 PDF / 20쪽 초과 / 혼합 A~D / 숨은 글자층 위치 불일치 / 상태 규칙 / 가림 바꾸기 OCR 0회 / 1600px),
+  `step15-scan-pdf-protection`(로컬 Edge + worker + 가짜 CLOVA: 숨은 글자층 제거·혼합·CCITT·OCR 오류·worker 직접 호출 401). 좌표 코드를 일부러 틀리게 바꾸면 회전 테스트가 실패하는 것을 확인함.
+- **로컬 측정 (Edge Runtime, 가짜 OCR 지연 0.6초, lease-a4 2400×3391 페이지)**: 1·5·10·20쪽 모두 protected, 페이지당 OCR 2회. 전체 약 3.4·13·17·32초.
+  worker 한 장: 해석 0.15초 · 축소·가리기·저장 0.3~0.36초 · 확인 0.07초. 보호본 크기 약 60%(원본 PDF 10.0MB → 5.9MB, 20쪽). 5쪽 측정 중 1번, 같은 worker에 동시 요청 2개가 겹쳐 CPU hard limit → 1번 다시 시도로 복구.
+  실제 배포 측정: `BENCH_MODE=scan-pdf node scripts/protect-bench.mjs`.

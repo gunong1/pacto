@@ -1,6 +1,8 @@
 /**
  * 통합 테스트 도우미 (jest에서 별도 프로세스로 실행): 테스트 PDF 만들기 · PDF 텍스트 추출(pdf.js)
- *   node --experimental-strip-types tests/protection/cli.ts make <employment|rental|scan|cmap|repeated|type3> <out.pdf>
+ *   node --experimental-strip-types tests/protection/cli.ts make <employment|rental|scan|scan-lease|scan-mixed|scan-ccitt|cmap|repeated|type3> <out.pdf>
+ *     scan: 1×1 흰 이미지 + 숨은 글자층 (읽을 글자 없음 → unreadable) / scan-lease: 임대차계약서 스캔(A4, 숨은 OCR 글자층 포함)
+ *     scan-mixed: 텍스트 페이지 + scan-lease / scan-ccitt: 특수 형식(CCITT) 스캔 → unsupported_scan
  *   node --experimental-strip-types tests/protection/cli.ts text <in.pdf>
  *   node --experimental-strip-types tests/protection/cli.ts diagnose <in.pdf>   (상태·진단 숫자만 — 원문 출력 없음)
  */
@@ -10,6 +12,14 @@ import { PDFJS_OPTIONS } from '../../supabase/functions/_shared/protection/cmap.
 import { protectPdf } from '../../supabase/functions/_shared/protection/protect.ts';
 import { extractText, getDocumentProxy } from '../../supabase/functions/_shared/vendor/unpdf.js';
 import { ContractPdf, employmentContractPdf, rentalContractPdf } from './fixtures.ts';
+import { buildPdf, readFix, type PageSpec } from './scanFixtures.ts';
+
+/** 임대차계약서 스캔 페이지 (lease-a4 2400×3391 JPEG, 숨은 OCR 글자층: 주민등록번호를 이미지와 같은 자리에) */
+export const leaseScanPage = (): PageSpec => ({
+  size: [595, 842],
+  image: { bytes: readFix('lease-a4.jpg'), width: 2400, height: 3391 },
+  hidden: [['주민등록번호', 190, 660.5, 10], ['800101-1234567', 300, 660.5, 10]],
+});
 import { predefinedCMapPdf, simpleFontValuesPdf, type3ValuesPdf } from './lowlevel.ts';
 
 /** 반복 숫자 (카드·전화가 같은 숫자 조각 공유) */
@@ -30,7 +40,13 @@ if (cmd === 'make') {
   else if (kind === 'cmap') bytes = await predefinedCMapPdf('UniKS-UCS2-H', CMAP_LINES);
   else if (kind === 'repeated') bytes = await simpleFontValuesPdf(REPEATED_VALUES);
   else if (kind === 'type3') bytes = await type3ValuesPdf(REPEATED_VALUES);
-  else {
+  else if (kind === 'scan-lease' || kind === 'scan-mixed') {
+    const c = await ContractPdf.create();
+    if (kind === 'scan-mixed') await c.page(['근로계약서', '근로자: 박민준', '주민등록번호: 901225-1234567']);
+    bytes = await buildPdf([leaseScanPage()], (s) => c.font(s), c.doc);
+  } else if (kind === 'scan-ccitt') {
+    bytes = await buildPdf([{ size: [595, 842], image: { bytes: new Uint8Array(64), width: 1700, height: 2400, filter: 'CCITTFaxDecode', colorSpace: 'DeviceGray', bpc: 1 } }]);
+  } else {
     const c = await ContractPdf.create();
     await c.scanPage('901225-1234567');
     bytes = await c.save();

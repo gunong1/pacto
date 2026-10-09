@@ -115,10 +115,12 @@ export interface RegionRow {
   bbox_json: { x: number; y: number; w: number; h: number }[];
   masked_preview: string;
   context_label: string | null;
+  /** pattern(PDF 글자) / ocr(사진·스캔 페이지) */
+  source: string;
 }
 
 export async function selectRegions(userId: string, documentId: string): Promise<RegionRow[]> {
-  const res = await rest(`document_sensitive_regions?select=id,region_key,state,user_confirmed,page_number,sensitive_type,mask_level,confidence,bbox_json,masked_preview,context_label&user_id=eq.${userId}&document_id=eq.${documentId}`);
+  const res = await rest(`document_sensitive_regions?select=id,region_key,state,user_confirmed,page_number,sensitive_type,mask_level,confidence,bbox_json,masked_preview,context_label,source&user_id=eq.${userId}&document_id=eq.${documentId}`);
   if (!res.ok) throw new Error(`regions_${res.status}`);
   return await res.json();
 }

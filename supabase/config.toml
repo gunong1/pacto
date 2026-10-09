@@ -421,3 +421,7 @@ verify_jwt = false
 
 [functions.notifications]
 verify_jwt = false
+
+# protect-document만 호출하는 내부 worker — JWT 대신 함수 안에서 service_role 키를 확인한다 (앱에는 이 키가 없다)
+[functions.protect-scan-page]
+verify_jwt = false

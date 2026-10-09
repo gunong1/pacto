@@ -1,7 +1,7 @@
 /**
  * 민감정보 보호 E2E (실제 데이터 모드 · 로컬 Supabase · 서버 mock AI의 근로계약 예시)
  * 업로드 → 민감정보 보호(서버) → 분석 → 확인 화면 보호 카드 → 저장 → 보호된 계약서 보기(기본) / 원본 보기(확인 후)
- * → 가리기 해제 → 스캔본은 "지원하지 않아요" → 계약 삭제 시 원본·보호본·기록 정리
+ * → 가리기 해제 → 특수 형식 스캔본(CCITT)은 "지원하지 않는 형식" → 계약 삭제 시 원본·보호본·기록 정리
  * 테스트 D·E·F·H를 실제 화면·저장소·DB로 확인한다.
  * 사용: BASE_URL=http://localhost:8082 node e2e/protection-flow.js
  */
@@ -42,7 +42,7 @@ const leaks = (text) => SECRETS.filter((s) => text.includes(s));
 
 (async () => {
   const original = make('employment');
-  const scan = make('scan');
+  const scan = make('scan-ccitt');
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 390, height: Number(process.env.VIEWPORT_HEIGHT || 844) }, locale: 'ko-KR' });
   const page = await context.newPage();
@@ -141,14 +141,14 @@ const leaks = (text) => SECRETS.filter((s) => text.includes(s));
   // 로그(브라우저 콘솔)에도 원문 없음
   check('L', '앱 로그에 원문 없음', leaks(logs.join('\n')).length === 0);
 
-  // 스캔본: 지원하지 않음 (보호됨으로 표시하지 않음)
+  // 특수 형식 스캔본(CCITT): 지원하지 않음 (보호됨으로 표시하지 않음) — 일반 스캔 페이지는 OCR로 보호 (step15 통합 테스트)
   await page.goto(BASE + '/register', { waitUntil: 'networkidle' });
   const [c2] = await Promise.all([page.waitForEvent('filechooser'), page.click(tid('method-pdf'))]);
   await c2.setFiles({ name: '스캔계약서.pdf', mimeType: 'application/pdf', buffer: scan });
   await page.waitForSelector(tid('review-protection-0'), { timeout: 40000 });
   const scanCard = await page.locator(tid('review-protection-0')).innerText();
   await page.locator(tid('review-protection-0')).screenshot({ path: path.join(SHOTS, 'protection-04-scan-card.png') });
-  check('S2', '스캔본: "스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요." (보호했어요와 구분)', scanCard.includes('스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요.') && !scanCard.includes('보호했어요'), scanCard.split('\n')[0]);
+  check('S2', '특수 형식 스캔본: "자동 가리기를 지원하지 않는 형식의 페이지가 있어요" (보호했어요와 구분, 예전 "스캔된 페이지…" 문구 없음)', scanCard.includes('자동 가리기를 지원하지 않는 형식의 페이지가 있어요') && !scanCard.includes('보호했어요') && !scanCard.includes('스캔된 페이지가 포함'), scanCard.split('\n')[0]);
 
   // E: 계약 삭제 → 원본·보호본·기록 정리
   const contractId = contracts[0].id;

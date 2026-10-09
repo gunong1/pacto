@@ -1,5 +1,7 @@
 // 계약서 민감정보 보호: 본인 문서 확인 → 비공개 저장소에서 원본 읽기(수정하지 않음) → 탐지 → 실제 제거한 보호 표시본 저장
-// - PDF: 외부 서비스로 보내지 않는다 (탐지·제거 모두 이 함수 안에서)
+// - PDF 텍스트 페이지: 외부 서비스로 보내지 않는다 (탐지·제거 모두 이 함수 안에서)
+// - PDF 스캔 페이지(페이지 대부분이 이미지 한 장): 페이지 이미지를 protect-scan-page worker(서버 내부 인증)로 한 장씩 보내
+//   CLOVA OCR → 탐지 → 가린 이미지를 받고, 보호본에서는 그 이미지 한 장으로 새 페이지를 만든다 (숨은 OCR 글자층·원본 이미지 제거)
 // - 사진(JPG·PNG): 글자를 읽기 위해 원본 이미지를 CLOVA OCR(네이버클라우드)로 보낸다 — OCR 결과는 메모리에서만 쓰고 저장·로그하지 않는다
 //   사용자가 가림만 바꾸면 OCR을 다시 하지 않고 저장된 위치로 보호본을 다시 그린다
 // - 보호본에서 원문이 다시 추출되면 실패 처리 — "보호됨"으로 표시하지 않는다
@@ -21,13 +23,58 @@ import {
 } from '../_shared/admin.ts';
 import { corsHeaders, json } from '../_shared/cors.ts';
 import { ClovaOcr } from '../_shared/protection/ocrProvider.ts';
-import { protectPdf, safeErrorCode, type ProtectedRegion, type ProtectResult, type RegionState } from '../_shared/protection/protect.ts';
+import { protectPdf, safeErrorCode, type ProtectedRegion, type ProtectResult, type RegionState, type ScanRunner } from '../_shared/protection/protect.ts';
+import { decodeScanResponse, encodeScanRequest } from '../_shared/protection/scanWorker.ts';
 import { protectImage, redrawImage, type ImageProtectDiagnostics } from '../_shared/protection/protectImage.ts';
 import type { SensitiveType } from '../_shared/protection/sensitive.ts';
 import { detectionCounts } from '../_shared/protection/sensitive.ts';
 
 const BUCKET = 'contract-files';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SCAN_RETRY_DELAY_MS = 1000;
+
+/** 스캔 페이지 1장을 protect-scan-page worker로 — service_role 키로 인증 (앱에는 이 키가 없다). 서버·네트워크 오류는 한 번 다시 */
+function scanWorker(documentId: string): ScanRunner {
+  const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/protect-scan-page`;
+  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  return async (job, raw) => {
+    const body = encodeScanRequest(job, raw);
+    for (let attempt = 0; ; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/octet-stream', 'x-pacto-doc': documentId }, body });
+      } catch {
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, SCAN_RETRY_DELAY_MS));
+          continue;
+        }
+        throw new Error('scan_worker_network');
+      }
+      if (res.ok) return decodeScanResponse(await res.text());
+      await res.body?.cancel();
+      console.error(`protect-document: doc=${documentId} page=${job.page} scan worker http=${res.status} attempt=${attempt + 1}`);
+      if (res.status >= 500 && attempt === 0) {
+        await new Promise((r) => setTimeout(r, SCAN_RETRY_DELAY_MS));
+        continue;
+      }
+      throw new Error(res.status >= 500 ? 'scan_worker_error' : 'scan_worker_rejected');
+    }
+  };
+}
+
+function toRegion(r: Awaited<ReturnType<typeof selectRegions>>[number]): ProtectedRegion {
+  return {
+    key: r.region_key,
+    page: r.page_number,
+    type: r.sensitive_type as SensitiveType,
+    level: r.mask_level,
+    confidence: r.confidence,
+    state: r.state,
+    maskedPreview: r.masked_preview,
+    contextLabel: r.context_label,
+    bbox: r.bbox_json,
+  };
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -75,6 +122,8 @@ Deno.serve(async (req) => {
         ms: Date.now() - started,
         ...(result?.diagnostics ?? {}),
         ...(imageDiag ?? {}),
+        // 페이지별 종류·상태 (예: "2:scan:protected") — 원문 없음
+        ...(result?.pages?.length ? { pages: result.pages.map((p) => `${p.page}:${p.kind}:${p.status}`).join(',') } : {}),
         ...extra,
       })}`,
     );
@@ -91,17 +140,7 @@ Deno.serve(async (req) => {
       const bytes = await downloadObject(BUCKET, doc.storage_path);
       stage = 'protect';
       // 가림만 바꾼 경우: 이미 보호된 사진이면 저장된 위치로 다시 그린다 (OCR 다시 안 함)
-      const stored: ProtectedRegion[] = prev.map((r) => ({
-        key: r.region_key,
-        page: r.page_number,
-        type: r.sensitive_type as SensitiveType,
-        level: r.mask_level,
-        confidence: r.confidence,
-        state: r.state,
-        maskedPreview: r.masked_preview,
-        contextLabel: r.context_label,
-        bbox: r.bbox_json,
-      }));
+      const stored: ProtectedRegion[] = prev.map(toRegion);
       const ocr = ClovaOcr.fromEnv(Deno.env);
       const img =
         updates.length > 0 && doc.protection_status === 'protected' && stored.length > 0
@@ -110,22 +149,24 @@ Deno.serve(async (req) => {
             ? await protectImage(bytes, { ocr, prevStates })
             : null;
       if (!img) {
-        result = { status: 'failed', detail: 'ocr_not_configured', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 1, diagnostics: undefined as never };
+        result = { status: 'failed', detail: 'ocr_not_configured', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 1, diagnostics: undefined as never, pages: [], scanMetrics: [] };
       } else {
         imageDiag = img.diagnostics;
-        result = { status: img.status, detail: img.detail, imagesUnchecked: false, regions: img.regions, protectedPdf: null, pageCount: 1, diagnostics: undefined as never };
+        result = { status: img.status, detail: img.detail, imagesUnchecked: false, regions: img.regions, protectedPdf: null, pageCount: 1, diagnostics: undefined as never, pages: [], scanMetrics: [] };
         viewBytes = img.protectedImage;
       }
     } else if (doc.mime_type !== 'application/pdf') {
-      result = { status: 'unsupported_scan', detail: 'image_file', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 1, diagnostics: undefined as never };
+      result = { status: 'unsupported_scan', detail: 'image_file', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 1, diagnostics: undefined as never, pages: [], scanMetrics: [] };
     } else {
       stage = 'download';
       const bytes = await downloadObject(BUCKET, doc.storage_path);
       stage = 'protect';
+      // 가림만 바꾼 경우: 스캔 페이지는 저장된 위치로 다시 그린다 (OCR 다시 안 함). 텍스트 페이지는 매번 원본에서 다시 (외부 호출 없음)
+      const redraw = updates.length > 0 && doc.protection_status === 'protected' ? prev.filter((r) => r.source === 'ocr').map(toRegion) : null;
       try {
-        result = await protectPdf(bytes, prevStates);
+        result = await protectPdf(bytes, prevStates, {}, { scan: scanWorker(documentId), redrawScanRegions: redraw });
       } catch (e) {
-        result = { status: 'failed', detail: 'error', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 0, diagnostics: undefined as never };
+        result = { status: 'failed', detail: 'error', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 0, diagnostics: undefined as never, pages: [], scanMetrics: [] };
         logDiagnostics({ errorCode: safeErrorCode(e), downloadedBytes: bytes.byteLength });
       }
     }
@@ -147,6 +188,7 @@ Deno.serve(async (req) => {
     }
 
     stage = 'db_save';
+    const scanPages = new Set(result.pages.filter((p) => p.kind === 'scan').map((p) => p.page));
     await replaceRegions(
       userId,
       documentId,
@@ -158,7 +200,7 @@ Deno.serve(async (req) => {
         mask_level: r.level,
         bbox_json: r.bbox,
         confidence: r.confidence,
-        source: isImage ? 'ocr' : 'pattern',
+        source: isImage || scanPages.has(r.page) ? 'ocr' : 'pattern',
         state: r.state,
         user_confirmed: confirmed.has(r.key),
         masked_preview: r.maskedPreview,
@@ -170,6 +212,8 @@ Deno.serve(async (req) => {
       protection_status: result.status,
       protection_detail: result.detail,
       protection_images_unchecked: result.imagesUnchecked,
+      // 페이지별 종류·상태 (PDF만 — 원문 없음)
+      protection_pages: result.pages.length ? result.pages.map((p) => ({ page: p.page, kind: p.kind, status: p.status, detail: p.detail })) : null,
       protected_at: new Date().toISOString(),
     });
     stage = 'done';
@@ -181,6 +225,8 @@ Deno.serve(async (req) => {
       detail: result.detail,
       imagesUnchecked: result.imagesUnchecked,
       regionCount: result.regions.length,
+      ...(result.pages.length ? { pages: result.pages } : {}),
+      ...(result.scanMetrics.length ? { scanMetrics: result.scanMetrics, ocrCalls: result.scanMetrics.reduce((n, m) => n + m.ocrCalls, 0), derivativeBytes: view?.byteLength ?? 0, sourceBytes: doc.size_bytes } : {}),
       ...(imageDiag ? { metrics: { ...imageDiag.timings, ocrCalls: imageDiag.ocrCalls, width: imageDiag.width, height: imageDiag.height, viewWidth: imageDiag.viewWidth, viewHeight: imageDiag.viewHeight, ocrFieldCount: imageDiag.ocrFieldCount, detectedSensitiveCount: imageDiag.detectedSensitiveCount, redactedRegionCount: imageDiag.redactedRegionCount, verification: imageDiag.verification, stage: imageDiag.stage, errorCode: imageDiag.errorCode } } : {}),
     });
   } catch (e) {

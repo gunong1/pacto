@@ -5,7 +5,7 @@ import { mapWithConcurrency } from '@/lib/pool';
 
 const region = (type: string, state: SensitiveRegion['state'] = 'masked'): SensitiveRegion =>
   ({ id: `${type}-${Math.random()}`, type, state, page: 1, confidence: 'high', maskedPreview: '***', contextLabel: null, userConfirmed: false, bbox: [] }) as unknown as SensitiveRegion;
-const p = (status: ProtectionStatus, regions: SensitiveRegion[] = [], detail: string | null = null): DocumentProtection => ({ status, detail, imagesUnchecked: false, protectedViewPath: status === 'protected' ? 'x' : null, regions });
+const p = (status: ProtectionStatus, regions: SensitiveRegion[] = [], detail: string | null = null): DocumentProtection => ({ status, detail, imagesUnchecked: false, protectedViewPath: status === 'protected' ? 'x' : null, regions, pages: [] });
 
 describe('문구', () => {
   test('보호됨: "민감정보를 보호했어요." + 종류별 건수 + "자동으로 찾아 가려서 표시합니다."', () => {
@@ -33,7 +33,6 @@ describe('문구', () => {
     const c = protectionCopy(p('unsupported_scan', [], 'image_file'))!;
     expect(c.body).not.toContain('지원하지 않아요');
     expect(canProtect(p('unsupported_scan', [], 'image_file'))).toBe(true);
-    expect(canProtect(p('unsupported_scan', [], 'scanned_pages'))).toBe(false);
     expect(canProtect(p('unreadable'))).toBe(false);
   });
 });
@@ -64,4 +63,38 @@ test('동시 처리 제한: 10장 → 동시에 최대 2장, 결과는 입력 �
   });
   expect(peak).toBe(2);
   expect(out).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
+});
+
+describe('스캔 PDF 문구 — unsupported_scan은 정말 특수한 PDF에만', () => {
+  const pages = (list: [number, 'text' | 'scan' | 'unsupported', string][]) => list.map(([page, kind, status]) => ({ page, kind, status })) as DocumentProtection['pages'];
+  test('예전 문구 "스캔된 페이지가 포함되어 있어 자동 가리기를 지원하지 않아요."는 어떤 사유에도 없음', () => {
+    for (const d of ['scan_format', 'scan_layout', 'scan_too_large', 'no_text', 'too_many_scan_pages', 'scanned_pages', null]) {
+      const c = protectionCopy(p('unsupported_scan', [], d))!;
+      expect(`${c.title} ${c.body}`).not.toContain('스캔된 페이지가 포함되어 있어');
+    }
+  });
+  test('특수 형식 → "자동 가리기를 지원하지 않는 형식의 페이지가 있어요" + 해당 쪽 번호', () => {
+    const c = protectionCopy({ ...p('unsupported_scan', [], 'scan_format'), pages: pages([[1, 'text', 'skipped'], [3, 'unsupported', 'unsupported_scan']]) })!;
+    expect(c).toMatchObject({ title: '자동 가리기를 지원하지 않는 형식의 페이지가 있어요', tone: 'warning' });
+    expect(c.body).toContain('(3쪽)');
+  });
+  test('스캔 페이지 20쪽 초과 → 나눠서 올리라는 안내', () => {
+    const c = protectionCopy(p('unsupported_scan', [], 'too_many_scan_pages'))!;
+    expect(c.title).toBe('스캔 페이지가 20쪽을 넘어 자동 가리기를 하지 않았어요');
+    expect(c.body).toContain('나눠서 올려주세요');
+  });
+  test('예전 버전에서 미지원 처리된 스캔 PDF(scanned_pages) → 지금은 보호하기 가능', () => {
+    expect(canProtect(p('unsupported_scan', [], 'scanned_pages'))).toBe(true);
+    expect(protectionCopy(p('unsupported_scan', [], 'scanned_pages'))!.title).toBe('민감정보 보호 전이에요');
+    expect(canProtect(p('unsupported_scan', [], 'scan_format'))).toBe(false);
+  });
+  test('읽지 못한 스캔 페이지 쪽 번호 · 스캔 페이지 실패 사유는 내부 코드 없이', () => {
+    const u = protectionCopy({ ...p('unreadable'), pages: pages([[1, 'text', 'no_sensitive_data'], [2, 'scan', 'unreadable'], [3, 'scan', 'skipped']]) })!;
+    expect(u.body).toContain('(2쪽)');
+    const f = protectionCopy({ ...p('failed', [], 'ocr_layer_mismatch'), pages: pages([[2, 'scan', 'failed']]) })!;
+    expect(f.body).toContain('글자 위치를 정확히 확인하지 못해');
+    expect(f.body).toContain('문제가 생긴 페이지: 2쪽.');
+    expect(f.body).not.toContain('ocr_layer');
+    for (const d of ['scan_worker_error', 'scan_incomplete']) expect(protectionCopy(p('failed', [], d))!.body).toContain('잠시 후 다시 시도해주세요.');
+  });
 });

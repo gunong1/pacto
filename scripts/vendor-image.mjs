@@ -21,6 +21,8 @@ await build({
     contents: `
 export { encode as encodeJpeg, decode as decodeJpeg } from "jpeg-js";
 export { decode as decodePng } from "fast-png";
+// PDF 스캔 페이지의 Flate 이미지 풀기 — fast-png가 이미 쓰는 pako (추가 라이브러리 아님)
+export { inflate } from "./node_modules/fast-png/node_modules/pako/dist/pako.esm.mjs";
 import decodeWasm, { init as initDec } from "@jsquash/jpeg/decode.js";
 // Deno에는 ImageData가 없다 — 해석기가 결과를 담을 최소한의 형태만
 globalThis.ImageData ??= class ImageData { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } };
@@ -56,6 +58,7 @@ fs.writeFileSync(
 export declare function decodeJpeg(bytes: Uint8Array, opts?: { useTArray?: boolean; formatAsRGBA?: boolean; maxMemoryUsageInMB?: number; maxResolutionInMP?: number }): RawImage;
 export declare function encodeJpeg(image: RawImage, quality?: number): { data: Uint8Array; width: number; height: number };
 export declare function decodeJpegFast(bytes: Uint8Array): Promise<RawImage>;
+export declare function inflate(bytes: Uint8Array): Uint8Array;
 export declare function decodePng(bytes: Uint8Array): { width: number; height: number; channels: number; depth: number; data: Uint8Array | Uint16Array; palette?: number[][] };
 `,
 );

@@ -6,7 +6,11 @@
 import { PDFDocument } from '../vendor/pdf-lib.js';
 import { extractText, getDocumentProxy } from '../vendor/unpdf.js';
 import { PDFJS_OPTIONS } from './cmap.ts';
+import { PDFName } from '../vendor/pdf-lib.js';
 import { buildProtectedView, extractPage, removeGlyphs, type Box, type Glyph, type PageText, type StreamEntry } from './pdfEngine.ts';
+import { normalizeRotate, pageBoxToUpright, uprightBoxToPage } from './scanGeometry.ts';
+import { assembleProtectedPdf, classifyPage, rawImageBytes } from './scanPdf.ts';
+import type { ScanJob, ScanPageOutcome } from './scanWorker.ts';
 import { detectSensitive, MASK_LEVEL, type DetectionConfidence, type SensitiveType } from './sensitive.ts';
 
 export type ProtectionStatus = 'protected' | 'no_sensitive_data' | 'unreadable' | 'unsupported_scan' | 'failed';
@@ -38,6 +42,48 @@ export interface ProtectResult {
   pageCount: number;
   /** 단계별 진단 (개수·형식만 — 원문·글꼴 이름·좌표 없음). 로그와 응답에 쓴다 */
   diagnostics: ProtectDiagnostics;
+  /** 페이지별 종류·상태 (DB protection_pages — 원문 없음) */
+  pages: PageOutcome[];
+  /** 스캔 페이지별 처리 시간·OCR 호출 수 (성능 측정용 — 원문·좌표 없음) */
+  scanMetrics: ScanPageMetrics[];
+}
+
+export type PageStatus = ProtectionStatus | 'skipped';
+
+export interface PageOutcome {
+  /** 1부터 */
+  page: number;
+  kind: 'text' | 'scan' | 'unsupported';
+  /** skipped: 다른 페이지가 실패·미지원이라 처리하지 않음 */
+  status: PageStatus;
+  detail: string | null;
+}
+
+export interface ScanPageMetrics {
+  page: number;
+  status: ProtectionStatus;
+  detail: string | null;
+  workerMs: number;
+  ocrCalls: number;
+  directOcrInput: boolean;
+  sourceBytes: number;
+  imageBytes: number;
+  width: number;
+  height: number;
+  viewWidth: number;
+  viewHeight: number;
+  detectedSensitiveCount: number;
+  verification: string;
+  timings: Record<string, number> | null;
+}
+
+/** 스캔 페이지 1장 처리기 — 배포: protect-scan-page worker 호출 / 테스트: 같은 코드를 직접 실행 */
+export type ScanRunner = (job: ScanJob, raw: Uint8Array) => Promise<ScanPageOutcome>;
+
+export interface ProtectPdfOptions {
+  scan?: ScanRunner | null;
+  /** 가림만 바꾼 경우: 저장된 스캔 페이지 영역(페이지 좌표, 바뀐 상태 반영)으로 다시 그린다 — OCR 안 함 */
+  redrawScanRegions?: ProtectedRegion[] | null;
 }
 
 export type ProtectStage = 'load' | 'extract' | 'classify' | 'detect' | 'redact' | 'verify';
@@ -57,6 +103,13 @@ export interface ProtectDiagnostics {
   imageCount: number;
   widgetCount: number;
   scanPageCount: number;
+  textPageCount: number;
+  blankPageCount: number;
+  unsupportedPageCount: number;
+  /** 스캔 페이지 OCR 호출 수 합계 (첫 OCR + 재-OCR 검증) */
+  scanOcrCalls: number;
+  /** 최종 보호본의 스캔 페이지에서 읽힌 글자 조각 수 (0이어야 함) */
+  verifyScanTextCount: number;
   /** 글꼴 형식별 개수 (예: Type0/Identity-H/toUnicode) */
   fonts: { subtype: string; encoding: string; toUnicode: boolean; supported: boolean; count: number }[];
   /** 줄로 묶은 텍스트 길이·줄 수 */
@@ -100,7 +153,8 @@ export function safeErrorCode(e: unknown): string {
 function emptyDiagnostics(): ProtectDiagnostics {
   return {
     failureStage: null, errorCode: null, pageCount: 0, textItemCount: 0, visibleGlyphCount: 0, invisibleGlyphCount: 0, undecodableCount: 0,
-    unsupportedFontTextCount: 0, imageCount: 0, widgetCount: 0, scanPageCount: 0, fonts: [], extractedTextLength: 0, lineCount: 0, bboxCount: 0,
+    unsupportedFontTextCount: 0, imageCount: 0, widgetCount: 0, scanPageCount: 0, textPageCount: 0, blankPageCount: 0, unsupportedPageCount: 0,
+    scanOcrCalls: 0, verifyScanTextCount: 0, fonts: [], extractedTextLength: 0, lineCount: 0, bboxCount: 0,
     detected: {}, detectedSensitiveCount: 0, maskedCount: 0, removedGlyphCount: 0, boxCount: 0, derivativeBytes: 0, alignItemCount: 0,
     alignMatchedCount: 0, alignMissedCount: 0, verifyTextLength: 0, verifyPositionLeakOwn: 0, verifyPositionLeakPdfjs: 0, verifyValueLeakCount: 0,
     verifyLeakCount: 0, verifyLeakTypes: [], verifyMissedCount: 0, verifyMissedTypes: [],
@@ -108,6 +162,10 @@ function emptyDiagnostics(): ProtectDiagnostics {
 }
 
 export const MAX_PAGES = 60;
+/** 한 문서에서 처리하는 스캔 페이지 최대 수 — 실제 배포 측정 후 조정 (넘으면 unsupported_scan / too_many_scan_pages) */
+export const MAX_SCAN_PAGES = 20;
+/** 스캔 페이지 동시 처리 수 (worker 호출) */
+export const SCAN_CONCURRENCY = 2;
 /** 해석할 수 없는 글자가 이 비율을 넘으면 보호를 보장할 수 없다 */
 const MAX_UNDECODABLE_RATIO = 0.02;
 /** pdf.js가 읽은 텍스트 조각 중 이 비율 이상이 우리 추출 결과와 위치·내용이 맞아야 신뢰한다 */
@@ -257,30 +315,36 @@ export interface ProtectTestHooks {
 /**
  * @param prevStates 이전 처리에서 사용자가 정한 가림 상태 (region key → state)
  */
-export async function protectPdf(bytes: Uint8Array, prevStates: ReadonlyMap<string, RegionState> = new Map(), testHooks: ProtectTestHooks = {}): Promise<ProtectResult> {
+export async function protectPdf(
+  bytes: Uint8Array,
+  prevStates: ReadonlyMap<string, RegionState> = new Map(),
+  testHooks: ProtectTestHooks = {},
+  options: ProtectPdfOptions = {},
+): Promise<ProtectResult> {
   const diag = emptyDiagnostics();
-  const fail = (detail: string, stage: ProtectStage, e?: unknown): ProtectResult => {
+  const loadFail = (detail: string, stage: ProtectStage, e?: unknown): ProtectResult => {
     diag.failureStage = stage;
     if (e !== undefined) diag.errorCode = safeErrorCode(e);
-    return { status: 'failed', detail, imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: diag.pageCount, diagnostics: diag };
+    return { status: 'failed', detail, imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: diag.pageCount, diagnostics: diag, pages: [], scanMetrics: [] };
   };
   let doc: PDFDocument;
   try {
     doc = await PDFDocument.load(bytes, { updateMetadata: false });
   } catch (e) {
-    return fail(e instanceof Error && /encrypt/i.test(e.message) ? 'encrypted' : 'unreadable', 'load', e);
+    return loadFail(e instanceof Error && /encrypt/i.test(e.message) ? 'encrypted' : 'unreadable', 'load', e);
   }
   const pageCount = doc.getPageCount();
   diag.pageCount = pageCount;
-  if (pageCount === 0) return fail('unreadable', 'load');
-  if (pageCount > MAX_PAGES) return fail('too_many_pages', 'load');
+  if (pageCount === 0) return loadFail('unreadable', 'load');
+  if (pageCount > MAX_PAGES) return loadFail('too_many_pages', 'load');
+  const originalRotation = Array.from({ length: pageCount }, (_, i) => doc.getPage(i).getRotation().angle);
 
   const streams = new Map<string, StreamEntry>();
   let pages: PageText[];
   try {
     pages = Array.from({ length: pageCount }, (_, i) => extractPage(doc, i, streams));
   } catch (e) {
-    return fail('unreadable', 'extract', e);
+    return loadFail('unreadable', 'extract', e);
   }
   // 진단: 글자·이미지·양식·글꼴 형식
   const fontCounts = new Map<string, ProtectDiagnostics['fonts'][number]>();
@@ -302,29 +366,58 @@ export async function protectPdf(bytes: Uint8Array, prevStates: ReadonlyMap<stri
   diag.visibleGlyphCount = diag.textItemCount - diag.invisibleGlyphCount;
   diag.fonts = [...fontCounts.values()];
 
-  // 사진·스캔본: 글자가 이미지 안에 있다 (투명 OCR 글자층만 있는 경우 포함) → 문서 전체를 미지원으로
-  // 해석할 수 없는 글꼴로 그린 보이는 글자가 있으면 스캔본이 아니다 (→ 글꼴 미지원으로 실패 처리)
-  const isScan = (p: PageText) => p.unsupportedVisibleText === 0 && p.glyphs.filter((g) => !g.invisible).length < 10 && (p.images > 0 || p.glyphs.length === 0);
-  diag.scanPageCount = pages.filter(isScan).length;
-  if (pages.some(isScan)) {
+  // 페이지 분류: 텍스트 · 스캔(페이지 대부분을 덮는 이미지 한 장) · 빈 페이지 · 지원 안 함
+  const classes = pages.map((p) => classifyPage(doc, p));
+  const isText = (i: number) => classes[i].kind === 'text' || classes[i].kind === 'blank';
+  const scanIdx = classes.flatMap((c, i) => (c.kind === 'scan' ? [i] : []));
+  diag.scanPageCount = scanIdx.length;
+  diag.textPageCount = classes.filter((c) => c.kind === 'text').length;
+  diag.blankPageCount = classes.filter((c) => c.kind === 'blank').length;
+  diag.unsupportedPageCount = classes.filter((c) => c.kind === 'unsupported').length;
+  const pageOut: PageOutcome[] = classes.map((c, i) => ({ page: i + 1, kind: c.kind === 'unsupported' ? 'unsupported' : c.kind === 'scan' ? 'scan' : 'text', status: 'skipped', detail: null }));
+  const base = { pages: pageOut, scanMetrics: [] as ScanPageMetrics[] };
+  const fail = (detail: string, stage: ProtectStage, e?: unknown): ProtectResult => {
+    diag.failureStage = stage;
+    if (e !== undefined) diag.errorCode = safeErrorCode(e);
+    return { status: 'failed', detail, imagesUnchecked: false, regions: [], protectedPdf: null, pageCount, diagnostics: diag, ...base };
+  };
+  const unsupported = (detail: string): ProtectResult => {
     diag.failureStage = 'classify';
-    return { status: 'unsupported_scan', detail: pages.every((p) => p.glyphs.length === 0 && p.images === 0) ? 'no_text' : 'scanned_pages', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount, diagnostics: diag };
+    return { status: 'unsupported_scan', detail, imagesUnchecked: false, regions: [], protectedPdf: null, pageCount, diagnostics: diag, ...base };
+  };
+  // 특수한 스캔 페이지(지원하지 않는 이미지 형식·여러 이미지·작은 이미지·기울어짐·윤곽선 글자)가 하나라도 있으면 OCR 없이 중단
+  const firstUnsupported = classes.findIndex((c) => c.kind === 'unsupported');
+  if (firstUnsupported >= 0) {
+    classes.forEach((c, i) => {
+      if (c.kind === 'unsupported') Object.assign(pageOut[i], { status: 'unsupported_scan', detail: c.detail });
+    });
+    return unsupported(classes[firstUnsupported].detail ?? 'scan_layout');
   }
+  if (classes.every((c) => c.kind === 'blank')) return unsupported('no_text');
+  if (scanIdx.length > MAX_SCAN_PAGES) return unsupported('too_many_scan_pages');
   if (pages.some((p) => p.widgets > 0)) return fail('form_fields', 'classify');
-  if (diag.unsupportedFontTextCount > 0) return fail('unsupported_font', 'classify');
-  const totalGlyphs = diag.textItemCount;
-  const undecodable = diag.undecodableCount;
-  if (totalGlyphs === 0 || undecodable / Math.max(1, totalGlyphs) > MAX_UNDECODABLE_RATIO) return fail('undecodable_font', 'classify');
-  const imagesUnchecked = pages.some((p) => p.images > 0);
 
-  // 신뢰성 확인 — 원본을 pdf.js로도 읽어 위치·내용이 맞는지
-  let pjOriginal: PjPage[];
-  try {
-    pjOriginal = await readWithPdfjs(bytes);
-  } catch (e) {
-    return fail('unreadable', 'classify', e);
+  // ── 텍스트 페이지: 기존 방식 (글자 제거 + 독립 검증). 스캔 페이지의 숨은 OCR 글자층은 여기서 다루지 않는다 (페이지를 새로 만들므로) ──
+  const textPages = pages.filter((_, i) => isText(i));
+  const tp = pages.map((p, i) => (isText(i) ? p : { ...p, glyphs: [] as Glyph[] }));
+  const textGlyphs = textPages.reduce((n, p) => n + p.glyphs.length, 0);
+  const textUndecodable = textPages.reduce((n, p) => n + p.undecodable, 0);
+  if (textPages.some((p) => p.unsupportedText > 0)) return fail('unsupported_font', 'classify');
+  if (diag.textPageCount > 0 && (textGlyphs === 0 || textUndecodable / Math.max(1, textGlyphs) > MAX_UNDECODABLE_RATIO)) return fail('undecodable_font', 'classify');
+  const imagesUnchecked = pages.some((p, i) => isText(i) && p.images > 0);
+  const emptyPj = (n: number): PjPage[] => Array.from({ length: n }, () => ({ items: [], lines: [] }));
+  const onlyText = (pj: PjPage[]) => pj.map((p, i) => (isText(i) ? p : { items: [], lines: [] }));
+
+  // 신뢰성 확인 — 원본을 pdf.js로도 읽어 위치·내용이 맞는지 (텍스트 페이지가 있을 때)
+  let pjOriginal: PjPage[] = emptyPj(pageCount);
+  if (diag.textPageCount > 0) {
+    try {
+      pjOriginal = onlyText(await readWithPdfjs(bytes));
+    } catch (e) {
+      return fail('unreadable', 'classify', e);
+    }
   }
-  const al = alignment(pages, pjOriginal);
+  const al = alignment(tp, pjOriginal);
   diag.alignItemCount = al.items;
   diag.alignMatchedCount = al.matched;
   if (al.items > 0 && al.matched / al.items < MIN_ALIGN_RATIO) return fail('text_mismatch', 'classify');
@@ -334,7 +427,7 @@ export async function protectPdf(bytes: Uint8Array, prevStates: ReadonlyMap<stri
   const secret: { type: SensitiveType; value: string; masked: boolean; hideGlyphs: Glyph[]; page: number }[] = [];
   const toRemove: Glyph[] = [];
   const boxes = new Map<number, Box[]>();
-  for (const page of pages) {
+  for (const page of tp) {
     const { width, height, x: ox, y: oy } = page.box;
     const ordinal = new Map<string, number>();
     for (const line of buildLines(page)) {
@@ -394,63 +487,212 @@ export async function protectPdf(bytes: Uint8Array, prevStates: ReadonlyMap<stri
   };
   diag.alignMissedCount = missedLevel1(pjOriginal, foundKeys).length;
   if (diag.alignMissedCount > 0) return fail('text_mismatch', 'detect');
-  if (regions.length === 0) return { status: 'no_sensitive_data', detail: null, imagesUnchecked, regions: [], protectedPdf: null, pageCount, diagnostics: diag };
+  const shown = new Set(secret.filter((x) => !x.masked).map((x) => valueKey(x.type, x.value)));
+  const regionPages = new Set(regions.map((r) => r.page));
+  const markTextPages = (status: PageStatus, detail: string | null = null) =>
+    classes.forEach((c, i) => {
+      if (isText(i)) Object.assign(pageOut[i], { status: status === 'protected' && !regionPages.has(i + 1) ? 'no_sensitive_data' : status, detail });
+    });
+
+  if (scanIdx.length === 0 && regions.length === 0) {
+    markTextPages('no_sensitive_data');
+    return { status: 'no_sensitive_data', detail: null, imagesUnchecked, regions: [], protectedPdf: null, pageCount, diagnostics: diag, ...base };
+  }
+
+  // 스캔 페이지는 텍스트 보호본에서 비워 둔다 (나중에 가린 이미지로 새 페이지를 만든다 — 원본 이미지·숨은 글자를 복사하지 않음)
+  // 숨은 OCR 글자층에서 찾은 Level 1 위치는 OCR 결과와 맞춰 보는 데 쓴다 (값은 쓰지 않고 위치만)
+  const hiddenLevel1 = new Map<number, { x: number; y: number }[]>();
+  for (const i of scanIdx) {
+    const p = pages[i];
+    const pts: { x: number; y: number }[] = [];
+    for (const line of buildLines(p)) {
+      for (const d of detectSensitive(line.text)) {
+        if (d.level !== 1 || d.confidence === 'low') continue;
+        const gs = line.glyphs.slice(d.start, d.end).filter((g): g is Glyph => !!g);
+        if (!gs.length) continue;
+        const b = unionBox(gs);
+        pts.push({ x: ((b.x0 + b.x1) / 2 - p.box.x) / p.box.width, y: (p.box.y + p.box.height - (b.y0 + b.y1) / 2) / p.box.height });
+      }
+    }
+    if (pts.length) hiddenLevel1.set(i, pts);
+    streams.delete(`page:${i}`);
+    const node = doc.getPage(i).node;
+    node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(new Uint8Array(0))));
+    node.set(PDFName.of('Resources'), doc.context.obj({}));
+  }
 
   let out: Uint8Array;
   try {
-    removeGlyphs(doc, streams, toRemove);
+    if (toRemove.length) removeGlyphs(doc, streams, toRemove);
     out = await buildProtectedView(doc, streams, boxes);
     diag.derivativeBytes = out.byteLength;
   } catch (e) {
+    markTextPages('failed', 'redaction_failed');
     return fail('redaction_failed', 'redact', e);
   }
 
   // 독립 검증 — 보호본을 우리 추출기와 pdf.js로 각각 다시 읽는다
-  let pjOut: PjPage[];
-  let ownOut: PageText[];
+  if (regions.length > 0) {
+    let pjOut: PjPage[];
+    let ownOut: PageText[];
+    try {
+      pjOut = onlyText(await readWithPdfjs(out));
+      const outDoc = await PDFDocument.load(out, { updateMetadata: false });
+      const outStreams = new Map<string, StreamEntry>();
+      ownOut = Array.from({ length: outDoc.getPageCount() }, (_, i) => extractPage(outDoc, i, outStreams));
+    } catch (e) {
+      markTextPages('failed', 'verification_failed');
+      return fail('verification_failed', 'verify', e);
+    }
+    diag.verifyTextLength = pjOut.reduce((n, p) => n + p.lines.join('\n').length, 0);
+    const masked = secret.filter((x) => x.masked);
+    const leaked = new Set<number>();
+    // 1) 위치 기반: 지워야 했던 글자(원문 문자)가 보호본의 같은 자리에서 다시 읽히는가
+    masked.forEach((sc, i) => {
+      const own = ownOut[sc.page]?.glyphs ?? [];
+      const pjChars = (pjOut[sc.page]?.items ?? []).flatMap(itemChars);
+      for (const h of sc.hideGlyphs) {
+        if (h.ch.trim() === '') continue;
+        if (own.some((g) => sameChar(g.ch, h.ch) && insideCore(h, (g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2))) {
+          diag.verifyPositionLeakOwn++;
+          leaked.add(i);
+        }
+        if (pjChars.some((c) => sameChar(c.ch, h.ch) && insideCore(h, c.x, c.y))) {
+          diag.verifyPositionLeakPdfjs++;
+          leaked.add(i);
+        }
+      }
+    });
+    // 2) 값 전체: 가린 값이 (구분 기호만 다르게라도) 같은 페이지 어느 줄에 그대로 남았는가 — 사용자가 표시하기로 한 같은 값은 제외
+    masked.forEach((sc, i) => {
+      const v = valueKey(sc.type, sc.value);
+      if (v.length < 6 || shown.has(v)) return;
+      if ((pjOut[sc.page]?.lines ?? []).some((line) => lineKey(sc.type, line).includes(v))) {
+        diag.verifyValueLeakCount++;
+        leaked.add(i);
+      }
+    });
+    diag.verifyLeakCount = leaked.size;
+    diag.verifyLeakTypes = [...new Set([...leaked].map((i) => masked[i].type))];
+    // 3) 놓친 Level 1 정보가 보호본에 보이는가 (사용자가 가리기 해제했거나 후보로 둔 값은 제외)
+    const missed = missedLevel1(pjOut, shown);
+    diag.verifyMissedCount = missed.length;
+    diag.verifyMissedTypes = [...new Set(missed)];
+    if (diag.verifyLeakCount > 0 || missed.length > 0) {
+      markTextPages('failed', 'verification_failed');
+      return fail('verification_failed', 'verify');
+    }
+  }
+  markTextPages('protected');
+  if (scanIdx.length === 0) return { status: 'protected', detail: null, imagesUnchecked, regions, protectedPdf: out, pageCount, diagnostics: diag, ...base };
+
+  // ── 스캔 페이지: worker(protect-scan-page)에 한 장씩 (동시 SCAN_CONCURRENCY장). 하나라도 실패·읽지 못함이면 남은 페이지는 처리하지 않는다 ──
+  if (!options.scan) {
+    scanIdx.forEach((i) => Object.assign(pageOut[i], { status: 'failed', detail: 'ocr_not_configured' }));
+    return fail('ocr_not_configured', 'classify');
+  }
+  const runner = options.scan;
+  const results: (ScanPageOutcome | undefined)[] = new Array(scanIdx.length);
+  let stop = false;
+  let next = 0;
+  const work = async () => {
+    while (!stop && next < scanIdx.length) {
+      const k = next++;
+      const i = scanIdx[k];
+      const src = classes[i].scan!;
+      const prefix = `p${i + 1}:`;
+      const job: ScanJob = {
+        page: i + 1,
+        meta: src.meta,
+        orientation: src.orientation,
+        prevStates: [...prevStates.entries()].filter(([key]) => key.startsWith(prefix)),
+        redraw: options.redrawScanRegions
+          ? options.redrawScanRegions.filter((r) => r.page === i + 1).map((r) => ({ ...r, bbox: r.bbox.map((b) => pageBoxToUpright(src.ctm, src.orientation, src.frame, b)) }))
+          : null,
+      };
+      const t = Date.now();
+      let r: ScanPageOutcome;
+      try {
+        r = await runner(job, rawImageBytes(doc, src.ref));
+      } catch (e) {
+        r = { status: 'failed', detail: e instanceof Error && /^[a-z_0-9]+$/.test(e.message) ? e.message : 'scan_worker_error', regions: [], image: null, width: 0, height: 0, diagnostics: undefined as never };
+      }
+      results[k] = r;
+      const d = r.diagnostics;
+      base.scanMetrics.push({
+        page: i + 1, status: r.status, detail: r.detail, workerMs: Date.now() - t, ocrCalls: d?.ocrCalls ?? 0, directOcrInput: d?.directOcrInput ?? false,
+        sourceBytes: d?.sourceBytes ?? 0, imageBytes: r.image?.byteLength ?? 0, width: d?.width ?? 0, height: d?.height ?? 0, viewWidth: r.width, viewHeight: r.height,
+        detectedSensitiveCount: d?.detectedSensitiveCount ?? 0, verification: d?.verification ?? 'skipped', timings: d ? { prepareMs: d.prepareMs, ...d.timings } : null,
+      });
+      if (r.status !== 'protected' && r.status !== 'no_sensitive_data') stop = true;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, scanIdx.length) }, work));
+  base.scanMetrics.sort((a, b) => a.page - b.page);
+  diag.scanOcrCalls = base.scanMetrics.reduce((n, m) => n + m.ocrCalls, 0);
+
+  const scanRegions: ProtectedRegion[] = [];
+  scanIdx.forEach((i, k) => {
+    const r = results[k];
+    if (!r) return;
+    const src = classes[i].scan!;
+    const rs = r.regions.map((x) => ({ ...x, page: i + 1, bbox: x.bbox.map((b) => uprightBoxToPage(src.ctm, src.orientation, src.frame, b)) }));
+    let status: PageStatus = r.status;
+    let detail = r.detail;
+    // 숨은 OCR 글자층에 있던 Level 1 정보가 OCR 영역과 맞지 않으면 (OCR이 놓쳤을 수 있음) 보호됨으로 표시하지 않는다
+    const hidden = hiddenLevel1.get(i) ?? [];
+    const near = (pt: { x: number; y: number }) => rs.some((x) => x.bbox.some((b) => pt.x >= b.x - 0.01 && pt.x <= b.x + b.w + 0.01 && pt.y >= b.y - 0.01 && pt.y <= b.y + b.h + 0.01));
+    if ((status === 'protected' || status === 'no_sensitive_data') && !options.redrawScanRegions && hidden.some((pt) => !near(pt))) {
+      status = 'failed';
+      detail = 'ocr_layer_mismatch';
+    }
+    Object.assign(pageOut[i], { status, detail });
+    scanRegions.push(...rs);
+  });
+  const statuses = pageOut.map((p) => p.status);
+  const all = [...regions, ...scanRegions];
+  const pick = (s: PageStatus) => pageOut.find((p) => p.status === s);
+  for (const s of ['failed', 'unsupported_scan', 'unreadable'] as const) {
+    const p = pick(s);
+    if (p) {
+      diag.failureStage = s === 'failed' ? 'redact' : 'classify';
+      return { status: s, detail: p.detail, imagesUnchecked, regions: [], protectedPdf: null, pageCount, diagnostics: diag, ...base };
+    }
+  }
+  if (statuses.some((s) => s === 'skipped')) return fail('scan_incomplete', 'redact');
+  if (all.length === 0) return { status: 'no_sensitive_data', detail: null, imagesUnchecked, regions: [], protectedPdf: null, pageCount, diagnostics: diag, ...base };
+
+  // ── 재조합: 텍스트 페이지는 보호된 텍스트 문서에서 복사, 스캔 페이지는 가린 이미지 한 장으로 새로 ──
+  let final: Uint8Array;
   try {
-    pjOut = await readWithPdfjs(out);
-    const outDoc = await PDFDocument.load(out, { updateMetadata: false });
-    const outStreams = new Map<string, StreamEntry>();
-    ownOut = Array.from({ length: outDoc.getPageCount() }, (_, i) => extractPage(outDoc, i, outStreams));
+    const textDoc = await PDFDocument.load(out, { updateMetadata: false });
+    final = await assembleProtectedPdf(textDoc, classes.map((c, i) => {
+      if (c.kind !== 'scan') return { kind: 'copy', from: i };
+      return { kind: 'image', jpeg: results[scanIdx.indexOf(i)]!.image!, source: c.scan! };
+    }));
+  } catch (e) {
+    return fail('redaction_failed', 'redact', e);
+  }
+  // 최종 검증: 페이지 수·크기·회전이 원본과 같고, 스캔 페이지에서 글자가 하나도 읽히지 않으며, 텍스트 페이지에 놓친 Level 1이 없다
+  try {
+    const fdoc = await PDFDocument.load(final, { updateMetadata: false });
+    if (fdoc.getPageCount() !== pageCount) return fail('verification_failed', 'verify');
+    for (let i = 0; i < pageCount; i++) {
+      const a = fdoc.getPage(i).getMediaBox(), b = pages[i].box;
+      if (Math.abs(a.x - b.x) > 0.01 || Math.abs(a.y - b.y) > 0.01 || Math.abs(a.width - b.width) > 0.01 || Math.abs(a.height - b.height) > 0.01) return fail('verification_failed', 'verify');
+      if (normalizeRotate(fdoc.getPage(i).getRotation().angle) !== normalizeRotate(originalRotation[i])) return fail('verification_failed', 'verify');
+    }
+    const pjFinal = await readWithPdfjs(final);
+    const scanText = scanIdx.reduce((n, i) => n + (pjFinal[i]?.items ?? []).filter((it) => it.str.trim() !== '').length, 0);
+    diag.verifyScanTextCount = scanText;
+    const missed = missedLevel1(onlyText(pjFinal), shown);
+    if (scanText > 0 || missed.length > 0) {
+      diag.verifyMissedCount = missed.length;
+      return fail('verification_failed', 'verify');
+    }
   } catch (e) {
     return fail('verification_failed', 'verify', e);
   }
-  diag.verifyTextLength = pjOut.reduce((n, p) => n + p.lines.join('\n').length, 0);
-  const masked = secret.filter((x) => x.masked);
-  const leaked = new Set<number>();
-  // 1) 위치 기반: 지워야 했던 글자(원문 문자)가 보호본의 같은 자리에서 다시 읽히는가
-  masked.forEach((sc, i) => {
-    const own = ownOut[sc.page]?.glyphs ?? [];
-    const pjChars = (pjOut[sc.page]?.items ?? []).flatMap(itemChars);
-    for (const h of sc.hideGlyphs) {
-      if (h.ch.trim() === '') continue;
-      if (own.some((g) => sameChar(g.ch, h.ch) && insideCore(h, (g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2))) {
-        diag.verifyPositionLeakOwn++;
-        leaked.add(i);
-      }
-      if (pjChars.some((c) => sameChar(c.ch, h.ch) && insideCore(h, c.x, c.y))) {
-        diag.verifyPositionLeakPdfjs++;
-        leaked.add(i);
-      }
-    }
-  });
-  // 2) 값 전체: 가린 값이 (구분 기호만 다르게라도) 같은 페이지 어느 줄에 그대로 남았는가 — 사용자가 표시하기로 한 같은 값은 제외
-  const shown = new Set(secret.filter((x) => !x.masked).map((x) => valueKey(x.type, x.value)));
-  masked.forEach((sc, i) => {
-    const v = valueKey(sc.type, sc.value);
-    if (v.length < 6 || shown.has(v)) return;
-    if ((pjOut[sc.page]?.lines ?? []).some((line) => lineKey(sc.type, line).includes(v))) {
-      diag.verifyValueLeakCount++;
-      leaked.add(i);
-    }
-  });
-  diag.verifyLeakCount = leaked.size;
-  diag.verifyLeakTypes = [...new Set([...leaked].map((i) => masked[i].type))];
-  // 3) 놓친 Level 1 정보가 보호본에 보이는가 (사용자가 가리기 해제했거나 후보로 둔 값은 제외)
-  const missed = missedLevel1(pjOut, shown);
-  diag.verifyMissedCount = missed.length;
-  diag.verifyMissedTypes = [...new Set(missed)];
-  if (diag.verifyLeakCount > 0 || missed.length > 0) return fail('verification_failed', 'verify');
-  return { status: 'protected', detail: null, imagesUnchecked, regions, protectedPdf: out, pageCount, diagnostics: diag };
+  diag.derivativeBytes = final.byteLength;
+  return { status: 'protected', detail: null, imagesUnchecked, regions: all, protectedPdf: final, pageCount, diagnostics: diag, ...base };
 }

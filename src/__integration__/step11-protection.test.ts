@@ -18,7 +18,7 @@ jest.setTimeout(120_000);
 const ROOT = path.resolve(__dirname, '../..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pacto-protect-'));
 const cli = (...args: string[]) => execFileSync('node', ['--experimental-strip-types', '--no-warnings', path.join(ROOT, 'tests/protection/cli.ts'), ...args], { cwd: ROOT, encoding: 'utf8' });
-function fixture(kind: 'employment' | 'rental' | 'scan' | 'cmap' | 'repeated' | 'type3'): Uint8Array {
+function fixture(kind: 'employment' | 'rental' | 'scan' | 'scan-ccitt' | 'cmap' | 'repeated' | 'type3'): Uint8Array {
   const out = path.join(tmp, `${kind}.pdf`);
   if (!fs.existsSync(out)) cli('make', kind, out);
   return new Uint8Array(fs.readFileSync(out));
@@ -98,14 +98,14 @@ describe('Step 11 — 민감정보 보호', () => {
     expect(view).not.toContain('1234567');
   });
 
-  test('스캔 PDF는 unsupported_scan, 해석할 수 없는 사진 파일은 failed (보호본·영역 없음 — 보호됨으로 표시하지 않음)', async () => {
+  test('특수 형식(CCITT) 스캔 PDF는 unsupported_scan, 해석할 수 없는 사진 파일은 failed (보호본·영역 없음 — 보호됨으로 표시하지 않음)', async () => {
     const a = await newUser('scan');
     const photo = stores(a.client, new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), 'image/jpeg').docs;
     const p = await photo.upload(file('계약서.jpg', 'image/jpeg'));
     expect(await photo.protect(p.id)).toEqual({ status: 'failed', detail: 'image_format' });
-    const scan = stores(a.client, fixture('scan')).docs;
+    const scan = stores(a.client, fixture('scan-ccitt')).docs;
     const s = await scan.upload(file('스캔.pdf'));
-    expect(await scan.protect(s.id)).toEqual({ status: 'unsupported_scan', detail: 'scanned_pages' });
+    expect(await scan.protect(s.id)).toEqual({ status: 'unsupported_scan', detail: 'scan_format' });
     const prot = await scan.getProtection([p.id, s.id]);
     expect(prot[p.id]).toMatchObject({ status: 'failed', protectedViewPath: null, regions: [] });
     expect(prot[s.id]).toMatchObject({ status: 'unsupported_scan', protectedViewPath: null, regions: [] });
@@ -124,11 +124,16 @@ describe('Step 11 — 민감정보 보호', () => {
     const { error } = await b.client.storage.from('contract-files').createSignedUrl(`${a.user.id}/${up.id}.protected_view.pdf`, 60);
     expect(error).not.toBeNull();
     // 본인도 상태를 "보호됨"으로 위조할 수 없음 (스캔본을 보호됨으로)
-    const scan = stores(a.client, fixture('scan')).docs;
+    const scan = stores(a.client, fixture('scan-ccitt')).docs;
     const s = await scan.upload(file('스캔.pdf'));
     await scan.protect(s.id);
-    await a.client.from('contract_documents').update({ protection_status: 'protected' }).eq('id', s.id);
-    expect((await scan.getProtection([s.id]))[s.id].status).toBe('unsupported_scan');
+    await a.client
+      .from('contract_documents')
+      .update({ protection_status: 'protected', protection_pages: [{ page: 1, kind: 'scan', status: 'protected' }] })
+      .eq('id', s.id);
+    const forged = (await scan.getProtection([s.id]))[s.id];
+    expect(forged.status).toBe('unsupported_scan');
+    expect(forged.pages).toEqual([{ page: 1, kind: 'unsupported', status: 'unsupported_scan' }]);
   });
 
   test('E. 계약 삭제 → 원본·보호본·민감정보 기록·AI 결과까지 정리 (고아 파일 없음)', async () => {

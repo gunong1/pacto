@@ -159,7 +159,8 @@ export interface ContractDocument {
 /**
  * 민감정보 보호 상태. 원본(original)은 수정하지 않고, 보호 표시본(protected_view)을 따로 만든다.
  * - protected: 찾아서 실제로 제거한 보호본이 있음 / no_sensitive_data: 찾지 못함("없다"가 아님)
- * - unsupported_scan: 사진·스캔본이라 자동 가리기 미지원 / failed: 처리 못 함 / pending: 처리 전
+ * - unreadable: OCR이 충분히 읽지 못함 / unsupported_scan: 특수한 형식의 스캔 페이지(CCITT·JBIG2·CMYK·여러 이미지 등)·스캔 페이지 수 초과
+ * - failed: 처리 못 함 / pending: 처리 전
  */
 export type ProtectionStatus = 'pending' | 'protected' | 'no_sensitive_data' | 'unreadable' | 'unsupported_scan' | 'failed';
 
@@ -186,6 +187,15 @@ export interface DocumentProtection {
   /** 보호 표시본 경로 (status = protected일 때) */
   protectedViewPath: string | null;
   regions: SensitiveRegion[];
+  /** PDF 페이지별 종류·상태 (서버 protection_pages — 원문 없음). 사진·예전 처리 결과는 빈 배열 */
+  pages: ProtectionPage[];
+}
+
+export interface ProtectionPage {
+  page: number;
+  kind: 'text' | 'scan' | 'unsupported';
+  /** skipped: 다른 페이지 문제로 처리하지 않음 */
+  status: Exclude<ProtectionStatus, 'pending'> | 'skipped';
 }
 
 /**

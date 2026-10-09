@@ -96,13 +96,13 @@ isOneToOne: false
                   ]
                 },"contract_documents": {
                   Row: {
-                    "analysis_job_id": string | null,"contract_id": string | null,"created_at": string,"document_role": string | null,"id": string,"mime_type": string,"original_filename": string | null,"page_count": number | null,"protected_at": string | null,"protection_detail": string | null,"protection_images_unchecked": boolean,"protection_status": string,"role_confirmed_by_user": boolean,"size_bytes": number,"sort_order": number,"storage_path": string,"user_id": string
+                    "analysis_job_id": string | null,"contract_id": string | null,"created_at": string,"document_role": string | null,"id": string,"mime_type": string,"original_filename": string | null,"page_count": number | null,"protected_at": string | null,"protection_detail": string | null,"protection_images_unchecked": boolean,"protection_pages": Json | null,"protection_status": string,"role_confirmed_by_user": boolean,"size_bytes": number,"sort_order": number,"storage_path": string,"user_id": string
                   }
                   Insert: {
-                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"document_role"?: string | null,"id"?: string,"mime_type": string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_status"?: string,"role_confirmed_by_user"?: boolean,"size_bytes": number,"sort_order"?: number,"storage_path": string,"user_id"?: string
+                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"document_role"?: string | null,"id"?: string,"mime_type": string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_pages"?: Json | null,"protection_status"?: string,"role_confirmed_by_user"?: boolean,"size_bytes": number,"sort_order"?: number,"storage_path": string,"user_id"?: string
                   }
                   Update: {
-                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"document_role"?: string | null,"id"?: string,"mime_type"?: string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_status"?: string,"role_confirmed_by_user"?: boolean,"size_bytes"?: number,"sort_order"?: number,"storage_path"?: string,"user_id"?: string
+                    "analysis_job_id"?: string | null,"contract_id"?: string | null,"created_at"?: string,"document_role"?: string | null,"id"?: string,"mime_type"?: string,"original_filename"?: string | null,"page_count"?: number | null,"protected_at"?: string | null,"protection_detail"?: string | null,"protection_images_unchecked"?: boolean,"protection_pages"?: Json | null,"protection_status"?: string,"role_confirmed_by_user"?: boolean,"size_bytes"?: number,"sort_order"?: number,"storage_path"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {

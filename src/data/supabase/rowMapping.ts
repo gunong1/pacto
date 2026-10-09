@@ -14,6 +14,7 @@ import type {
   ContractPayment,
   ContractRecord,
   DocumentProtection,
+  ProtectionPage,
   ProtectionStatus,
   SensitiveRegion,
 } from '@/domain/types';
@@ -91,6 +92,19 @@ const firstBox = (r: Row<'document_sensitive_regions'>): { x: number; y: number 
   return { x: Number(b?.x ?? 0), y: Math.round(Number(b?.y ?? 0) * 200) / 200 };
 };
 
+const PAGE_KINDS = new Set(['text', 'scan', 'unsupported']);
+const PAGE_STATUSES = new Set(['protected', 'no_sensitive_data', 'unreadable', 'unsupported_scan', 'failed', 'skipped']);
+/** 페이지별 상태 (모양이 다르면 버린다) */
+function toProtectionPages(v: unknown): ProtectionPage[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x) => {
+    const o = x as Record<string, unknown>;
+    return typeof o?.page === 'number' && PAGE_KINDS.has(o.kind as string) && PAGE_STATUSES.has(o.status as string)
+      ? [{ page: o.page, kind: o.kind as ProtectionPage['kind'], status: o.status as ProtectionPage['status'] }]
+      : [];
+  });
+}
+
 /** 보호 결과 — 원문 값은 DB에 없으므로 가린 표시값·위치·상태만 */
 export function toProtection(r: DocumentRow): DocumentProtection {
   const view = (r.document_derivatives ?? []).find((d) => d.kind === 'protected_view');
@@ -99,6 +113,7 @@ export function toProtection(r: DocumentRow): DocumentProtection {
     detail: r.protection_detail,
     imagesUnchecked: r.protection_images_unchecked,
     protectedViewPath: r.protection_status === 'protected' && view ? view.storage_path : null,
+    pages: toProtectionPages(r.protection_pages),
     regions: [...(r.document_sensitive_regions ?? [])]
       // 문서에서 나오는 순서 (쪽 → 위에서 아래 → 왼쪽에서 오른쪽)
       .sort((a, b) => a.page_number - b.page_number || firstBox(a).y - firstBox(b).y || firstBox(a).x - firstBox(b).x)
