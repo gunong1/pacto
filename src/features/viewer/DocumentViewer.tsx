@@ -25,12 +25,36 @@ const LazyWebView = lazy(() =>
  * 외부 주소로 이동·새 창·파일 접근을 막고, 캐시·쿠키를 남기지 않는다(incognito). 웹 콘솔 로그는 앱으로 넘기지 않는다.
  * WebView 렌더러가 죽어도(onRenderProcessGone) 앱은 종료하지 않고 오류로 알린다.
  */
-export function DocumentViewer({ config, onEvent, onMounted }: { config: ViewerConfig; onEvent: (e: ViewerEvent) => void; onMounted?: () => void }) {
+export function DocumentViewer({
+  config,
+  onEvent,
+  onMounted,
+  variant = 'full',
+}: {
+  config: ViewerConfig;
+  onEvent: (e: ViewerEvent) => void;
+  onMounted?: () => void;
+  /** 진단용: min = 설정 없이 HTML만 / base = + 가상 주소(baseUrl) / full = 실제 뷰어 설정 전부 */
+  variant?: 'min' | 'base' | 'full';
+}) {
   const html = useMemo(() => htmlFor(config), [config]);
   const onMessage = (e: WebViewMessageEvent) => {
     const m = parseViewerMessage(e.nativeEvent.data);
     if (m) onEvent(m);
   };
+  if (variant !== 'full') {
+    return (
+      <Suspense fallback={null}>
+        <LazyWebView
+          style={styles.web}
+          source={variant === 'base' ? { html, baseUrl: VIEWER_BASE_URL } : { html }}
+          onMessage={onMessage}
+          onLoadEnd={() => onMounted?.()}
+          onRenderProcessGone={() => onEvent({ type: 'error', code: 'webview_renderer_gone' })}
+        />
+      </Suspense>
+    );
+  }
   return (
     <Suspense fallback={null}>
       <LazyWebView

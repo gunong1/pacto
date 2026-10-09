@@ -22,7 +22,7 @@ export const VIEWER_STEPS = [
   'error',
 ] as const;
 export type ViewerStep = (typeof VIEWER_STEPS)[number];
-export type ViewerMode = 'route' | 'blank' | 'init' | 'sample' | 'real';
+export type ViewerMode = 'route' | 'blank_min' | 'blank_base' | 'blank' | 'init' | 'sample' | 'real';
 
 export interface ViewerLogEntry {
   /** 기록 시각 (ms) */

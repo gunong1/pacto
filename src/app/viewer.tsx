@@ -22,9 +22,12 @@ function errorCopy(code: string): string {
   return LOAD_FAILED;
 }
 
+const DIAG_MODES = ['route', 'blank_min', 'blank_base', 'blank', 'init', 'sample'] as const;
 const DIAG_TITLE: Record<Exclude<ViewerMode, 'real'>, string> = {
   route: '진단 1 · 화면만',
-  blank: '진단 2 · 빈 WebView',
+  blank_min: '진단 2-1 · WebView 최소 설정',
+  blank_base: '진단 2-2 · WebView + 가상 주소',
+  blank: '진단 2-3 · WebView 전체 설정',
   init: '진단 3 · pdf.js 초기화',
   sample: '진단 4 · 내장 테스트 PDF',
 };
@@ -39,10 +42,10 @@ type ErrorUtilsLike = { getGlobalHandler: () => (e: unknown, fatal?: boolean) =>
  */
 export default function ViewerScreen() {
   const { id, diag } = useLocalSearchParams<{ id?: string; diag?: string }>();
-  const mode: ViewerMode = VIEWER_DIAGNOSTICS && (diag === 'route' || diag === 'blank' || diag === 'init' || diag === 'sample') ? diag : 'real';
+  const mode: ViewerMode = VIEWER_DIAGNOSTICS && (DIAG_MODES as readonly string[]).includes(diag ?? '') ? (diag as ViewerMode) : 'real';
   const [session] = useState(() => (mode === 'real' ? getViewerSession(id) : null));
   const config = useMemo<ViewerConfig | null>(() => {
-    if (mode === 'blank') return { kind: 'blank' };
+    if (mode === 'blank' || mode === 'blank_min' || mode === 'blank_base') return { kind: 'blank' };
     if (mode === 'init') return { kind: 'init' };
     if (mode === 'sample') return { kind: 'pdf', data: SAMPLE_PDF_BASE64 };
     return session;
@@ -116,7 +119,12 @@ export default function ViewerScreen() {
             setState({ error: 'render' });
           }}
         >
-          <DocumentViewer config={config} onEvent={onEvent} onMounted={() => record('webview_mounted')} />
+          <DocumentViewer
+            config={config}
+            onEvent={onEvent}
+            onMounted={() => record('webview_mounted')}
+            variant={mode === 'blank_min' ? 'min' : mode === 'blank_base' ? 'base' : 'full'}
+          />
         </ViewerErrorBoundary>
       ) : null}
       {state === 'loading' && mode !== 'route' && !failed ? (
