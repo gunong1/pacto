@@ -21,7 +21,15 @@ class PactoCrashLogModule : Module() {
 
     Function("clear") {
       CrashFile.file(context).delete()
+      LifecycleLog.file(context).delete()
       Unit
+    }
+
+    /** 앱 실행 흐름 기록 (Activity·task) — 지금 task 상태를 한 줄 덧붙여 돌려준다 */
+    Function("readLifecycle") {
+      LifecycleLog.add(context, "read " + LifecycleLog.tasks(context))
+      val f = LifecycleLog.file(context)
+      if (f.exists()) f.readText() else null
     }
 
     /** 최근 종료 사유 5건 — 이유 코드·시각·짧은 설명(주소 가림)만 */

@@ -4,6 +4,8 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 interface PactoCrashLogNative {
   readLastCrash(): string | null;
   clear(): void;
+  /** 앱 실행 흐름(Activity·task) 기록 — 줄마다 '시각 내용' */
+  readLifecycle?(): string | null;
   exitReasons(): { reason: number; status: number; time: number; description: string }[];
 }
 

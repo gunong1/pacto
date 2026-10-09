@@ -37,6 +37,24 @@ function readCrash(): { last: string | null; reasons: { reason: number; time: nu
   }
 }
 
+/** 앱 실행 흐름(Activity·task) 기록 — 최근 80줄, 시각을 읽기 쉽게 */
+function readLifecycle(): string[] {
+  try {
+    const raw = PactoCrashLog?.readLifecycle?.() ?? '';
+    return raw
+      .split('\n')
+      .filter(Boolean)
+      .slice(-80)
+      .map((line) => {
+        const sp = line.indexOf(' ');
+        const t = Number(line.slice(0, sp));
+        return Number.isFinite(t) ? `${new Date(t).toLocaleTimeString('ko-KR')} ${line.slice(sp + 1)}` : line;
+      });
+  } catch {
+    return [];
+  }
+}
+
 /** 5단계용: 보호본이 있는 PDF 계약서 한 건 */
 function protectedPdfOf(records: ContractRecord[]) {
   for (const r of records) {
@@ -54,6 +72,7 @@ export default function ViewerDiagnosticsScreen() {
   const { data } = useContracts();
   const [log, setLog] = useState(() => readViewerLog());
   const [crash, setCrash] = useState(() => readCrash());
+  const [lifecycle, setLifecycle] = useState(() => readLifecycle());
   const run = lastRun(log);
   // 5단계용: 보호본이 있는 PDF 계약서 한 건
   const target = protectedPdfOf(data ?? []);
@@ -68,6 +87,7 @@ export default function ViewerDiagnosticsScreen() {
   const refresh = () => {
     setLog(readViewerLog());
     setCrash(readCrash());
+    setLifecycle(readLifecycle());
   };
   const open = (diag: string) => router.push({ pathname: '/viewer', params: { diag } });
   return (
@@ -119,6 +139,21 @@ export default function ViewerDiagnosticsScreen() {
               {crash.last ?? '처리되지 않은 예외 기록 없음'}
             </AppText>
           </>
+        )}
+      </Section>
+      <Section title="앱 실행 흐름 (최근 앱 복귀 진단)" caption="화면(Activity)·task가 만들어지고 멈추고 사라지는 순서 (주소·내용 없이 이름·번호만)">
+        {!PactoCrashLog?.readLifecycle ? (
+          <AppText variant="caption" color="textSecondary">
+            이 빌드에는 실행 흐름 기록 기능이 없어요.
+          </AppText>
+        ) : lifecycle.length === 0 ? (
+          <AppText variant="caption" color="textSecondary">
+            기록이 없어요.
+          </AppText>
+        ) : (
+          <AppText variant="caption" selectable testID="diag-lifecycle">
+            {lifecycle.join('\n')}
+          </AppText>
         )}
       </Section>
       <Section title="단계별로 열기" caption="위에서부터 하나씩 눌러, 어느 단계에서 앱이 종료되는지 확인해주세요">

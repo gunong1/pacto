@@ -19,6 +19,12 @@ class PactoCrashLogPackage : Package {
           }
           previous?.uncaughtException(thread, error)
         }
+        // 앱 실행 흐름(Activity·task) 기록 — 진단용
+        try {
+          LifecycleLog.install(application)
+        } catch (_: Throwable) {
+          // 기록 장치 실패는 무시
+        }
       }
     })
 }
