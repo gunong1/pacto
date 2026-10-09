@@ -4,7 +4,7 @@ import { addDays, formatDateKo } from './dates';
 import { FREQUENCY_LABEL } from './labels';
 import { formatWon, formatWonCompact } from './money';
 import { amountPeriods, probationPeriod } from './paymentRules';
-import { expandPayment } from './schedule';
+import { expandPayment, isPaymentDayUnknown } from './schedule';
 import { noticeLabelOf } from './noticeKind';
 import { terminationNoticeDeadline } from './status';
 import type { ContractPayment, ContractRecord, ISODate } from './types';
@@ -28,6 +28,8 @@ export interface CoreInfoRow {
 
 export function paymentRule(p: ContractPayment): string {
   if (p.frequency === 'one_time') return `일시불 · ${formatDateKo(p.startsOn)}`;
+  // 계약서에 지급일이 없는 정기 수입 — 시작일로 추론하지 않는다
+  if (isPaymentDayUnknown(p)) return `${FREQUENCY_LABEL[p.frequency]} · 지급일 확인 필요`;
   const day = p.dayOfMonth ? `${p.dayOfMonth}일` : '';
   const base = p.frequency === 'yearly' && p.monthOfYear ? `매년 ${p.monthOfYear}월 ${day}`.trim() : `${FREQUENCY_LABEL[p.frequency]} ${day}`.trim();
   return p.businessDayRule && p.businessDayRule !== 'none' ? `${base} (${BUSINESS_DAY_RULE_LABEL[p.businessDayRule]})` : base;

@@ -12,12 +12,12 @@ import { Divider, EmptyState, KeyValueRow, Screen, Section, SectionGap } from '@
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
 import { addDays, addMonths, formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
-import { contractTypeLabel } from '@/domain/contractTypes';
+import { contractTypeLabel, isConfirmedPayment } from '@/domain/contractTypes';
 import { coreInfo, extraCosts, otherDetails, type ExtraCostRow } from '@/domain/coreInfo';
 import { categoryLabel, EVENT_TYPE_LABEL } from '@/domain/labels';
 import { formatWon } from '@/domain/money';
 import { noticeLabelOf } from '@/domain/noticeKind';
-import { contractSchedule, nextPayment } from '@/domain/schedule';
+import { contractSchedule, isPaymentDayUnknown, nextPayment } from '@/domain/schedule';
 import { contractMonthlyEquivalent } from '@/domain/spending';
 import { currentTerm, deriveStatus, terminationNoticeDeadline } from '@/domain/status';
 import { endProfile, isActionable, nextAction } from '@/domain/nextAction';
@@ -69,6 +69,8 @@ export default function ContractDetailScreen() {
       term,
       action: nextAction(record, today),
       next: nextPayment(record, today),
+      // 지급일이 없는 정기 수입(급여 등) — 반복 일정을 만들지 않았다
+      dayUnknown: record.payments.filter((p) => isConfirmedPayment(p) && isPaymentDayUnknown(p)),
       monthly: contractMonthlyEquivalent(record),
       core: coreInfo(record, today),
       other: otherDetails(record),
@@ -250,6 +252,14 @@ export default function ContractDetailScreen() {
               <AppText variant="title3" tabular color={view.next.direction === 'income' ? 'positive' : 'text'}>
                 {view.next.direction === 'income' ? '+' : ''}
                 {formatWon(view.next.amount)}
+              </AppText>
+            </View>
+          ) : null}
+          {live && view.dayUnknown.length > 0 ? (
+            <View style={styles.notice} testID="detail-payday-unknown">
+              <Ionicons name="information-circle-outline" size={18} color={colors.check} />
+              <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
+                {view.dayUnknown[0].kind === 'salary' ? '급여' : view.dayUnknown[0].label} 지급일 확인 필요 — 계약서에 지급일이 없어 캘린더에 반복 일정을 만들지 않았어요. 지급일을 알면 정보 수정에서 입력해주세요.
               </AppText>
             </View>
           ) : null}

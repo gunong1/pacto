@@ -287,6 +287,7 @@ export function extractionInstructions(today: string): string {
     '   - "잔금일에 지급" → balance_date, "입주일에·입주 시" → move_in_date, "계약 시작일·개시일에" → start_date, "종료일·만기에" → end_date (date=그 기준 날짜, 없으면 null).',
     '   - "계약일로부터 7일 이내"처럼 기준 날짜에서 계산하면 calculated, 문맥으로 추정하면 inferred (confidence medium 이하).',
     '   - "매월 20일"은 정기 결제의 day_of_month=20 (date_source=explicit, date는 첫 결제일이 적혀 있을 때만).',
+    '   - 급여·용역 대금 같은 정기 수입의 지급일은 "매월 25일 지급"처럼 적혀 있을 때만 day_of_month. 근로 시작일·계약 시작일의 날짜를 지급일로 쓰지 않습니다(없으면 null). day_of_month를 넣으면 evidence_quote에 지급일 문장을 포함합니다.',
     '   금액마다 payment_obligation을 판단합니다 (아래 원칙).',
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
@@ -484,6 +485,13 @@ const CONDITIONAL_COST = /양도|명의\s*변경|분실|파손|훼손|손상|연
 /** 선택했을 때만 내는 돈의 단서 */
 const OPTIONAL_STRONG = /\(선택\)|선택\s*사항|선택\s*시|신청\s*시|희망\s*시|원하는\s*경우|옵션|특약/;
 const OPTIONAL_WEAK = /이용\s*시|사용\s*시|이용하는\s*경우/;
+/** 시작일 계열 날짜 의미 (지급일 추론 검사용) */
+const START_MEANINGS = new Set(['hire', 'contract_start', 'service_start', 'coverage_start']);
+/** 문구에 "매월 N일"·"N일 지급"·"말일"처럼 그 지급일이 적혀 있는지 */
+export function quoteHasPayDay(quote: string, day: number): boolean {
+  if (new RegExp(`(?<![0-9])${day}\\s*일`).test(quote)) return true;
+  return day >= 28 && /말일|마지막\s*날/.test(quote);
+}
 /** 이용 기간이 아니라 한 번에 내는 돈 */
 const LUMP_SUM = /일시불|일시납|선납|1회\s*(?:결제|납부)|한\s*번에/;
 
@@ -738,6 +746,15 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
       sourceType: sourceOf(p.source_type),
       ...quoteOf(p),
     });
+  }
+  // 안전장치: 정기 수입(급여 등)의 지급일은 계약서에 적혀 있을 때만 — 근로·계약 시작일의 날짜를 지급일로 옮긴 경우를 지운다
+  // (시작일과 같은 날짜인데 그 금액의 문구에 "N일"이 없으면 추론으로 본다. 시작일과 지급일이 둘 다 명시된 계약은 문구에 날짜가 있어 유지)
+  const startDays = new Set(dates.filter((d) => START_MEANINGS.has(d.meaning)).map((d) => Number(d.date.slice(8, 10))));
+  for (const p of payments) {
+    if (p.direction !== 'income' || p.frequency === 'one_time' || p.dayOfMonth == null || !startDays.has(p.dayOfMonth)) continue;
+    if ((p.evidence ?? []).some((e) => quoteHasPayDay(e.quote, p.dayOfMonth!))) continue;
+    p.dayOfMonth = null;
+    p.confidence = 'low';
   }
   // 안전장치: "이용 시 월 5,000원"처럼 이용할 때만 내는 부가 비용 — 확정 결제가 따로 있으면 선택형으로 본다
   for (const p of payments) {

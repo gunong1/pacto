@@ -101,12 +101,22 @@ export function expandPayment(
     .filter((o) => o.date >= range.start && o.date <= range.end);
 }
 
+/**
+ * 지급일을 모르는 정기 수입 (급여·용역 대금 등) — 계약서에 지급일이 없고 사용자도 입력하지 않음.
+ * 시작일의 날짜를 지급일로 쓰지 않는다 (근로 시작일 ≠ 급여 지급일). 반복 일정을 만들지 않고 "지급일 확인 필요"로 보여준다.
+ * 지출 쪽 정기 결제는 기존대로 시작일 기준 (등록 화면에서 "확인 필요"로 표시).
+ */
+export function isPaymentDayUnknown(payment: Pick<ContractPayment, 'frequency' | 'direction' | 'dayOfMonth'>): boolean {
+  return payment.frequency !== 'one_time' && payment.direction === 'income' && payment.dayOfMonth == null;
+}
+
 /** 계약서상 지급일 기준 전개 (휴일 조정·기간별 금액 전) */
 function expandNominal(
   payment: ContractPayment,
   contract: Contract,
   range: DateRange,
 ): PaymentOccurrence[] {
+  if (isPaymentDayUnknown(payment)) return [];
   const start = payment.startsOn;
   const cutoff = paymentCutoff(contract);
   let end: ISODate | null = payment.endsOn;

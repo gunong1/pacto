@@ -229,7 +229,17 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
         p.dateSource === 'calculated' ? '계약서 문구로 계산한 날짜예요. 계약서와 같은지 확인해주세요.' : '계약서에 이 금액의 날짜가 직접 적혀 있지 않아 AI가 추정한 날짜예요. 확인해주세요.';
     }
     let dayOfMonth = p.dayOfMonth;
-    if (p.frequency !== 'one_time' && dayOfMonth == null && !startsOn && p.obligation !== 'conditional') {
+    const income = p.direction === 'income';
+    if (income && p.frequency !== 'one_time' && dayOfMonth == null) {
+      // 정기 수입(급여 등): 지급일은 계약서에 적혀 있을 때만. 첫 지급일이 명시돼 있으면 그 날짜의 일자를 쓴다.
+      // 근로 시작일·다른 결제의 날짜로 추론하지 않는다 → 비워 두면 급여 반복 일정을 만들지 않고 "지급일 확인 필요"
+      const explicitFirst = (p.date && (p.dateSource == null || p.dateSource === 'explicit')) || (!p.date && startsOn && firstPayment);
+      if (explicitFirst && startsOn) dayOfMonth = Number(startsOn.slice(8, 10));
+      else if (confirmed) {
+        flagged.add(`${path}.dayOfMonth`);
+        notes[`${path}.dayOfMonth`] = '계약서에 지급일이 없어요. 지급일을 입력하면 매월 지급 일정이 캘린더에 생겨요. (근로 시작일을 지급일로 쓰지 않아요)';
+      }
+    } else if (p.frequency !== 'one_time' && dayOfMonth == null && !startsOn && p.obligation !== 'conditional') {
       // 같은 주기의 다른 결제에 결제일이 있으면 함께 청구되는 것으로 보고 그 날짜를 쓴다 (예: 락커 이용료 → 월 이용료 결제일)
       const sibling = result.payments.find((x) => x !== p && x.frequency === p.frequency && x.dayOfMonth != null);
       dayOfMonth = sibling?.dayOfMonth ?? null;

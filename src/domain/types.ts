@@ -99,7 +99,7 @@ export interface ContractPayment {
   label: string;
   amount: number;
   frequency: PaymentFrequency;
-  /** 1~31. 해당 월에 없는 날짜는 말일로 보정. null이면 startsOn의 일자. */
+  /** 1~31. 해당 월에 없는 날짜는 말일로 보정. null이면 startsOn의 일자 — 단 정기 수입(급여 등)은 null이면 지급일 미확인(일정 없음) */
   dayOfMonth: number | null;
   /** 연납/반기납 기준 월(1~12). null이면 startsOn의 월. */
   monthOfYear: number | null;
