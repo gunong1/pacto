@@ -1254,3 +1254,4 @@ pacto/
 - **테스트**: `photo-protection.test.ts`(A~I·K·L·N·가리기 해제·EXIF·가독성, 가짜 OCR이 실제로 픽셀을 읽어 덮인 글자는 못 읽음), `photo-protection-copy.test.ts`(문구·J·동시 처리), `step14-photo-protection`(로컬 Edge + 가짜 CLOVA 서버: A~D·H·N·M·가리기 해제), fixture는 `scripts/fixtures/make-photo-fixtures.py`(모든 값 가짜).
 - **실제 배포 측정 (2026-10-09, Supabase + 실제 CLOVA, fixture lease-a4.jpg 2400×3391 가짜 값, 동시 2장)**: 1장·5장·10장 모두 protected(16/16, 자원 한도 초과·시간 초과 0).
   서버 한 장 평균 약 3.4~3.8초 = CLOVA 1차 1.5~1.8초 + 재-OCR 1.3~1.5초 + 해석 0.16초 + 축소·가리기·저장 0.27초 + 확인 0.07초 → 시간 대부분은 CLOVA 응답. 10장 전체 약 19초. 첫 요청은 함수 시작 시간 때문에 앱에서 약 7초.
+  동시 3장으로 10장 2회 측정: 20/20 protected, 전체 약 18.9~19.5초 — 동시 2장(약 19.1초)과 차이 없음(시간 대부분이 CLOVA 응답). 앱은 동시 2장 유지.
