@@ -1,3 +1,5 @@
+import type { ViewerFile } from '@/features/documents/openDocument';
+
 import type { ViewerConfig } from './viewerHtml';
 
 /**
@@ -6,6 +8,9 @@ import type { ViewerConfig } from './viewerHtml';
  */
 export interface ViewerSession extends ViewerConfig {
   title: string;
+  /** 계약서 파일이 여러 개일 때 전체 목록 (첫 파일 설정은 위 값) — 다른 파일은 고를 때 Signed URL을 새로 만든다 */
+  files?: ViewerFile[];
+  index?: number;
 }
 
 const sessions = new Map<string, ViewerSession>();

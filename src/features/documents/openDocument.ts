@@ -6,10 +6,16 @@ import { documentStore } from '@/data';
 import type { DocumentVariant } from '@/data/documents';
 import type { ContractDocument } from '@/domain/types';
 import { putViewerSession } from '@/features/viewer/session';
-import { isUsableDocumentUrl } from '@/features/viewer/viewerHtml';
+import { isUsableDocumentUrl, type ViewerConfig } from '@/features/viewer/viewerHtml';
 import { confirm, notify } from '@/lib/dialog';
 
 type Doc = Pick<ContractDocument, 'storagePath' | 'localUri' | 'mimeType' | 'protection'>;
+
+/** 뷰어에서 차례로 볼 파일 하나 (Signed URL은 넣지 않는다 — 볼 때마다 새로 만든다) */
+export interface ViewerFile {
+  doc: Doc;
+  variant: DocumentVariant;
+}
 
 /**
  * 원본(민감정보가 그대로인 문서)을 보여주기 전 확인 — 진입점을 이 함수 하나로 모은다.
@@ -33,7 +39,14 @@ export function documentKind(doc: Pick<ContractDocument, 'mimeType' | 'storagePa
 
 const OPEN_FAILED = '계약서를 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
 
-const TITLE: Record<DocumentVariant, string> = { protected_view: '보호된 계약서', original: '원본 계약서' };
+export const VIEWER_TITLE: Record<DocumentVariant, string> = { protected_view: '보호된 계약서', original: '원본 계약서' };
+
+/** 뷰어용 설정 — 짧은 Signed URL을 만들고 형식을 확인한다 (여러 파일 중 다른 파일로 넘길 때도 이걸로 새로 만든다) */
+export async function signViewerFile(f: ViewerFile, page?: number | null): Promise<ViewerConfig> {
+  const signed: unknown = await documentStore.openUrl(f.doc, f.variant);
+  if (!isUsableDocumentUrl(signed)) throw new Error(OPEN_FAILED);
+  return { url: signed, kind: documentKind(f.doc, f.variant), page: page ?? null };
+}
 
 /**
  * 비공개 저장소의 짧은 Signed URL(2분)로만 연다.
@@ -50,7 +63,7 @@ async function openUrl(doc: Doc, variant: DocumentVariant, page?: number | null)
     if (Platform.OS !== 'web' && !url.startsWith('file:')) {
       // Signed URL을 만들지 못했거나 형식이 이상하면 뷰어를 열지 않는다
       if (!isUsableDocumentUrl(url)) throw new Error(OPEN_FAILED);
-      const id = putViewerSession({ url, kind: documentKind(doc, variant), page: page ?? null, title: TITLE[variant] ?? '계약서' });
+      const id = putViewerSession({ url, kind: documentKind(doc, variant), page: page ?? null, title: VIEWER_TITLE[variant] ?? '계약서' });
       router.push({ pathname: '/viewer', params: { id } });
       return;
     }
@@ -86,4 +99,32 @@ export async function viewDocument(doc: Doc, page?: number | null) {
 /** 원본 보기 (명시적으로 선택했을 때) */
 export async function viewOriginal(doc: Doc, page?: number | null) {
   if (await requireReveal()) await openUrl(doc, 'original', page);
+}
+
+/** "계약서 보기"에서 열 파일 — 보호본이 있으면 보호본, 없으면 원본 */
+export const defaultViewerFile = (doc: Doc): ViewerFile => ({ doc, variant: doc.protection?.protectedViewPath ? 'protected_view' : 'original' });
+
+/** 원본을 열기 전에 확인이 필요한 파일인지 (보호본이 없고, 민감정보가 없다고 확인되지 않은 저장소 문서) */
+const needsReveal = (f: ViewerFile) => f.variant === 'original' && !!f.doc.storagePath && f.doc.protection?.status !== 'no_sensitive_data';
+
+/**
+ * 계약서 보기 — 파일이 여러 개면 한 뷰어에서 위쪽의 "파일 1 · 파일 2 …"로 넘겨 본다.
+ * 원본을 보여줘야 하는 파일이 하나라도 있으면 먼저 한 번 확인한다. 거절하면 보호본·민감정보 없는 파일만 연다.
+ * 웹·미리보기(기기 안 파일)는 기존처럼 첫 파일만.
+ */
+export async function viewDocuments(docs: Doc[]) {
+  if (docs.length === 0) return;
+  if (docs.length === 1 || Platform.OS === 'web' || docs.some((d) => !d.storagePath)) return viewDocument(docs[0]);
+  let files = docs.map(defaultViewerFile);
+  if (files.some(needsReveal) && !(await requireReveal())) {
+    files = files.filter((f) => !needsReveal(f));
+    if (files.length === 0) return;
+  }
+  try {
+    const first = await signViewerFile(files[0]);
+    const id = putViewerSession({ ...first, title: VIEWER_TITLE[files[0].variant], files, index: 0 });
+    router.push({ pathname: '/viewer', params: { id } });
+  } catch (e) {
+    notify('계약서', e instanceof Error && /[가-힣]/.test(e.message) ? e.message : OPEN_FAILED);
+  }
 }

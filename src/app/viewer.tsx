@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
+import { signViewerFile, VIEWER_TITLE } from '@/features/documents/openDocument';
 import { DocumentViewer, type ViewerEvent } from '@/features/viewer/DocumentViewer';
 import { errorCode, recordViewerStep, VIEWER_DIAGNOSTICS, type ViewerMode, type ViewerStep } from '@/features/viewer/diagnostics';
 import { SAMPLE_PDF_BASE64 } from '@/features/viewer/samplePdf';
@@ -44,12 +45,16 @@ export default function ViewerScreen() {
   const { id, diag } = useLocalSearchParams<{ id?: string; diag?: string }>();
   const mode: ViewerMode = VIEWER_DIAGNOSTICS && (DIAG_MODES as readonly string[]).includes(diag ?? '') ? (diag as ViewerMode) : 'real';
   const [session] = useState(() => (mode === 'real' ? getViewerSession(id) : null));
+  const files = session?.files && session.files.length > 1 ? session.files : null;
+  // 여러 파일: 지금 보는 파일 번호와 그 설정 (다른 파일을 고르면 Signed URL을 새로 만든다)
+  const [index, setIndex] = useState(session?.index ?? 0);
+  const [fileConfig, setFileConfig] = useState<ViewerConfig | null>(session);
   const config = useMemo<ViewerConfig | null>(() => {
     if (mode === 'blank' || mode === 'blank_min' || mode === 'blank_base') return { kind: 'blank' };
     if (mode === 'init') return { kind: 'init' };
     if (mode === 'sample') return { kind: 'pdf', data: SAMPLE_PDF_BASE64 };
-    return session;
-  }, [mode, session]);
+    return fileConfig;
+  }, [mode, fileConfig]);
   const [state, setState] = useState<'loading' | 'ready' | { error: string }>(() => (mode === 'route' ? 'ready' : config ? 'loading' : { error: 'no_session' }));
   const [showWeb, setShowWeb] = useState(false);
   const [steps, setSteps] = useState<string[]>([]);
@@ -101,11 +106,51 @@ export default function ViewerScreen() {
     [record],
   );
 
-  const title = mode === 'real' ? (session?.title ?? '계약서') : DIAG_TITLE[mode];
+  const selectFile = useCallback(
+    async (i: number) => {
+      if (!files || i === index) return;
+      setIndex(i);
+      setFileConfig(null);
+      setState('loading');
+      record('webview_mounting');
+      try {
+        setFileConfig(await signViewerFile(files[i]));
+      } catch {
+        record('error', 'sign');
+        setState({ error: 'sign' });
+      }
+    },
+    [files, index, record],
+  );
+
+  const title = mode === 'real' ? (files ? VIEWER_TITLE[files[index].variant] : (session?.title ?? '계약서')) : DIAG_TITLE[mode];
   const failed = typeof state === 'object';
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
       <Stack.Screen options={{ title }} />
+      {files ? (
+        <View style={styles.tabsBar}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
+            {files.map((_, i) => (
+              <Pressable
+                key={i}
+                onPress={() => selectFile(i)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: i === index }}
+                testID={`viewer-file-${i + 1}`}
+                style={[styles.tab, i === index && styles.tabActive]}>
+                <AppText variant="caption" color={i === index ? 'textInverse' : 'textSecondary'}>
+                  파일 {i + 1}
+                </AppText>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <AppText variant="caption" color="textTertiary">
+            {index + 1} / {files.length}
+          </AppText>
+        </View>
+      ) : null}
+      <View style={styles.body}>
       {mode === 'route' ? (
         <View style={styles.center}>
           <AppText variant="body2">1단계: 뷰어 화면만 열렸어요 (WebView 없음).</AppText>
@@ -120,6 +165,7 @@ export default function ViewerScreen() {
           }}
         >
           <DocumentViewer
+            key={index}
             config={config}
             onEvent={onEvent}
             onMounted={() => record('webview_mounted')}
@@ -138,7 +184,7 @@ export default function ViewerScreen() {
           <AppText variant="body2" color="textSecondary" style={{ textAlign: 'center' }}>
             {errorCopy(state.error)}
           </AppText>
-          {VIEWER_DIAGNOSTICS ? (
+          {mode !== 'real' ? (
             <AppText variant="caption" color="textTertiary">
               오류 코드: {state.error}
             </AppText>
@@ -146,7 +192,9 @@ export default function ViewerScreen() {
           <Button label="닫기" variant="secondary" size="sm" onPress={() => router.back()} testID="viewer-close" />
         </View>
       ) : null}
-      {VIEWER_DIAGNOSTICS ? (
+      </View>
+      {/* 단계 표시는 진단 화면에서 연 진단 단계에서만 (실제 문서 보기에서는 기록만 남기고 화면에 보이지 않는다) */}
+      {VIEWER_DIAGNOSTICS && mode !== 'real' ? (
         <View style={styles.diag} pointerEvents="none" testID="viewer-diag-steps">
           <AppText variant="caption" color="textSecondary">
             {steps.join(' → ')}
@@ -159,6 +207,11 @@ export default function ViewerScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#e9ecf1' },
+  body: { flex: 1 },
+  tabsBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.bg },
+  tabs: { gap: spacing.xs },
+  tab: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: 999, backgroundColor: colors.bgSubtle },
+  tabActive: { backgroundColor: colors.primary },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   overlay: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   error: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl, backgroundColor: colors.bg },

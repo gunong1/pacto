@@ -23,7 +23,7 @@ import { currentTerm, deriveStatus, terminationNoticeDeadline } from '@/domain/s
 import { endProfile, isActionable, nextAction } from '@/domain/nextAction';
 import type { AiCheck, ContractRecord } from '@/domain/types';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
-import { viewDocument, viewOriginal } from '@/features/documents/openDocument';
+import { viewDocument, viewDocuments, viewOriginal } from '@/features/documents/openDocument';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
 import { ContractNotificationSection, PushOpenedBanner, PushPromptSheet } from '@/features/notifications/ContractNotificationParts';
 import { overallProtectionCopy } from '@/features/documents/protectionCopy';
@@ -203,7 +203,7 @@ export default function ContractDetailScreen() {
           {/* 계약서 보기 — 기본은 민감정보를 가린 보호 표시본. 원본은 아래 "계약서" 섹션의 "원본 보기"(확인 후) */}
           {record.documents.length > 0 ? (
             <Pressable
-              onPress={() => viewDocument(record.documents[0])}
+              onPress={() => viewDocuments(record.documents)}
               accessibilityRole="button"
               testID="detail-open-document"
               style={({ pressed }) => [styles.original, pressed && { backgroundColor: colors.bgSubtle }]}>
