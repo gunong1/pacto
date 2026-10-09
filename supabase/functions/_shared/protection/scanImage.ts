@@ -13,6 +13,8 @@ export interface ScanImageMeta {
   height: number;
   /** Flate PNG 예측자 (없으면 1) */
   predictor: number;
+  /** 압축 데이터를 글자로 한 번 더 감싼 경우 (ASCII85Decode·ASCIIHexDecode — 앞 단계 필터) */
+  ascii?: 'a85' | 'hex' | null;
 }
 
 /** OCR로 보내는 이미지의 긴 변 최대 (다시 저장할 때) — 사진 등록 기준(2400)과 같게 */
@@ -79,8 +81,81 @@ function unpredict(data: Uint8Array, width: number, height: number, bpp: number)
   return out;
 }
 
+const isSpace = (c: number) => c === 0x20 || c === 0x0a || c === 0x0d || c === 0x09 || c === 0x0c || c === 0x00;
+
+/** ASCII85 (Adobe: '<~' 생략 가능, 'z' = 0 네 바이트, '~>'로 끝) */
+export function decodeAscii85(src: Uint8Array): Uint8Array {
+  // 'z' 한 글자 = 4바이트이므로 먼저 세어 크기를 정한다 (모자라면 뒤가 잘린다)
+  let zs = 0;
+  for (const c of src) if (c === 0x7a) zs++;
+  const out = new Uint8Array(zs * 4 + Math.ceil((src.length * 4) / 5) + 8);
+  let n = 0;
+  const group: number[] = [];
+  let i = 0;
+  if (src[0] === 0x3c && src[1] === 0x7e) i = 2;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (isSpace(c)) continue;
+    if (c === 0x7e) break; // '~>'
+    if (c === 0x7a && group.length === 0) {
+      if (n + 4 > out.length) throw new ScanImageError('scan_image_decode');
+      n += 4; // 0 네 바이트 (배열은 0으로 시작)
+      continue;
+    }
+    if (c < 0x21 || c > 0x75) throw new ScanImageError('scan_image_decode');
+    group.push(c - 0x21);
+    if (group.length === 5) {
+      let v = 0;
+      for (const d of group) v = v * 85 + d;
+      if (v > 0xffffffff) throw new ScanImageError('scan_image_decode');
+      out[n++] = v >>> 24;
+      out[n++] = (v >>> 16) & 0xff;
+      out[n++] = (v >>> 8) & 0xff;
+      out[n++] = v & 0xff;
+      group.length = 0;
+    }
+  }
+  if (group.length === 1) throw new ScanImageError('scan_image_decode');
+  if (group.length > 1) {
+    const k = group.length;
+    while (group.length < 5) group.push(84);
+    let v = 0;
+    for (const d of group) v = v * 85 + d;
+    for (let j = 0; j < k - 1; j++) out[n++] = (v >>> (24 - 8 * j)) & 0xff;
+  }
+  return out.subarray(0, n);
+}
+
+/** ASCIIHex ('>'로 끝, 홀수 자리는 0을 붙임) */
+export function decodeAsciiHex(src: Uint8Array): Uint8Array {
+  const out = new Uint8Array(Math.ceil(src.length / 2));
+  let n = 0;
+  let hi = -1;
+  for (const c of src) {
+    if (isSpace(c)) continue;
+    if (c === 0x3e) break;
+    const v = c >= 0x30 && c <= 0x39 ? c - 0x30 : c >= 0x41 && c <= 0x46 ? c - 0x37 : c >= 0x61 && c <= 0x66 ? c - 0x57 : -1;
+    if (v < 0) throw new ScanImageError('scan_image_decode');
+    if (hi < 0) hi = v;
+    else {
+      out[n++] = (hi << 4) | v;
+      hi = -1;
+    }
+  }
+  if (hi >= 0) out[n++] = hi << 4;
+  return out.subarray(0, n);
+}
+
+/** 글자 포장(ASCII85·ASCIIHex)을 푼 압축 데이터 */
+export function unwrapAscii(raw: Uint8Array, ascii: ScanImageMeta['ascii']): Uint8Array {
+  if (ascii === 'a85') return decodeAscii85(raw);
+  if (ascii === 'hex') return decodeAsciiHex(raw);
+  return raw;
+}
+
 /** 이미지 스트림 → RGBA 픽셀 (저장된 방향 그대로) */
-export async function decodeScanImage(raw: Uint8Array, meta: ScanImageMeta): Promise<RgbImage> {
+export async function decodeScanImage(input: Uint8Array, meta: ScanImageMeta): Promise<RgbImage> {
+  const raw = unwrapAscii(input, meta.ascii);
   if (meta.width * meta.height > MAX_SCAN_PIXELS) throw new ScanImageError('scan_too_large');
   if (meta.filter === 'jpeg') {
     const comps = jpegComponents(raw);
@@ -163,7 +238,9 @@ export interface PreparedScan {
  * OCR 입력 준비: 방향을 바꿀 필요가 없고 크기가 적당한 JPEG는 원본 바이트를 그대로 보내고(다시 저장하지 않음),
  * 그 밖에는 바로 세우고 줄여 새 JPEG로 저장한다. 픽셀은 긴 변 SCAN_OCR_MAX_SIDE 이하로 줄여 메모리를 아낀다.
  */
-export async function prepareScan(raw: Uint8Array, meta: ScanImageMeta, o: Orientation = IDENTITY_ORIENTATION): Promise<PreparedScan> {
+export async function prepareScan(input: Uint8Array, inputMeta: ScanImageMeta, o: Orientation = IDENTITY_ORIENTATION): Promise<PreparedScan> {
+  const raw = unwrapAscii(input, inputMeta.ascii);
+  const meta = { ...inputMeta, ascii: null };
   const src = await decodeScanImage(raw, meta);
   const identity = !o.swap && !o.flipX && !o.flipY;
   const direct = identity && meta.filter === 'jpeg' && Math.max(meta.width, meta.height) <= SCAN_OCR_DIRECT_MAX_SIDE;

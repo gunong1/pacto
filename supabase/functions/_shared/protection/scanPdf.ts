@@ -48,9 +48,14 @@ export function scanImageMeta(doc: PDFDocument, ref: PDFRef): { meta: ScanImageM
   if (!(xo instanceof PDFRawStream)) return { unsupported: 'scan_format' };
   const d = xo.dict;
   const get = (k: string) => d.lookup(PDFName.of(k));
-  let filter = get('Filter');
-  if (filter instanceof PDFArray) filter = filter.size() === 1 ? filter.lookup(0) : undefined;
-  const f = nameOf(filter);
+  // 필터: [글자 포장(ASCII85·ASCIIHex) 0~1개] + DCTDecode 또는 FlateDecode
+  const filterObj = get('Filter');
+  const filters = filterObj instanceof PDFArray ? Array.from({ length: filterObj.size() }, (_, k) => nameOf(filterObj.lookup(k))) : [nameOf(filterObj)];
+  let ascii: ScanImageMeta['ascii'] = null;
+  if (filters.length === 2 && (filters[0] === 'ASCII85Decode' || filters[0] === 'A85')) ascii = 'a85';
+  else if (filters.length === 2 && (filters[0] === 'ASCIIHexDecode' || filters[0] === 'AHx')) ascii = 'hex';
+  else if (filters.length !== 1) return { unsupported: 'scan_format' };
+  const f = filters[filters.length - 1];
   if (f !== 'DCTDecode' && f !== 'FlateDecode') return { unsupported: 'scan_format' };
   if (get('ImageMask') || get('SMask') || get('Mask') || get('Decode') || get('SMaskInData')) return { unsupported: 'scan_format' };
   const bpc = numOf(get('BitsPerComponent'), f === 'DCTDecode' ? 8 : 0);
@@ -72,7 +77,8 @@ export function scanImageMeta(doc: PDFDocument, ref: PDFRef): { meta: ScanImageM
   let predictor = 1;
   if (f === 'FlateDecode') {
     let parms = get('DecodeParms');
-    if (parms instanceof PDFArray) parms = parms.lookup(0);
+    // 필터 배열과 같은 순서의 배열 — Flate는 마지막 필터
+    if (parms instanceof PDFArray) parms = parms.lookup(parms.size() - 1);
     if (parms instanceof PDFDict) {
       predictor = numOf(parms.lookup(PDFName.of('Predictor')), 1);
       const colors = numOf(parms.lookup(PDFName.of('Colors')), 1);
@@ -81,7 +87,7 @@ export function scanImageMeta(doc: PDFDocument, ref: PDFRef): { meta: ScanImageM
       if (predictor !== 1 && (predictor < 10 || predictor > 15 || colors !== channels || pbpc !== 8 || cols !== width)) return { unsupported: 'scan_format' };
     }
   }
-  return { meta: { filter: f === 'DCTDecode' ? 'jpeg' : 'flate', channels: channels as 1 | 3, width, height, predictor } };
+  return { meta: { filter: f === 'DCTDecode' ? 'jpeg' : 'flate', channels: channels as 1 | 3, width, height, predictor, ascii } };
 }
 
 /** 페이지에서 보이는 영역 (CropBox, 없으면 MediaBox) */

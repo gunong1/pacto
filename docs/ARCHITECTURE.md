@@ -1261,7 +1261,7 @@ pacto/
   **이미지 한 장이 보이는 영역(CropBox)의 85% 이상을 축에 맞게(0·90·180·270도·뒤집기) 덮을 때만 스캔 페이지**(dominant image, CTM 기준).
   작은 로고·서명 이미지가 있는 일반 텍스트 페이지는 글자가 많으므로 텍스트 페이지로 남는다(이미지 속 내용은 기존처럼 "확인하지 못함" 안내).
   글자도 이미지도 없는 페이지: 칠하는 연산이 많으면 윤곽선 글자(읽을 수 없음 → unsupported_scan `no_text`), 아니면 빈 페이지.
-- **V1 지원 형식**: JPEG(DCTDecode) 회색·RGB 8비트, Flate 8비트 회색·RGB(PNG 예측자 10~15 포함, 해석은 fast-png가 이미 쓰는 pako `inflate`).
+- **V1 지원 형식**: JPEG(DCTDecode) 회색·RGB 8비트, Flate 8비트 회색·RGB(PNG 예측자 10~15 포함, 해석은 fast-png가 이미 쓰는 pako `inflate`). 압축 데이터를 글자로 한 번 감싼 경우(`[ASCII85Decode FlateDecode]`·`[ASCIIHexDecode DCTDecode]` 등, reportlab 등이 기본으로 만듦)도 같은 형식으로 본다 — 실제 사용자 테스트 PDF가 이 형식이라 미지원으로 막혔던 것을 고침.
   **unsupported_scan**: CCITT·JBIG2·JPEG2000·CMYK·특수 색공간(Indexed 등)·마스크·1비트 (`scan_format`), 여러 이미지로 나뉜 페이지·작은(85% 미만) 이미지·기울어진 이미지·인라인 이미지 (`scan_layout`), 2500만 화소 초과 (`scan_too_large`).
   특수 페이지가 하나라도 있으면 **OCR 없이** 바로 중단(비용 없음).
 - **구조 — 별도 worker** (`protect-scan-page`): `protect-document`는 PDF 분석·분류·조정·재조합·최종 검증, worker는 스캔 페이지 1장(이미지 해석 → 화면 방향으로 바로 세움 → CLOVA OCR → 탐지 → 실제 픽셀 덮기(1600px) → 덮임 확인 → 재-OCR 검증).

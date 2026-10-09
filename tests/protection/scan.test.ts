@@ -26,12 +26,12 @@ import {
   type Mat,
   type PageFrame,
 } from '../../supabase/functions/_shared/protection/scanGeometry.ts';
-import { decodeScanImage, orient } from '../../supabase/functions/_shared/protection/scanImage.ts';
+import { decodeAscii85, decodeScanImage, orient } from '../../supabase/functions/_shared/protection/scanImage.ts';
 import { OcrError } from '../../supabase/functions/_shared/protection/ocrProvider.ts';
 import { PDFDocument, PDFRawStream, decodePDFRawStream } from '../../supabase/functions/_shared/vendor/pdf-lib.js';
 import { extractText, getDocumentProxy } from '../../supabase/functions/_shared/vendor/unpdf.js';
 import { ContractPdf } from './fixtures.ts';
-import { FakeOcr, buildPdf, flateImage, jpegOf, leaseA4Box, leaseUpright, localRunner, readFix, rot180, rot90ccw, rot90cw, type PageSpec } from './scanFixtures.ts';
+import { FakeOcr, ascii85, asciiHex, buildPdf, flateImage, jpegOf, leaseA4Box, leaseUpright, localRunner, readFix, rot180, rot90ccw, rot90cw, type PageSpec } from './scanFixtures.ts';
 
 const RRN = ['800101-1234567', '950505-2345678'];
 const RAW_SECRETS = [...RRN, '010-1234-5678', '010-9876-5432', '800101', '1234567', '2345678'];
@@ -292,6 +292,36 @@ describe('이미지 형식 · scan page 판단 (dominant image)', () => {
       assert.equal(r.status, 'protected', String(r.detail));
     });
   }
+
+  test('ASCII85 디코더: z(0 네 바이트)가 많아도 잘리지 않음 · 마지막 부분 묶음', () => {
+    const data = new Uint8Array(4003);
+    for (let i = 3000; i < 4003; i++) data[i] = (i * 37) & 0xff;
+    assert.deepEqual([...decodeAscii85(ascii85(data))], [...data]);
+  });
+
+  test('글자 포장 필터: [ASCII85Decode FlateDecode] RGB · [ASCIIHexDecode DCTDecode] → 스캔 페이지로 보호 (예: reportlab 등이 만든 PDF)', async () => {
+    const flate = flateImage(U, 3, false);
+    const a85 = { ...flate, bytes: ascii85(flate.bytes), filter: ['ASCII85Decode', 'FlateDecode'] };
+    const hex = { bytes: asciiHex(jpegOf(U)), width: U.width, height: U.height, filter: ['ASCIIHexDecode', 'DCTDecode'] };
+    for (const spec of [a85, hex]) {
+      const ocr = new FakeOcr();
+      const r = await protectPdf(await buildPdf([fill(spec)]), new Map(), {}, { scan: localRunner(ocr) });
+      assert.equal(r.status, 'protected', String(r.detail));
+      assert.equal(ocr.calls, 2);
+      const view = await render(r.protectedPdf!, 1);
+      assert.ok(darkRatio(view, leaseA4Box('800101-1234567')) > 0.95);
+    }
+  });
+
+  test('필터가 세 개 이상이거나 글자 포장만 있는 경우 → unsupported_scan', async () => {
+    const flate = flateImage(U, 3, false);
+    for (const filter of [['ASCII85Decode', 'ASCIIHexDecode', 'FlateDecode'], ['ASCII85Decode']]) {
+      const run = localRunner(new FakeOcr());
+      const r = await protectPdf(await buildPdf([fill({ ...flate, filter })]), new Map(), {}, { scan: run });
+      assert.equal(r.status, 'unsupported_scan');
+      assert.equal(run.jobs, 0);
+    }
+  });
 
   const UNSUPPORTED: [string, Partial<NonNullable<PageSpec['image']>>][] = [
     ['CCITT (팩스)', { filter: 'CCITTFaxDecode', colorSpace: 'DeviceGray', bpc: 1 }],

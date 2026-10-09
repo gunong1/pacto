@@ -205,3 +205,26 @@ export function flateImage(img: RgbImage, channels: 1 | 3, predictor: boolean): 
     ...(predictor ? { decodeParms: { Predictor: 15, Colors: channels, BitsPerComponent: 8, Columns: img.width } } : {}),
   };
 }
+
+/** ASCII85 인코딩 (4바이트 0은 'z') — 글자 포장 필터 테스트용 */
+export function ascii85(b: Uint8Array): Uint8Array {
+  let s = '';
+  for (let i = 0; i < b.length; i += 4) {
+    const chunk = [b[i], b[i + 1] ?? 0, b[i + 2] ?? 0, b[i + 3] ?? 0];
+    const n = Math.min(4, b.length - i);
+    let v = ((chunk[0] << 24) | (chunk[1] << 16) | (chunk[2] << 8) | chunk[3]) >>> 0;
+    if (v === 0 && n === 4) {
+      s += 'z';
+      continue;
+    }
+    const d: string[] = [];
+    for (let k = 0; k < 5; k++) {
+      d.unshift(String.fromCharCode((v % 85) + 33));
+      v = Math.floor(v / 85);
+    }
+    s += d.slice(0, n + 1).join('');
+    if (i % 64 === 0) s += '\n';
+  }
+  return new TextEncoder().encode(s + '~>');
+}
+export const asciiHex = (b: Uint8Array) => new TextEncoder().encode(Buffer.from(b).toString('hex').toUpperCase().replace(/(.{80})/g, '$1\n') + '>');

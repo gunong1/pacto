@@ -109,7 +109,7 @@ export function decodeScanRequest(body: Uint8Array): { job: ScanJob; raw: Uint8A
   const job = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + n))) as ScanJob;
   const m = job?.meta;
   const okMeta =
-    m && (m.filter === 'jpeg' || m.filter === 'flate') && (m.channels === 1 || m.channels === 3) && Number.isInteger(m.width) && Number.isInteger(m.height) && m.width > 0 && m.height > 0 && Number.isInteger(m.predictor);
+    m && (m.filter === 'jpeg' || m.filter === 'flate') && (m.channels === 1 || m.channels === 3) && Number.isInteger(m.width) && Number.isInteger(m.height) && m.width > 0 && m.height > 0 && Number.isInteger(m.predictor) && (m.ascii == null || m.ascii === 'a85' || m.ascii === 'hex');
   const o = job?.orientation;
   if (!okMeta || !Number.isInteger(job.page) || job.page < 1 || !o || typeof o.swap !== 'boolean' || typeof o.flipX !== 'boolean' || typeof o.flipY !== 'boolean' || !Array.isArray(job.prevStates)) {
     throw new Error('bad_request');
