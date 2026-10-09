@@ -77,7 +77,7 @@ async function splashState(page) {
     await sleep(300);
     const a = await splashState(page);
     await page.screenshot({ path: path.join(SHOTS, 'splash-01.png') });
-    const textOk = !!a && a.text.includes('PACTO') && a.text.includes('모든 계약을 한곳에.') && !/준비하고|불러오고|기다려/.test(a.text);
+    const textOk = !!a && a.text.includes('PACTO') && a.text.includes('모든 계약을 한곳에.') && a.text.includes('안전하게 보관하고,') && a.text.includes('중요한 순간까지 관리해요.') && !/준비하고|불러오고|기다려/.test(a.text);
     check('A1', '실행 화면: 심볼 + PACTO + 모든 계약을 한곳에. (로딩 문구 없음)', textOk, JSON.stringify(a));
     check('E', '실행 화면 동안 하단 탭바가 보이지 않음', !!a && !a.tabVisible, JSON.stringify(a));
     check('A2', '짧은 진입에는 로딩 표시 없음', !!a && !a.spinner, JSON.stringify(a));
@@ -107,7 +107,7 @@ async function splashState(page) {
     let spinnerBelow = false;
     if (c?.spinner) {
       const s = await page.locator(tid('brand-splash-spinner')).boundingBox();
-      const t = await page.getByText('모든 계약을 한곳에.').first().boundingBox();
+      const t = await page.getByText('중요한 순간까지 관리해요.').first().boundingBox();
       spinnerBelow = !!s && !!t && s.y > t.y + t.height && s.height <= 24;
     }
     check('C1', '느린 네트워크: 실행 화면 유지 + 문구 아래 작은 로딩 표시 (멈춘 것처럼 보이지 않음)', !!c && c.spinner && spinnerBelow && !c.tabVisible, JSON.stringify(c));
@@ -127,7 +127,7 @@ async function splashState(page) {
       const out = [];
       for (const n of el.querySelectorAll('*')) {
         const t = n.textContent?.trim();
-        if (n.tagName === 'svg' || ((t === 'PACTO' || t === '모든 계약을 한곳에.') && n.children.length === 0)) {
+        if (n.tagName === 'svg' || ((t === 'PACTO' || t === '모든 계약을 한곳에.' || t === '안전하게 보관하고,' || t === '중요한 순간까지 관리해요.') && n.children.length === 0)) {
           const r = n.getBoundingClientRect();
           out.push({ t: n.tagName === 'svg' ? 'logo' : t, ok: r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight, clipped: n.scrollWidth > n.clientWidth + 1 });
         }
@@ -135,7 +135,7 @@ async function splashState(page) {
       return out;
     });
     await page.screenshot({ path: path.join(SHOTS, 'splash-03-small.png') });
-    const dOk = ['logo', 'PACTO', '모든 계약을 한곳에.'].every((k) => d.some((x) => x.t === k && x.ok && !x.clipped));
+    const dOk = ['logo', 'PACTO', '모든 계약을 한곳에.', '안전하게 보관하고,', '중요한 순간까지 관리해요.'].every((k) => d.some((x) => x.t === k && x.ok && !x.clipped));
     check('D', '소형 화면(320×568): 로고·문구 잘림 없음', dOk, JSON.stringify(d));
     await page.waitForSelector(tid('home-first-run'), { timeout: 20000 });
   } catch (e) {

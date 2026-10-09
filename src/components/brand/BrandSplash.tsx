@@ -8,6 +8,8 @@ import { BrandSymbol } from './Logo';
 
 /** 브랜드 슬로건 — 개인·가족·기업 계약관리까지 쓰는 문구라 특정 계약 유형을 암시하도록 바꾸지 않는다 */
 export const BRAND_SLOGAN = '모든 계약을 한곳에.';
+/** 슬로건 아래 보조 문장 */
+export const BRAND_SUBLINE = '안전하게 보관하고, 중요한 순간까지 관리해요.';
 
 /** 앱 시작 시점 (이 모듈은 앱 시작 때 불러온다) — 최소 노출 시간·로딩 표시 시점을 여기서부터 센다 */
 export const APP_STARTED_AT = Date.now();
@@ -36,7 +38,7 @@ export function BrandSplash({ testID = 'brand-splash' }: { testID?: string }) {
     return () => clearTimeout(t);
   }, []);
   return (
-    <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]} testID={testID} accessibilityLabel={`PACTO, ${BRAND_SLOGAN}`}>
+    <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]} testID={testID} accessibilityLabel={`PACTO, ${BRAND_SLOGAN} ${BRAND_SUBLINE}`}>
       <View style={styles.group}>
         <BrandSymbol size={72} />
         <Text style={styles.name} maxFontSizeMultiplier={1.3} accessibilityRole="header">
@@ -45,6 +47,14 @@ export function BrandSplash({ testID = 'brand-splash' }: { testID?: string }) {
         <Text style={styles.slogan} maxFontSizeMultiplier={1.3}>
           {BRAND_SLOGAN}
         </Text>
+        {/* 좁은 화면에서는 단어 중간이 아니라 쉼표 뒤에서 줄이 바뀌도록 두 덩어리로 */}
+        <View style={styles.sublineRow}>
+          {BRAND_SUBLINE.split(/(?<=,)\s/).map((part) => (
+            <Text key={part} style={styles.subline} maxFontSizeMultiplier={1.3}>
+              {part}
+            </Text>
+          ))}
+        </View>
         {/* 자리는 미리 잡아 두어 로딩 표시가 나타나도 로고가 움직이지 않게 */}
         <View style={styles.spinnerSlot}>{slow ? <ActivityIndicator size="small" color={colors.textTertiary} testID="brand-splash-spinner" /> : null}</View>
       </View>
@@ -57,5 +67,8 @@ const styles = StyleSheet.create({
   group: { alignItems: 'center', paddingHorizontal: spacing.gutter, marginTop: spacing.xxxl },
   name: { marginTop: spacing.xl, fontSize: 32, lineHeight: 40, fontWeight: '600', letterSpacing: 1.5, color: colors.primary, textAlign: 'center' },
   slogan: { marginTop: spacing.sm, fontSize: 17, lineHeight: 24, fontWeight: '500', letterSpacing: -0.2, color: colors.textSecondary, textAlign: 'center' },
+  // 슬로건보다 작고 연하게 — 흰 배경 대비 약 4.6:1 (textTertiary는 약 3:1이라 이 크기에서 읽기 어려움)
+  sublineRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 4, marginTop: spacing.xs },
+  subline: { fontSize: 14, lineHeight: 20, fontWeight: '400', letterSpacing: -0.1, color: colors.info, textAlign: 'center' },
   spinnerSlot: { height: 20, marginTop: spacing.xxl, justifyContent: 'center' },
 });
