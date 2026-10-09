@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo } from 'react';
 import { StyleSheet } from 'react-native';
-import type { WebViewMessageEvent } from 'react-native-webview';
+import type { WebViewMessageEvent, WebViewProps } from 'react-native-webview';
 
 import { htmlFor, isAllowedViewerNavigation, VIEWER_BASE_URL, type ViewerConfig } from './viewerHtml';
 import { parseViewerMessage, type ViewerEvent } from './viewerMessages';
@@ -19,6 +19,31 @@ const LazyWebView = lazy(() =>
       throw Object.assign(new Error('webview_unavailable'), { name: 'WebViewUnavailable' });
     }),
 );
+
+/**
+ * 고정 설정 — 값의 형식은 네이티브 정의(react-native-webview RNCWebViewNativeComponent)와 맞아야 한다.
+ * Android는 JS 쪽 변환 없이 그대로 네이티브로 넘기므로, 목록(Array) 설정에 글자를 넣으면 WebView를 만들 때 앱이 종료된다
+ * (실기기 확인: dataDetectorTypes="none" → ClassCastException at RNCWebViewManagerDelegate.setProperty). 테스트가 형식을 대조한다.
+ */
+export const VIEWER_WEBVIEW_PROPS = {
+  javaScriptEnabled: true,
+  domStorageEnabled: false,
+  incognito: true,
+  cacheEnabled: false,
+  allowFileAccess: false,
+  allowFileAccessFromFileURLs: false,
+  allowUniversalAccessFromFileURLs: false,
+  setSupportMultipleWindows: false,
+  javaScriptCanOpenWindowsAutomatically: false,
+  allowsLinkPreview: false,
+  // 목록 형식 (iOS 전화번호·주소 자동 링크 끔). 글자 "none"으로 넣으면 Android에서 종료된다
+  dataDetectorTypes: ['none'],
+  mixedContentMode: 'never',
+  setBuiltInZoomControls: true,
+  setDisplayZoomControls: false,
+  bounces: false,
+  overScrollMode: 'never',
+} as const satisfies Partial<WebViewProps>;
 
 /**
  * 앱 안 계약서 뷰어 (Android·iOS) — PDF는 앱에 포함된 pdf.js, 사진은 pdf.js 없이 이미지 한 장.
@@ -68,22 +93,7 @@ export function DocumentViewer({
         onHttpError={() => onEvent({ type: 'error', code: 'webview_http' })}
         onRenderProcessGone={() => onEvent({ type: 'error', code: 'webview_renderer_gone' })}
         onContentProcessDidTerminate={() => onEvent({ type: 'error', code: 'webview_renderer_gone' })}
-        javaScriptEnabled
-        domStorageEnabled={false}
-        incognito
-        cacheEnabled={false}
-        allowFileAccess={false}
-        allowFileAccessFromFileURLs={false}
-        allowUniversalAccessFromFileURLs={false}
-        setSupportMultipleWindows={false}
-        javaScriptCanOpenWindowsAutomatically={false}
-        allowsLinkPreview={false}
-        dataDetectorTypes="none"
-        mixedContentMode="never"
-        setBuiltInZoomControls
-        setDisplayZoomControls={false}
-        bounces={false}
-        overScrollMode="never"
+        {...VIEWER_WEBVIEW_PROPS}
         testID="document-viewer"
       />
     </Suspense>

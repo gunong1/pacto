@@ -1310,3 +1310,7 @@ pacto/
   react-native-webview는 불러오는 순간 네이티브 모듈을 찾고 없으면 오류를 던지므로 화면에 붙일 때 lazy로 불러오고, 실패·렌더 오류는 Error Boundary,
   뷰어가 열려 있는 동안의 JS 오류는 전역 처리기로 잡아 앱을 종료하지 않고 오류 화면("계약서를 불러오지 못했어요. 잠시 후 다시 시도해주세요.")을 보여준다.
   사진(JPG·PNG)은 pdf.js 없이 이미지 한 장 HTML. 문서마다 mime_type(없으면 확장자)으로 PDF/사진을 나눈다. Signed URL이 없거나 https가 아니면 뷰어를 열지 않는다.
+- **실기기 크래시 원인 (개정 21-2, Galaxy S26 · Android 16 · One UI 8.5)**: 진단 기록 `viewer_route → webview_mounting` 뒤 종료, 안드로이드 종료 기록
+  `java.lang.ClassCastException: java.lang.String cannot be cast to [ReadableArray]` at `RNCWebViewManagerDelegate.setProperty` ← `ViewManager.createViewInstance` ← Fabric `preallocateView`.
+  원인: `dataDetectorTypes="none"`(글자). 네이티브 정의는 목록(`ReadonlyArray`)이고, iOS 쪽 JS는 글자를 목록으로 바꾸지만 Android 쪽은 그대로 넘겨 WebView를 만드는 순간 종료.
+  수정: `['none']`(목록). 고정 설정은 `VIEWER_WEBVIEW_PROPS` 한 곳에 두고, 테스트(`webview-props.test.ts`)가 react-native-webview 네이티브 정의와 값 형식(목록·참거짓·글자·숫자)을 대조한다.
