@@ -1303,3 +1303,10 @@ pacto/
   WebView 콘솔 로그는 앱으로 넘기지 않고, 뷰어는 상태 코드·쪽수만 앱에 알린다. 기존 접근 권한(본인 문서 · 비공개 저장소 · 짧은 Signed URL)은 그대로.
   Supabase Storage Signed URL은 `Access-Control-Allow-Origin: *`라 WebView에서 바로 받을 수 있다(로컬 Supabase로 확인. 배포 환경은 기기 확인 필요).
 - **테스트**: `npm run test:viewer` (Playwright Chromium, 휴대폰 390×844·배율 2.75): 세로·가로·스캔·/Rotate 90·180·보호본·원본·JPG·PNG 첫 화면 폭 맞춤·가로 넘침 없음·비율, 여러 쪽 세로 순서, 근거 쪽 이동, 핀치 2.5배 확대 후 고해상도 다시 그림·이동, 20쪽 스캔 메모리, 외부 요청 차단, 오류 코드.
+- **진단 모드·안전장치 (개정 21-1, 실기기 크래시 조사)**: preview APK(`EXPO_PUBLIC_VIEWER_DIAGNOSTICS=true`)·개발 빌드에서 MY → "계약서 뷰어 진단".
+  1 화면만(WebView 없음) · 2 빈 WebView · 3 pdf.js 초기화만 · 4 앱에 포함된 1쪽 PDF(`samplePdf.ts`) · 5 실제 보호본 PDF.
+  단계 기록(`viewer_route`·`webview_mounting`·`webview_mounted`·`pdfjs_loaded`·`pdf_fetch_started`·`pdf_loaded`·`first_page_render_started`·`first_page_rendered`·`error(코드)`)은
+  기기 안 파일에 동기식으로 바로 써서(expo-file-system) 앱이 종료돼도 다음 실행 때 보인다. 기록은 시각·모드·단계·코드만 (주소·토큰·내용·오류 메시지 없음).
+  react-native-webview는 불러오는 순간 네이티브 모듈을 찾고 없으면 오류를 던지므로 화면에 붙일 때 lazy로 불러오고, 실패·렌더 오류는 Error Boundary,
+  뷰어가 열려 있는 동안의 JS 오류는 전역 처리기로 잡아 앱을 종료하지 않고 오류 화면("계약서를 불러오지 못했어요. 잠시 후 다시 시도해주세요.")을 보여준다.
+  사진(JPG·PNG)은 pdf.js 없이 이미지 한 장 HTML. 문서마다 mime_type(없으면 확장자)으로 PDF/사진을 나눈다. Signed URL이 없거나 https가 아니면 뷰어를 열지 않는다.

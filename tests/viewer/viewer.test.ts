@@ -10,7 +10,8 @@ import { createRequire } from 'node:module';
 import zlib from 'node:zlib';
 import { after, before, describe, test } from 'node:test';
 
-import { buildViewerHtml, isAllowedViewerNavigation, VIEWER_BASE_URL } from '../../src/features/viewer/viewerHtml.ts';
+import { buildViewerHtml, htmlFor, isAllowedViewerNavigation, VIEWER_BASE_URL, type ViewerConfig } from '../../src/features/viewer/viewerHtml.ts';
+import { SAMPLE_PDF_BASE64 } from '../../src/features/viewer/samplePdf.ts';
 import { protectPdf } from '../../supabase/functions/_shared/protection/protect.ts';
 import { PDFDocument, PDFName } from '../../supabase/functions/_shared/vendor/pdf-lib.js';
 import { employmentContractPdf } from '../protection/fixtures.ts';
@@ -113,13 +114,14 @@ after(async () => {
 interface Opened {
   page: Pw;
   msg: { type: string; pages?: number; fit?: boolean; code?: string };
+  steps: string[];
   requests: string[];
   consoleText: string;
   close: () => Promise<void>;
 }
 
 /** 앱과 같은 방식으로 뷰어를 연다 (가상 주소 + 문서는 다른 출처, CORS 허용) */
-async function open(file: string, kind: 'pdf' | 'image' = 'pdf', pageNo: number | null = null): Promise<Opened> {
+async function open(file: string, kind: 'pdf' | 'image' = 'pdf', pageNo: number | null = null, override?: ViewerConfig): Promise<Opened> {
   const ctx = await browser.newContext({ viewport: PHONE, deviceScaleFactor: 2.75, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
   const requests: string[] = [];
@@ -127,7 +129,7 @@ async function open(file: string, kind: 'pdf' | 'image' = 'pdf', pageNo: number 
   page.on('console', (m) => consoleLines.push(m.text()));
   page.on('request', (r) => requests.push(r.url()));
   const url = `${DOCS}object/sign/${file}?token=secret-token`;
-  await page.route(`${VIEWER_BASE_URL}**`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: buildViewerHtml({ url, kind, page: pageNo }) }));
+  await page.route(`${VIEWER_BASE_URL}**`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: htmlFor(override ?? { url, kind, page: pageNo }) }));
   await page.route(`${DOCS}**`, (r) => {
     const name = new URL(r.request().url()).pathname.split('/').pop()!;
     const f = files.get(name);
@@ -135,13 +137,16 @@ async function open(file: string, kind: 'pdf' | 'image' = 'pdf', pageNo: number 
   });
   await page.route('https://example.com/**', (r) => r.fulfill({ status: 200, body: 'leak' }));
   await page.addInitScript(() => {
-    (window as unknown as { __msgs: string[] }).__msgs = [];
-    (window as unknown as { ReactNativeWebView: unknown }).ReactNativeWebView = { postMessage: (m: string) => (window as unknown as { __msgs: string[] }).__msgs.push(m) };
+    window.__msgs = [];
+    window.ReactNativeWebView = { postMessage: (m) => window.__msgs.push(m) };
   });
   await page.goto(VIEWER_BASE_URL);
-  await page.waitForFunction(() => (window as unknown as { __msgs: string[] }).__msgs.length > 0, null, { timeout: 30000 });
-  const msg = JSON.parse((await page.evaluate(() => (window as unknown as { __msgs: string[] }).__msgs[0])) as string);
-  return { page, msg, requests, consoleText: consoleLines.join('\n'), close: () => ctx.close() };
+  const final = () => (window.__msgs as string[]).map((m) => JSON.parse(m)).find((m) => m.type === 'loaded' || m.type === 'error');
+  await page.waitForFunction(final, null, { timeout: 30000 });
+  const all = (await page.evaluate(() => window.__msgs)).map((m) => JSON.parse(m));
+  const msg = all.find((m) => m.type === 'loaded' || m.type === 'error');
+  const steps = all.filter((m) => m.type === 'step').map((m) => (m.code ? `${m.step}(${m.code})` : m.step));
+  return { page, msg, steps, requests, consoleText: consoleLines.join('\n'), close: () => ctx.close() };
 }
 
 /** 첫 화면 상태: 페이지 상자 위치·크기, 가로 넘침, 첫 쪽 캔버스가 그려졌는지 */
@@ -329,5 +334,85 @@ describe('보안', () => {
     } finally {
       await o.close();
     }
+  });
+});
+
+describe('진단 단계 (앱 진단 화면의 2~4단계와 같은 HTML)', () => {
+  test('2. 빈 WebView HTML → loaded(blank), pdf.js 없음', async () => {
+    const o = await open('none', 'pdf', null, { kind: 'blank' });
+    try {
+      assert.equal(o.msg.type, 'loaded');
+      assert.equal(o.msg.kind, 'blank');
+      assert.equal(await o.page.evaluate(() => typeof (window as never as { pdfjsLib?: unknown }).pdfjsLib), 'undefined');
+    } finally {
+      await o.close();
+    }
+  });
+  test('3. pdf.js 초기화만 → pdfjs_loaded 후 loaded(init), 문서 요청 없음', async () => {
+    const o = await open('none', 'pdf', null, { kind: 'init' });
+    try {
+      assert.equal(o.msg.kind, 'init');
+      assert.deepEqual(o.steps, ['pdfjs_loaded']);
+      assert.ok(!o.requests.some((u) => u.startsWith('https://docs.pacto.test')));
+    } finally {
+      await o.close();
+    }
+  });
+  test('4. 앱에 들어 있는 1쪽 PDF → 단계 순서대로 첫 쪽까지, 네트워크 요청 없음', async () => {
+    const o = await open('none', 'pdf', null, { kind: 'pdf', data: SAMPLE_PDF_BASE64 });
+    try {
+      assert.equal(o.msg.type, 'loaded');
+      assert.equal(o.msg.pages, 1);
+      await o.page.waitForFunction(() => window.__msgs.some((m) => m.includes('first_page_rendered')), null, { timeout: 15000 });
+      const steps = (await o.page.evaluate(() => window.__msgs)).map((m) => JSON.parse(m)).filter((m) => m.type === 'step').map((m) => m.step);
+      assert.deepEqual(steps, ['pdfjs_loaded', 'pdf_fetch_started', 'pdf_loaded', 'first_page_render_started', 'first_page_rendered']);
+      assert.ok(!o.requests.some((u) => u.startsWith('https://docs.pacto.test')));
+    } finally {
+      await o.close();
+    }
+  });
+  test('5. 실제 문서 흐름의 단계 신호 (pdf_fetch_started → pdf_loaded → 첫 쪽)', async () => {
+    const o = await open('protected.pdf');
+    try {
+      await o.page.waitForFunction(() => window.__msgs.some((m) => m.includes('first_page_rendered')), null, { timeout: 15000 });
+      const steps = (await o.page.evaluate(() => window.__msgs)).map((m) => JSON.parse(m)).filter((m) => m.type === 'step').map((m) => m.step);
+      assert.deepEqual(steps, ['pdfjs_loaded', 'pdf_fetch_started', 'pdf_loaded', 'first_page_render_started', 'first_page_rendered']);
+    } finally {
+      await o.close();
+    }
+  });
+});
+
+describe('실패해도 오류 코드만 (앱 종료 없음)', () => {
+  test('존재하지 않는 보호본(404) → download_missing', async () => {
+    const o = await open('no-such-derivative.pdf');
+    try {
+      assert.deepEqual(o.msg, { type: 'error', code: 'download_missing' });
+    } finally {
+      await o.close();
+    }
+  });
+  test('잘못된 주소 → url_invalid (요청하지 않음)', async () => {
+    const o = await open('x', 'pdf', null, { kind: 'pdf', url: 'not a url' });
+    try {
+      assert.deepEqual(o.msg, { type: 'error', code: 'url_invalid' });
+    } finally {
+      await o.close();
+    }
+  });
+  test('사진 주소가 없거나 깨진 사진 → image_load', async () => {
+    files.set('broken.jpg', { body: Buffer.from('nope'), type: 'image/jpeg' });
+    const o = await open('broken.jpg', 'image');
+    try {
+      assert.deepEqual(o.msg, { type: 'error', code: 'image_load' });
+    } finally {
+      await o.close();
+    }
+  });
+  test('사진은 pdf.js를 불러오지 않는 별도 HTML', () => {
+    const html = htmlFor({ kind: 'image', url: 'https://docs.pacto.test/a.jpg' });
+    assert.ok(html.length < 5000, `사진 HTML 크기 ${html.length}`);
+    assert.ok(!html.includes('GlobalWorkerOptions'));
+    assert.ok(htmlFor({ kind: 'pdf', url: 'https://docs.pacto.test/a.pdf' }).length > 1_000_000);
   });
 });

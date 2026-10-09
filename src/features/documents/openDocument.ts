@@ -6,6 +6,7 @@ import { documentStore } from '@/data';
 import type { DocumentVariant } from '@/data/documents';
 import type { ContractDocument } from '@/domain/types';
 import { putViewerSession } from '@/features/viewer/session';
+import { isUsableDocumentUrl } from '@/features/viewer/viewerHtml';
 import { confirm, notify } from '@/lib/dialog';
 
 type Doc = Pick<ContractDocument, 'storagePath' | 'localUri' | 'mimeType' | 'protection'>;
@@ -18,6 +19,20 @@ export async function requireReveal(): Promise<boolean> {
   return confirm('원본 보기', '원본 계약서를 표시합니다. 민감정보가 포함되어 있을 수 있습니다.\n확인 후 열어주세요.', '원본 보기');
 }
 
+/**
+ * 문서마다 PDF / 사진을 정한다 (mime_type 우선, 없으면 파일 확장자) — 사진은 pdf.js를 거치지 않는다.
+ * 보호본: PDF 원본 → 보호 PDF, 사진 원본 → 보호 JPEG
+ */
+export function documentKind(doc: Pick<ContractDocument, 'mimeType' | 'storagePath'>, variant: DocumentVariant): 'pdf' | 'image' {
+  const ext = (doc.storagePath ?? '').split('.').pop()?.toLowerCase() ?? '';
+  const mime = (doc.mimeType ?? '').toLowerCase();
+  // 보호본은 원본 형식을 따른다 (PDF → 보호 PDF, 사진 → 보호 JPEG)
+  void variant;
+  return mime === 'application/pdf' || (!mime.startsWith('image/') && ext === 'pdf') ? 'pdf' : 'image';
+}
+
+const OPEN_FAILED = '계약서를 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
+
 const TITLE: Record<DocumentVariant, string> = { protected_view: '보호된 계약서', original: '원본 계약서' };
 
 /**
@@ -29,11 +44,13 @@ async function openUrl(doc: Doc, variant: DocumentVariant, page?: number | null)
   // 웹은 팝업 차단을 피하기 위해 탭을 먼저 연 뒤 주소를 넣는다
   const tab = Platform.OS === 'web' ? window.open('', '_blank') : null;
   try {
-    let url = await documentStore.openUrl(doc, variant);
-    if (Platform.OS !== 'web' && url.startsWith('https://')) {
-      // 보호본 사진은 JPEG, 원본 사진은 JPG·PNG
-      const image = variant === 'protected_view' ? doc.mimeType !== 'application/pdf' : doc.mimeType.startsWith('image/');
-      const id = putViewerSession({ url, kind: image ? 'image' : 'pdf', page: page ?? null, title: TITLE[variant] ?? '계약서' });
+    const signed: unknown = await documentStore.openUrl(doc, variant);
+    if (typeof signed !== 'string' || !signed) throw new Error(OPEN_FAILED);
+    let url = signed;
+    if (Platform.OS !== 'web' && !url.startsWith('file:')) {
+      // Signed URL을 만들지 못했거나 형식이 이상하면 뷰어를 열지 않는다
+      if (!isUsableDocumentUrl(url)) throw new Error(OPEN_FAILED);
+      const id = putViewerSession({ url, kind: documentKind(doc, variant), page: page ?? null, title: TITLE[variant] ?? '계약서' });
       router.push({ pathname: '/viewer', params: { id } });
       return;
     }
@@ -49,7 +66,8 @@ async function openUrl(doc: Doc, variant: DocumentVariant, page?: number | null)
     }
   } catch (e) {
     tab?.close();
-    notify('계약서', e instanceof Error ? e.message : '계약서를 열지 못했어요.');
+    // 내부 오류 메시지(주소가 섞일 수 있음)는 보여주지 않는다 — 저장소 쪽 안내 문구(한글)만 그대로
+    notify('계약서', e instanceof Error && /[가-힣]/.test(e.message) ? e.message : OPEN_FAILED);
   }
 }
 

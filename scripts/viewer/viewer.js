@@ -17,6 +17,8 @@ const post = (m) => {
   }
 };
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+/** 진단 단계 신호 (단계 이름만 — 주소·내용 없음) */
+const step = (name, code) => post({ type: 'step', step: name, ...(code ? { code } : {}) });
 const root = document.getElementById('pages');
 
 class EmbeddedCMaps {
@@ -47,23 +49,13 @@ function fail(code) {
   post({ type: 'error', code });
 }
 
-async function showImage() {
-  const img = new Image();
-  img.className = 'image';
-  img.alt = '';
-  img.decoding = 'async';
-  img.onload = () => post({ type: 'loaded', kind: 'image', pages: 1, fit: img.getBoundingClientRect().width <= window.innerWidth + 1 });
-  img.onerror = () => fail('image_load');
-  img.src = cfg.url;
-  root.appendChild(img);
-}
-
 // ── PDF ──
 const MAX_CANVAS_PIXELS = 12_000_000; // 한 쪽 캔버스 최대 화소 (메모리)
 const MAX_ZOOM_QUALITY = 4;
 let doc = null;
 const slots = []; // { page, base, el, canvas, rendered, task, wanted }
 let zoomQuality = 1;
+let firstRendered = false;
 
 function outputScale() {
   const dpr = window.devicePixelRatio || 1;
@@ -86,14 +78,21 @@ async function render(slot) {
   const ctx = canvas.getContext('2d', { alpha: false });
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const first = !firstRendered;
+  if (first) step('first_page_render_started');
   slot.task = slot.page.render({ canvasContext: ctx, viewport });
   try {
     await slot.task.promise;
   } catch (_) {
     slot.task = null;
+    if (first) step('error', 'render');
     return;
   }
   slot.task = null;
+  if (first) {
+    firstRendered = true;
+    step('first_page_rendered');
+  }
   if (!slot.wanted) return release(slot, canvas);
   if (slot.canvas) release(slot, slot.canvas);
   slot.el.appendChild(canvas);
@@ -118,15 +117,31 @@ const schedule = (slot) => {
 };
 
 async function showPdf() {
-  const worker = new Worker(URL.createObjectURL(new Blob([WORKER_SOURCE], { type: 'text/javascript' })));
-  pdfjs.GlobalWorkerOptions.workerPort = worker;
-  let data;
+  let worker;
   try {
-    const res = await fetch(cfg.url, { credentials: 'omit', cache: 'no-store', redirect: 'error' });
-    if (!res.ok) return fail('download_' + (res.status >= 500 ? 'server' : 'denied'));
-    data = new Uint8Array(await res.arrayBuffer());
+    worker = new Worker(URL.createObjectURL(new Blob([WORKER_SOURCE], { type: 'text/javascript' })));
+    pdfjs.GlobalWorkerOptions.workerPort = worker;
   } catch (_) {
-    return fail('download_network');
+    return fail('worker');
+  }
+  step('pdfjs_loaded');
+  // 진단 3단계: pdf.js 초기화까지만
+  if (cfg.kind === 'init') return post({ type: 'loaded', kind: 'init', pages: 0, fit: true });
+  let data;
+  if (cfg.data) {
+    // 진단 4단계: 앱에 포함된 작은 테스트 PDF (네트워크 없음)
+    step('pdf_fetch_started', 'embedded');
+    data = b64(cfg.data);
+  } else {
+    if (typeof cfg.url !== 'string' || !/^https:\/\//.test(cfg.url)) return fail('url_invalid');
+    step('pdf_fetch_started');
+    try {
+      const res = await fetch(cfg.url, { credentials: 'omit', cache: 'no-store', redirect: 'error' });
+      if (!res.ok) return fail('download_' + (res.status >= 500 ? 'server' : res.status === 400 || res.status === 404 ? 'missing' : 'denied'));
+      data = new Uint8Array(await res.arrayBuffer());
+    } catch (_) {
+      return fail('download_network');
+    }
   }
   try {
     doc = await pdfjs.getDocument({
@@ -147,6 +162,7 @@ async function showPdf() {
     return fail(e && e.name === 'PasswordException' ? 'pdf_password' : 'pdf_open');
   }
   data = null;
+  step('pdf_loaded');
 
   // 쪽 크기·회전(/Rotate)만 먼저 읽어 자리를 잡는다 — 그림은 화면 근처에 올 때 그린다
   for (let i = 1; i <= doc.numPages; i++) {
@@ -195,4 +211,6 @@ async function showPdf() {
 }
 
 window.addEventListener('error', () => fail('script'));
-(cfg.kind === 'image' ? showImage() : showPdf()).catch(() => fail('unknown'));
+window.addEventListener('unhandledrejection', () => fail('script_async'));
+// 사진은 별도 HTML(buildImageHtml)로 연다 — 이 스크립트(pdf.js)는 PDF 전용
+showPdf().catch(() => fail('unknown'));

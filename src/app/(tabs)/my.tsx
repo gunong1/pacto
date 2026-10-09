@@ -5,6 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
 import { Divider, ListRow, Screen, Section, SectionGap } from '@/components/ui/layout';
+import { VIEWER_DIAGNOSTICS } from '@/features/viewer/diagnostics';
 import { useContracts } from '@/features/contracts/queries';
 import { authErrorMessage, authService } from '@/features/auth/authService';
 import { disablePushForThisDevice } from '@/features/notifications/push';
@@ -49,6 +50,12 @@ export default function MyScreen() {
       <SectionGap />
       <Section title="설정">
         <ListRow title="알림 설정" subtitle="알림 받을 시점·시간, 잠금화면 표시" chevron onPress={() => router.push('/settings/notifications')} testID="open-notification-settings" />
+        {VIEWER_DIAGNOSTICS ? (
+          <>
+            <Divider />
+            <ListRow title="계약서 뷰어 진단 (테스트용)" subtitle="단계별로 열어 문제 위치 확인" chevron onPress={() => router.push('/settings/viewer-diagnostics')} testID="open-viewer-diagnostics" />
+          </>
+        ) : null}
         <Divider />
         <ListRow title="보안" subtitle="앱 잠금(Face ID·지문)" right={<Badge label="준비중" />} />
         <Divider />
