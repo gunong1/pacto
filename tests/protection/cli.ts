@@ -57,10 +57,11 @@ if (cmd === 'make') {
   process.stdout.write(String(text));
 } else if (cmd === 'diagnose') {
   // 파일을 서버로 보내지 않고 이 PC에서 보호 처리를 그대로 실행해 단계별 결과만 출력한다
+  // (OCR은 하지 않는다 — 스캔 페이지로 판단되면 scan:failed(ocr_not_configured)로 나오는 것이 정상, 특수 형식이면 unsupported(scan_format 등))
   const r = await protectPdf(new Uint8Array(fs.readFileSync(kind)));
   process.stdout.write(
     JSON.stringify(
-      { status: r.status, detail: r.detail, regionTypes: r.regions.map((x) => `${x.type}:${x.confidence}:${x.state}`), ...r.diagnostics },
+      { status: r.status, detail: r.detail, pages: r.pages.map((p) => `${p.page}:${p.kind}:${p.status}${p.detail ? `(${p.detail})` : ''}`), regionTypes: r.regions.map((x) => `${x.type}:${x.confidence}:${x.state}`), ...r.diagnostics },
       null,
       2,
     ) + '\n',
