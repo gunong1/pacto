@@ -1252,3 +1252,5 @@ pacto/
 - **보호본 해상도**: 원본 2400px 보존, 보호본 가로 1600px. 가독성 fixture(`smallprint.jpg`, A4 사진 기준 6·8·10pt 상당)에서 6pt도 1600px에서 읽을 수 있음을 눈으로 확인(테스트가 결과 이미지를 저장할 수 있음: `PHOTO_READABILITY_OUT`).
 - **AI 분석과 독립**: 보호 상태(protection_status)와 문서 역할(document_role)·분석 결과는 따로 관리한다(보호 실패여도 분석은 진행 가능).
 - **테스트**: `photo-protection.test.ts`(A~I·K·L·N·가리기 해제·EXIF·가독성, 가짜 OCR이 실제로 픽셀을 읽어 덮인 글자는 못 읽음), `photo-protection-copy.test.ts`(문구·J·동시 처리), `step14-photo-protection`(로컬 Edge + 가짜 CLOVA 서버: A~D·H·N·M·가리기 해제), fixture는 `scripts/fixtures/make-photo-fixtures.py`(모든 값 가짜).
+- **실제 배포 측정 (2026-10-09, Supabase + 실제 CLOVA, fixture lease-a4.jpg 2400×3391 가짜 값, 동시 2장)**: 1장·5장·10장 모두 protected(16/16, 자원 한도 초과·시간 초과 0).
+  서버 한 장 평균 약 3.4~3.8초 = CLOVA 1차 1.5~1.8초 + 재-OCR 1.3~1.5초 + 해석 0.16초 + 축소·가리기·저장 0.27초 + 확인 0.07초 → 시간 대부분은 CLOVA 응답. 10장 전체 약 19초. 첫 요청은 함수 시작 시간 때문에 앱에서 약 7초.
