@@ -6,6 +6,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
 import { Divider, ListRow, Screen, Section, SectionGap } from '@/components/ui/layout';
 import { useContracts } from '@/features/contracts/queries';
+import { archivedDocuments } from '@/features/documents/archive';
 import { authErrorMessage, authService } from '@/features/auth/authService';
 import { disablePushForThisDevice } from '@/features/notifications/push';
 import { Avatar } from '@/features/profile/Avatar';
@@ -23,7 +24,8 @@ export default function MyScreen() {
       .catch((e) => notice('로그아웃', authErrorMessage(e)));
   const providerLabel = user?.provider === 'apple' ? 'Apple' : user?.provider === 'google' ? 'Google' : '이메일';
   const { data } = useContracts();
-  const docs = data?.reduce((n, r) => n + r.documents.length, 0) ?? 0;
+  // 계약에 연결된 원본 파일 수 — "보관 문서" 화면과 같은 기준 (문서가 있는 계약 수가 아님)
+  const docs = archivedDocuments(data).length;
   const { data: profile } = useProfile();
   const nickname = profile?.displayName ?? null;
 
@@ -59,11 +61,11 @@ export default function MyScreen() {
           onPress={() => router.push({ pathname: '/contracts', params: { status: 'all', docs: '0', t: String(Date.now()) } })}
           testID="my-stat-contracts"
         />
-        {/* 원본 계약서·사진·PDF (향후 부속합의서·첨부문서 포함) — 보관 문서가 있는 계약만 */}
+        {/* 원본 계약서·사진·PDF (향후 부속합의서·첨부문서 포함) — 문서 개수 기준, 누르면 보관 문서 목록 */}
         <Stat
           label="보관 문서"
           value={`${docs}개`}
-          onPress={() => router.push({ pathname: '/contracts', params: { status: 'all', docs: '1', t: String(Date.now()) } })}
+          onPress={() => router.push('/documents')}
           testID="my-stat-documents"
         />
       </View>
