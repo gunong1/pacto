@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { EMPTY_DRAFT } from '@/data/draft';
 import { ContractForm, quickDefaultFrequency } from '@/features/contracts/ContractForm';
-import { draftToForm } from '@/features/contracts/form';
+import { draftToForm, quickDirectionAdvice } from '@/features/contracts/form';
 import { useCreateContract, useToday } from '@/features/contracts/queries';
 import { finishRegistration } from '@/features/registration/finish';
 import { useRegistration } from '@/features/registration/store';
@@ -20,7 +20,7 @@ export default function ManualEntryScreen() {
 
   return (
     <ContractForm
-      defaultValues={{ ...draftToForm({ ...EMPTY_DRAFT, contractType: 'recurring' }), quick: { amount: '', frequency: quickDefaultFrequency('recurring'), nextDate: '' } }}
+      defaultValues={{ ...draftToForm({ ...EMPTY_DRAFT, contractType: 'recurring' }), quick: { amount: '', direction: quickDirectionAdvice('recurring').direction, frequency: quickDefaultFrequency('recurring'), nextDate: '' } }}
       variant="quick"
       today={today}
       header={

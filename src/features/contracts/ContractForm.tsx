@@ -30,6 +30,7 @@ import {
   type PaymentKind,
   type SourceType,
   OBLIGATION_LABEL,
+  type Direction,
 } from '@/domain/contractTypes';
 import { BUSINESS_DAY_RULE_LABEL } from '@/domain/businessDays';
 import { suggestCategory, withRo } from '@/domain/categorySuggestion';
@@ -46,7 +47,7 @@ import {
   detailFromInput,
   detailsToForm,
   formToDraft,
-  quickPaymentKind,
+  quickDirectionAdvice,
   type ContractFormValues,
   type ParsedContractForm,
   type PaymentFormValues,
@@ -93,6 +94,12 @@ const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '
 const CATEGORY_OPTIONS = CONTRACT_CATEGORIES.map((c) => ({ value: c, label: categoryLabel(c) }));
 const TYPE_OPTIONS = CONTRACT_TYPES.map((t) => ({ value: t, label: contractTypeLabel(t) }));
 const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABEL[d] }));
+/** 빠른 입력의 돈 방향 (중립 = 보증금처럼 돌려받는 돈·해당 없음) */
+const QUICK_DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
+  { value: 'expense', label: '지출' },
+  { value: 'income', label: '수입' },
+  { value: 'neutral', label: '중립·해당 없음' },
+];
 const FREQUENCY_OPTIONS = PAYMENT_FREQUENCIES.map((f) => ({ value: f, label: FREQUENCY_LABEL[f] }));
 const ONE_TIME_KINDS: ReadonlySet<PaymentKind> = new Set(['setup_fee', 'deposit', 'advance_payment', 'down_payment', 'interim_payment', 'balance_payment']);
 
@@ -135,6 +142,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   const [more, setMore] = useState(false);
   /** 빠른 입력: 사용자가 분야를 직접 골랐으면 더 이상 추천으로 바꾸지 않는다 */
   const [categoryPicked, setCategoryPicked] = useState(false);
+  /** 빠른 입력: 돈의 방향을 직접 골랐는지 (고른 뒤에는 유형을 바꿔도 유지) */
+  const [directionPicked, setDirectionPicked] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),
@@ -182,6 +191,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
     }
     // 빠른 입력: 주기를 직접 바꾸지 않았다면 새 유형의 기본 주기로
     if (quick && getValues('quick.frequency') === quickDefaultFrequency(prev)) setValue('quick.frequency', quickDefaultFrequency(next));
+    // 빠른 입력: 돈의 방향을 직접 고르지 않았다면 새 유형의 추천으로 (고른 뒤에는 유지)
+    if (quick && !directionPicked) setValue('quick.direction', quickDirectionAdvice(next).direction);
     setValue('contractType', next);
     setValue('details', detailsToForm(next, cleanDetails(next, merged)));
   };
@@ -503,7 +514,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
 
   if (quick) {
     const q = values.quick;
-    const income = defaultDirection(quickPaymentKind(type)) === 'income';
+    const advice = quickDirectionAdvice(type);
+    const income = q?.direction === 'income';
     const oneTime = q?.frequency === 'one_time';
     const day = q?.nextDate && /^\d{4}-\d{2}-\d{2}$/.test(q.nextDate) ? Number(q.nextDate.slice(8, 10)) : null;
     return (
@@ -537,8 +549,30 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         </Section>
 
         <SectionGap />
-        <Section title={income ? '받는 돈' : '내는 돈'} caption="비워두면 결제 없이 저장돼요" testID="quick-payment">
+        <Section title="금액" caption="비워두면 결제 없이 저장돼요" testID="quick-payment">
           {field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
+          <View style={styles.directionLabel}>
+            <FormLabel label="돈의 방향" />
+            {advice.clear && !directionPicked && q?.direction === advice.direction ? <Badge label="추천" tone="primary" /> : null}
+          </View>
+          <Controller
+            control={control}
+            name="quick.direction"
+            render={({ field: f }) => (
+              <ChipGroup
+                options={QUICK_DIRECTION_OPTIONS}
+                value={f.value ?? advice.direction}
+                onChange={(d) => {
+                  setDirectionPicked(true);
+                  f.onChange(d);
+                }}
+                testIDPrefix="quick-direction"
+              />
+            )}
+          />
+          <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm, marginBottom: spacing.lg }} testID="quick-direction-hint">
+            {q?.direction === 'neutral' ? '보증금처럼 돌려받는 돈 · 해당 없음 — 지출·수입 합계에 넣지 않아요.' : advice.roles}
+          </AppText>
           <FormLabel label={income ? '지급 주기' : '결제 주기'} />
           <Controller control={control} name="quick.frequency" render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value ?? 'monthly'} onChange={f.onChange} scroll testIDPrefix="quick-frequency" />} />
           <View style={{ height: spacing.lg }} />
@@ -849,6 +883,7 @@ const OBLIGATION_OPTIONS = [
 const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
 
 const styles = StyleSheet.create({
+  directionLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   categoryLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: -spacing.sm, marginBottom: spacing.lg },
   moreWrap: { paddingHorizontal: spacing.gutter, paddingTop: spacing.sm },
   more: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },

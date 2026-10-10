@@ -11,13 +11,13 @@ import {
   CONTRACT_TYPES,
   detailFields,
   detailSchema,
-  defaultDirection,
   PAYMENT_KINDS,
   paymentKindLabel,
   type PaymentKind,
   type ContractDetails,
   type ContractType,
   type DetailFieldSpec,
+  type Direction,
 } from '@/domain/contractTypes';
 import { isValidISODate, normalizeDateInput } from '@/domain/dates';
 import { formatAmountInput, parseAmount } from '@/domain/money';
@@ -72,6 +72,8 @@ const paymentFormSchema = z.object({
  */
 const quickFormSchema = z.object({
   amount: optionalAmount,
+  /** 돈의 방향 — 유형으로 고정하지 않고 사용자가 고른다 (기본은 유형별 추천) */
+  direction: z.enum(DIRECTIONS),
   frequency: z.enum(PAYMENT_FREQUENCIES),
   nextDate: optionalDate,
 });
@@ -255,6 +257,30 @@ export function quickPaymentKind(type: ContractType): PaymentKind {
   return map[type] ?? 'other';
 }
 
+/**
+ * 빠른 입력의 돈 방향 추천 — 같은 유형이라도 내 역할에 따라 달라질 수 있어 추천일 뿐, 사용자가 언제든 바꾼다.
+ * clear: 대부분 한쪽인 유형(근로 → 수입, 월 납입형·할부·대출·보험 → 지출)만 "추천" 표시
+ */
+export function quickDirectionAdvice(type: ContractType): { direction: Direction; clear: boolean; roles: string } {
+  switch (type) {
+    case 'employment':
+      return { direction: 'income', clear: true, roles: '수입 = 내가 근로자인 경우 · 지출 = 내가 고용주인 경우' };
+    case 'recurring':
+    case 'installment':
+    case 'loan':
+    case 'insurance':
+      return { direction: 'expense', clear: true, roles: '지출 = 내가 내는 돈 · 수입 = 내가 받는 돈' };
+    case 'sale':
+      return { direction: 'expense', clear: false, roles: '지출 = 내가 사는(매수) 경우 · 수입 = 내가 파는(매도) 경우' };
+    case 'service':
+      return { direction: 'expense', clear: false, roles: '지출 = 내가 일을 맡기는(발주) 경우 · 수입 = 내가 일하고 돈을 받는 경우' };
+    case 'lease':
+      return { direction: 'expense', clear: false, roles: '지출 = 내가 임차인인 경우 · 수입 = 내가 임대인인 경우' };
+    default:
+      return { direction: 'expense', clear: false, roles: '지출 = 내가 내는 돈 · 수입 = 내가 받는 돈' };
+  }
+}
+
 /** 빠른 입력 → 결제 1건. 다음 결제일이 첫 결제일, 그 날짜의 '일'이 매번 결제일 (예: 10월 12일 → 매월 12일) */
 export function quickToPayment(type: ContractType, q: NonNullable<ParsedContractForm['quick']>): PaymentDraft | null {
   const amount = parseAmount(q.amount);
@@ -263,7 +289,7 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
   const oneTime = q.frequency === 'one_time';
   return {
     kind,
-    direction: defaultDirection(kind),
+    direction: q.direction,
     label: paymentKindLabel(kind),
     amount,
     frequency: q.frequency,

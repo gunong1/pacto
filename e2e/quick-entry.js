@@ -130,6 +130,38 @@ const kst = (n) => {
   const head = await page.locator('body').innerText();
   check('F8', '저장 → 상세에 분야 구독', head.includes('구독'), head.slice(0, 120));
 
+  // G 돈의 방향 — 유형으로 고정하지 않음 (추천만, 언제든 변경)
+  await openManual();
+  const dir = async () => {
+    for (const d of ['expense', 'income', 'neutral']) if ((await page.locator(`${tid(`quick-direction-${d}`)}[aria-selected="true"]`).count()) > 0) return d;
+    return null;
+  };
+  const payText = () => page.locator(tid('quick-payment')).innerText();
+  check('G1', '금액 섹션 제목은 "금액" (내는 돈·받는 돈 고정 아님) · 방향 3가지', (await payText()).startsWith('금액') && (await has('quick-direction-expense')) && (await has('quick-direction-income')) && (await has('quick-direction-neutral')));
+  check('G2', '월 납입형 → 지출 추천', (await dir()) === 'expense' && (await payText()).includes('추천'));
+  await page.click(tid('type-employment'));
+  await page.waitForTimeout(150);
+  check('G3', '근로로 바꾸면 수입 추천', (await dir()) === 'income' && (await payText()).includes('추천') && (await payText()).includes('고용주'));
+  await page.click(tid('type-sale'));
+  await page.waitForTimeout(150);
+  const saleText = await payText();
+  check('G4', '매매 → 지출이 기본이지만 "추천" 표시 없음 · 매수/매도 안내', (await dir()) === 'expense' && !saleText.includes('추천') && saleText.includes('파는(매도)'));
+  await page.click(tid('quick-direction-income'));
+  await page.waitForTimeout(150);
+  check('G5', '매매에서 수입(매도) 선택 → 날짜 이름도 "지급일"', (await dir()) === 'income' && (await payText()).includes('지급일'));
+  await page.click(tid('type-service'));
+  await page.click(tid('type-sale'));
+  await page.waitForTimeout(150);
+  check('G6', '직접 고른 방향은 유형을 바꿔도 유지', (await dir()) === 'income');
+  await page.screenshot({ path: path.join(SHOTS, 'quick-02-direction.png'), fullPage: true });
+  await input('field-title').fill('중고차 매도');
+  await input('quick-amount').fill('12000000');
+  await input('quick-nextDate').fill('2026-11-20');
+  await page.click(tid('submit-contract'));
+  await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
+  const sold = await page.locator('body').innerText();
+  check('G7', '저장 → 매매 12,000,000원이 수입(받을 돈)으로: "다음 지급 · +12,000,000원"', sold.includes('+12,000,000원') && sold.includes('지급될 예정') && !sold.includes('결제될 예정'), sold.replace(/\s+/g, ' ').slice(0, 600));
+
   check('E', '페이지 오류 없음', errors.length === 0, errors.join(' | '));
   await browser.close();
 })().catch((e) => {

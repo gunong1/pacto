@@ -68,6 +68,7 @@ export function Chip({ label, selected, onPress, testID }: { label: string; sele
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: !!selected }}
+      aria-selected={!!selected}
       style={[styles.chip, selected && styles.chipSelected]}>
       <AppText variant="captionStrong" color={selected ? 'textInverse' : 'textSecondary'}>
         {label}
