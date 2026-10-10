@@ -10,9 +10,11 @@
  * 계약상 기한(예: 해지 통보기한 9/11) ≠ 알림 발송일(8/12, 9/4, 9/10, 9/11). 알림 시점은 PACTO·사용자 설정이다.
  * 법령 기준 알림은 V1에서 만들지 않는다 (LEGAL_RULES가 비어 있음).
  */
+import { addDays } from './dates';
 import { NOTIFICATION_SOURCE_LABEL, type ActionEventType, type NotificationPriority, type NotificationSource } from './notificationPriority';
 import { groupReminders, type ReminderGroup } from './reminderGroups';
 import { REMINDER_RULES, upcomingReminders, type Reminder, type ReminderRules } from './reminders';
+import type { ScheduleItem } from './schedule';
 import type { Contract, ContractRecord, ISODate } from './types';
 
 // ===== 3·4·5) 알림 설정 =====
@@ -182,6 +184,40 @@ export function reminderCategory(r: Pick<Reminder, 'kind' | 'actionType'>): Noti
   if (r.actionType === 'renewal_notice') return 'renewal_notice';
   if (r.actionType === 'renewal_decision') return 'renewal_decision';
   return 'termination_notice';
+}
+
+/**
+ * 캘린더 일정 → Push와 같은 알림 종류 (reminders.ts와 같은 분류). 알림을 보내지 않는 일정(안내·주요 날짜·시작일 등)은 null.
+ * 기간 종료: 자동갱신이면 "자동갱신 예정일" 알림 시점, 아니면 "계약 만료" 알림 시점 (Push도 같은 규칙).
+ */
+export function scheduleItemCategory(item: Pick<ScheduleItem, 'type' | 'actionType'>, autoRenewal: boolean): NotificationCategory | null {
+  switch (item.type) {
+    case 'payment':
+      return 'payment';
+    case 'contract_end':
+      return autoRenewal ? 'renewal' : 'contract_end';
+    case 'renewal':
+      return 'renewal';
+    case 'termination_notice':
+      return item.actionType === 'renewal_notice' ? 'renewal_notice' : item.actionType === 'renewal_decision' ? 'renewal_decision' : 'termination_notice';
+    default:
+      return null;
+  }
+}
+
+/**
+ * 알림 구간 시작일 — 사용자가 정한 알림 시점 중 가장 이른 날 (예: 90·30·7일 전 → 기한 90일 전).
+ * 그 종류 알림이 꺼져 있거나 이 일정에 알림이 없으면 null. Push 예정과 알림 화면이 이 같은 규칙을 쓴다.
+ * (PACTO 알림 전체 끄기는 발송만 멈춘다 — 알림 화면은 같은 시점 기준으로 계속 보여준다)
+ */
+export function alertWindowStart(item: Pick<ScheduleItem, 'type' | 'actionType' | 'date'>, autoRenewal: boolean, eff: EffectivePreferences): ISODate | null {
+  const c = scheduleItemCategory(item, autoRenewal);
+  if (!c) return null;
+  const prefs = eff.categories[c];
+  if (!prefs.enabled || prefs.offsets.length === 0) return null;
+  // 자동갱신 예정일(기간 끝 다음 날) 알림은 Push처럼 기간 끝 날짜를 기준으로 센다
+  const target = item.type === 'renewal' ? addDays(item.date, -1) : item.date;
+  return addDays(target, -Math.max(...prefs.offsets));
 }
 
 /** 설정 → 일정 계산용 알림 시점 (꺼진 종류는 빈 목록) */

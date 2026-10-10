@@ -42,6 +42,8 @@ export interface NotificationStore {
   /** 설정 저장 — 서버가 예정 알림을 다시 계산한다 */
   savePreferences(patch: Partial<NotificationPreferences>): Promise<NotificationPreferences>;
   getOverride(contractId: string): Promise<ContractNotificationOverride | null>;
+  /** 계약별 알림 설정 전체 (알림 화면이 Push와 같은 규칙으로 고르도록) */
+  listOverrides(): Promise<Map<string, ContractNotificationOverride>>;
   /** null = 내 기본 설정 사용 */
   saveOverride(contractId: string, override: ContractNotificationOverride | null): Promise<void>;
   /** 실제로 앞으로 보낼 알림 (가까운 순) */
@@ -119,6 +121,11 @@ export class SupabaseNotificationStore implements NotificationStore {
   async getOverride(contractId: string) {
     const { data } = await this.sb.from('contract_notification_overrides').select('categories').eq('contract_id', contractId).maybeSingle();
     return data ? normalizeCategoryPrefs(data.categories) : null;
+  }
+
+  async listOverrides() {
+    const { data } = await this.sb.from('contract_notification_overrides').select('contract_id, categories');
+    return new Map((data ?? []).map((r) => [r.contract_id, normalizeCategoryPrefs(r.categories)]));
   }
 
   async saveOverride(contractId: string, override: ContractNotificationOverride | null) {
@@ -210,6 +217,9 @@ export class MockNotificationStore implements NotificationStore {
   }
   async getOverride(contractId: string) {
     return this.overrides.get(contractId) ?? null;
+  }
+  async listOverrides() {
+    return new Map(this.overrides);
   }
   async saveOverride(contractId: string, override: ContractNotificationOverride | null) {
     if (override) this.overrides.set(contractId, normalizeCategoryPrefs(override));

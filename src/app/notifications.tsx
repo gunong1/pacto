@@ -11,7 +11,7 @@ import { getEffectiveNotificationPreferences, notificationSettingsSummary } from
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { ImportantScheduleCard } from '@/features/notifications/ImportantScheduleCard';
 import { PushPermissionCard } from '@/features/notifications/PushPermissionCard';
-import { useNotificationPreferences, usePushPermission } from '@/features/notifications/queries';
+import { useNotificationOverrides, useNotificationPreferences, usePushPermission } from '@/features/notifications/queries';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
 /**
@@ -25,7 +25,12 @@ export default function NotificationsScreen() {
   const today = useToday();
   const { data: prefs } = useNotificationPreferences();
   const [permission] = usePushPermission();
-  const important = useMemo(() => (data ? importantSchedule(data, today) : { items: [], total: 0 }), [data, today]);
+  const { data: overrides } = useNotificationOverrides();
+  // Push와 같은 규칙: 내 알림 설정·계약별 설정의 알림 시점에 들어온 일정만 (먼 미래 일정은 캘린더에서)
+  const important = useMemo(
+    () => (data && prefs ? importantSchedule(data, today, { preferences: prefs, overrides }) : { items: [], total: 0 }),
+    [data, today, prefs, overrides],
+  );
   const hasContracts = (data?.length ?? 0) > 0;
   const eff = getEffectiveNotificationPreferences(prefs ?? null);
   // 일정이 있는지와 푸시를 받는지는 별개 — 꺼져 있어도 중요한 일정은 계속 보여준다
@@ -58,7 +63,7 @@ export default function NotificationsScreen() {
                 지금 확인할 중요한 계약 일정이 없어요.
               </AppText>
               <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
-                결제와 일반 일정은 캘린더에서 확인할 수 있어요.
+                알림 시점이 되면 여기에 보여드려요. 앞으로의 일정은 캘린더에서 확인할 수 있어요.
               </AppText>
             </View>
           ) : (

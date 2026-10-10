@@ -42,6 +42,10 @@ export function useContractNotificationOverride(contractId: string) {
   return useQuery({ queryKey: notificationKeys.override(contractId), queryFn: () => notificationStore.getOverride(contractId) });
 }
 
+export function useNotificationOverrides() {
+  return useQuery({ queryKey: [...notificationKeys.all, 'overrides'] as const, queryFn: () => notificationStore.listOverrides() });
+}
+
 export function useSaveContractNotificationOverride(contractId: string) {
   const qc = useQueryClient();
   return useMutation({

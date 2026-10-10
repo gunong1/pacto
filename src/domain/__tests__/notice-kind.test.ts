@@ -76,7 +76,7 @@ describe('A. "갱신 여부를 협의" → 갱신 여부 확인 (important)', ()
     expect(`${a.label} · ${formatDateKo(a.date)}`).toBe('갱신 여부 확인 · 2028. 8. 20.');
     // 같은 날 PACTO 기본 안내(갱신 여부 확인)를 따로 만들지 않는다
     expect(contractSchedule(record, { start: TODAY, end: '2030-12-31' }, TODAY).filter((i) => i.date === '2028-08-20')).toHaveLength(1);
-    const imp = importantSchedule([record], TODAY, { months: 24, limit: 5 }).items.find((i) => i.item.date === '2028-08-20')!;
+    const imp = importantSchedule([record], '2028-08-01').items.find((i) => i.item.date === '2028-08-20')!; // D-19 (알림 30일 전 구간)
     expect(imp).toMatchObject({ priority: 'important', badge: '확인', sourceLabel: '계약서 기준' });
     expect(imp.evidence).toMatchObject({ documentId: 'doc-1', page: 1, quote: QUOTE });
   });
@@ -136,7 +136,7 @@ describe('D. 의미가 불확실 → unknown · important · 확인 필요', () 
     const a = actionCandidates(record, TODAY).find((x) => x.date === '2028-08-20')!;
     expect(a.headline).toBe('통보·갱신 관련 기한이 있어요.');
     expect(a.guidance).toBe('이 일정의 의미를 확인해주세요.');
-    const imp = importantSchedule([record], TODAY, { months: 24, limit: 5 }).items[0];
+    const imp = importantSchedule([record], '2028-08-01').items[0];
     expect(imp).toMatchObject({ priority: 'important', badge: '확인 필요', title: '통보·갱신 관련 기한이 있어요' });
     // 알림은 놓치지 않도록 해지·종료 통보기한 시점(30·7·1·당일)으로, 중요도는 important
     const rs = upcomingReminders([record], '2028-07-01', 60).filter((r) => r.kind === 'termination_notice');

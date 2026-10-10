@@ -90,7 +90,7 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
     await page.waitForSelector(tid('important-list'), { timeout: 20000 });
     const all = await body();
-    check('E', '일반 결제만 있으면 "지금 확인할 중요한 계약 일정이 없어요." (예정된 알림이 없다고 하지 않음)', all.includes('지금 확인할 중요한 계약 일정이 없어요.') && all.includes('결제와 일반 일정은 캘린더에서 확인할 수 있어요.') && !all.includes('예정된 알림이 없어요'));
+    check('E', '일반 결제만 있으면 "지금 확인할 중요한 계약 일정이 없어요." (예정된 알림이 없다고 하지 않음)', all.includes('지금 확인할 중요한 계약 일정이 없어요.') && all.includes('알림 시점이 되면 여기에 보여드려요.') && !all.includes('예정된 알림이 없어요'));
     check('A', '"다음 알림"(미래 푸시 목록) 없음 · 결제 알림 문구·발송 시각 없음 · 내부 범위(60일) 문구 없음', !all.includes('다음 알림') && !all.includes('950,000원') && !all.includes('결제 예정') && !all.includes('60일') && (await page.locator(tid('upcoming-list')).count()) === 0);
     check('R', '알림 설정 요약 한 줄(종류별 시점 나열 없음) + 캘린더 안내', all.includes('알림 설정') && all.includes('주요 계약 알림 사용 중') && !all.includes('30·7·1일 전과 당일') && all.includes('결제와 전체 일정은 캘린더에서 확인할 수 있어요.') && all.includes('캘린더 보기'));
     await shot('02-notifications');

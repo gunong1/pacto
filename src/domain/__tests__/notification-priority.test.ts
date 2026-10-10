@@ -6,7 +6,7 @@ import { draftToRecord, EMPTY_DRAFT } from '@/data/draft';
 import { contractFormSchema, draftToForm, formToDraft } from '@/features/contracts/form';
 
 import { groupCalendarItems } from '../calendarGroups';
-import { IMPORTANT_DISPLAY_WINDOW, importantSchedule } from '../importantSchedule';
+import { IMPORTANT_DISPLAY_LIMIT, importantSchedule } from '../importantSchedule';
 import { nextAction } from '../nextAction';
 import { getNotificationPriority, LEGAL_RULES, NOTIFICATION_SOURCE_LABEL } from '../notificationPriority';
 import { groupReminders } from '../reminderGroups';
@@ -74,7 +74,7 @@ describe('출처 구분 (UI 문구 · 데이터)', () => {
     const rs = notice(r);
     expect(rs.every((x) => x.source === 'contract' && x.priority === 'critical')).toBe(true);
     expect(rs[0].evidence).toMatchObject({ documentId: 'doc-1', page: 2, checkId: 'chk-renew' });
-    const imp = importantSchedule([r], '2029-01-01').items.find((x) => x.item.type === 'termination_notice')!;
+    const imp = importantSchedule([r], '2029-08-20').items.find((x) => x.item.type === 'termination_notice')!; // 통보기한 D-22 (알림 30일 전 구간)
     expect(imp).toMatchObject({ sourceLabel: '계약서 기준', title: '해지 통보기한이 다가와요', badge: '중요', priority: 'critical' });
     expect(imp.evidence?.quote).toContain('30일 전까지 해지 의사');
   });
@@ -84,7 +84,7 @@ describe('출처 구분 (UI 문구 · 데이터)', () => {
     const [item] = at(r, '2029-09-11').filter((i) => i.type === 'termination_notice');
     expect(item).toMatchObject({ source: 'manual_entry', priority: 'critical' });
     expect(notice(r).every((x) => x.source === 'manual_entry' && x.evidence === null)).toBe(true);
-    const imp = importantSchedule([r], '2029-01-01').items.find((x) => x.item.type === 'termination_notice')!;
+    const imp = importantSchedule([r], '2029-08-20').items.find((x) => x.item.type === 'termination_notice')!; // 통보기한 D-22 (알림 30일 전 구간)
     expect(imp.sourceLabel).toBe('입력한 계약 정보 기준');
     expect(nextAction(r, '2029-09-01')!.guidance).toMatch(/^입력한 계약 정보에 따라 /);
     expect(nextAction(r, '2029-09-01')!.guidance).not.toContain('계약서');
@@ -96,9 +96,8 @@ describe('출처 구분 (UI 문구 · 데이터)', () => {
     const r = record('c-lease2', { title: '주택 임대차계약', category: 'real_estate', contractType: 'lease', startDate: '2025-08-21', endDate: '2027-08-20', payments: [] });
     const [prep] = at(r, '2027-06-21').filter((i) => i.type === 'prepare');
     expect(prep).toMatchObject({ source: 'pacto', priority: 'important', actionType: 'prepare', title: '갱신 여부 확인' });
-    const imp = importantSchedule([r], '2027-01-01').items.find((x) => x.item.type === 'prepare')!;
-    expect(imp).toMatchObject({ sourceLabel: 'PACTO 안내', priority: 'important', badge: '확인' });
-    expect(imp.policyNote).toBe('계약서나 법령에 정해진 기한이 아니라, 만기 60일 전에 PACTO가 미리 알려드리는 안내예요.');
+    // PACTO 안내는 Push 알림 종류가 아니므로 알림 화면 "중요한 계약 일정"에는 나오지 않는다 (캘린더·다음 할 일에는 그대로)
+    expect(importantSchedule([r], '2027-06-25').items.some((x) => x.item.type === 'prepare')).toBe(false);
     expect(nextAction(r, '2027-06-01')!.guidance).toContain('PACTO 안내 — 계약서나 법령에 정해진 기한은 아니에요');
     const [g] = groupCalendarItems(at(r, '2027-06-21'));
     expect(g.primary).toMatchObject({ label: '갱신 여부 확인', sourceLabel: 'PACTO 안내', priority: 'important' });
@@ -153,7 +152,7 @@ describe('중요도', () => {
     const r = rental('upload', { inferredEnd: true });
     const [item] = at(r, '2029-09-11').filter((i) => i.type === 'termination_notice');
     expect(item).toMatchObject({ priority: 'important', needsReview: true });
-    const imp = importantSchedule([r], '2029-01-01').items.find((x) => x.item.type === 'termination_notice')!;
+    const imp = importantSchedule([r], '2029-08-20').items.find((x) => x.item.type === 'termination_notice')!; // 통보기한 D-22 (알림 30일 전 구간)
     expect(imp.badge).toBe('확인 필요');
   });
 });
@@ -192,20 +191,20 @@ describe('통보기한 사전 알림 (PACTO 알림 정책 30·7·1·0일 전 —
   });
 });
 
-describe('중요한 계약 일정 조회 (화면 표시 범위 12개월 · 5개)', () => {
-  test('12개월 밖 중요 일정은 화면에 없지만 일정 계산에는 그대로 있음', () => {
+describe('중요한 계약 일정 조회 (알림 구간에 들어온 일정만 · 최대 5개)', () => {
+  test('알림 구간 밖(통보기한 D-253) 중요 일정은 화면에 없지만 일정 계산(캘린더)에는 그대로 있음', () => {
     const r = rental('upload');
-    expect(IMPORTANT_DISPLAY_WINDOW).toEqual({ months: 12, limit: 5 });
-    expect(importantSchedule([r], TODAY).items).toEqual([]); // 2029년 기한 → 지금은 표시 범위 밖
+    expect(IMPORTANT_DISPLAY_LIMIT).toBe(5);
+    expect(importantSchedule([r], '2029-01-01').items).toEqual([]);
     expect(scheduleForRange([r], { start: '2029-09-11', end: '2029-09-11' }, TODAY).some((i) => i.priority === 'critical')).toBe(true);
   });
 
   test('최대 5개, critical 먼저, 남은 개수(total) 제공', () => {
-    const many = Array.from({ length: 7 }, (_, k) => {
-      const r = record(`c-${k}`, { title: `렌탈 ${k}`, category: 'rental', contractType: 'recurring', startDate: '2025-01-01', endDate: `2027-0${(k % 7) + 1}-15`, payments: [], autoRenewal: true, notice: '30' });
-      return r;
-    });
-    const { items, total } = importantSchedule(many, TODAY);
+    const many = Array.from({ length: 7 }, (_, k) =>
+      record(`c-${k}`, { title: `렌탈 ${k}`, category: 'rental', contractType: 'recurring', startDate: '2025-01-01', endDate: `2027-01-${String(10 + k).padStart(2, '0')}`, payments: [], autoRenewal: true, notice: '30' }),
+    );
+    // 2026-12-20: 통보기한(12/11~12/17)은 지났거나 임박, 자동갱신 예정일(1/11~1/17)은 30일 안
+    const { items, total } = importantSchedule(many, '2026-12-05');
     expect(items).toHaveLength(5);
     expect(total).toBeGreaterThan(5);
     const firstImportant = items.findIndex((x) => x.priority === 'important');
