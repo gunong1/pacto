@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -32,6 +32,7 @@ import {
   OBLIGATION_LABEL,
 } from '@/domain/contractTypes';
 import { BUSINESS_DAY_RULE_LABEL } from '@/domain/businessDays';
+import { suggestCategory, withRo } from '@/domain/categorySuggestion';
 import { addMonths, formatDateKo } from '@/domain/dates';
 import { categoryLabel, FREQUENCY_LABEL } from '@/domain/labels';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
@@ -132,6 +133,9 @@ function newPayment(kind: PaymentKind): PaymentFormValues {
 export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit, variant = 'full' }: ContractFormProps) {
   const quick = variant === 'quick' && !!defaultValues.quick;
   const [more, setMore] = useState(false);
+  /** 빠른 입력: 사용자가 분야를 직접 골랐으면 더 이상 추천으로 바꾸지 않는다 */
+  const [categoryPicked, setCategoryPicked] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),
     defaultValues,
@@ -141,6 +145,18 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   const dates = useFieldArray({ control, name: 'dates' });
 
   const values = useWatch({ control }) as ContractFormValues;
+
+  // 빠른 입력: 계약명으로 분야 추천 (확정 아님 · 애매하면 기타 유지 · 직접 고르면 그 값 유지)
+  const nameSuggestion = quick ? suggestCategory(values.title ?? '') : null;
+  const suggestedCategory = nameSuggestion?.category ?? 'other';
+  useEffect(() => {
+    if (!quick || categoryPicked) return;
+    if (getValues('category') !== suggestedCategory) setValue('category', suggestedCategory);
+  }, [quick, categoryPicked, suggestedCategory, getValues, setValue]);
+  const pickCategory = (c: ContractFormValues['category']) => {
+    setCategoryPicked(true);
+    setValue('category', c);
+  };
   const type = values.contractType;
   const profile = profileOf(type);
 
@@ -495,6 +511,24 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         {header}
         <Section testID="quick-basic">
           {field('title', '계약명', { placeholder: '예: 유튜브 프리미엄' })}
+          {categoryPicked || nameSuggestion ? (
+            <View style={styles.categoryLine} testID="category-suggestion-line">
+              <AppText variant="caption" color="textSecondary" testID="category-suggestion-text">
+                {categoryPicked ? `분야: ${categoryLabel(values.category)}` : `${withRo(categoryLabel(values.category))} 분류했어요`}
+              </AppText>
+              {!categoryPicked ? <Badge label="추천" tone="primary" /> : null}
+              <Pressable onPress={() => setCategoryOpen((o) => !o)} hitSlop={hitSlop} accessibilityRole="button" testID="category-change">
+                <AppText variant="captionStrong" color="primary">
+                  {categoryOpen ? '닫기' : '변경'}
+                </AppText>
+              </Pressable>
+            </View>
+          ) : null}
+          {categoryOpen ? (
+            <View style={{ marginBottom: spacing.lg }}>
+              <ChipGroup options={CATEGORY_OPTIONS} value={values.category} onChange={(c) => { pickCategory(c); setCategoryOpen(false); }} testIDPrefix="quick-category" />
+            </View>
+          ) : null}
           <FormLabel label="계약 유형" />
           <ChipGroup options={TYPE_OPTIONS} value={type} onChange={changeType} testIDPrefix="type" />
           <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }}>
@@ -549,7 +583,12 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
               {field('counterparty', '계약 상대방', { placeholder: '예: 구글' })}
               {date('contractDate', '계약 체결일', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
               <FormLabel label="분야" />
-              <Controller control={control} name="category" render={({ field: f }) => <ChipGroup options={CATEGORY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="category" />} />
+              {!categoryPicked && nameSuggestion ? (
+                <AppText variant="caption" color="textTertiary" style={{ marginBottom: spacing.sm }}>
+                  계약명으로 추천했어요. 맞지 않으면 바꿔주세요.
+                </AppText>
+              ) : null}
+              <ChipGroup options={CATEGORY_OPTIONS} value={values.category} onChange={pickCategory} testIDPrefix="category" />
             </Section>
             {detailsBlock}
             <SectionGap />
@@ -810,6 +849,7 @@ const OBLIGATION_OPTIONS = [
 const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
 
 const styles = StyleSheet.create({
+  categoryLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: -spacing.sm, marginBottom: spacing.lg },
   moreWrap: { paddingHorizontal: spacing.gutter, paddingTop: spacing.sm },
   more: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   components: { marginTop: spacing.md, padding: spacing.md, gap: 4, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
