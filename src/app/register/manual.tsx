@@ -20,14 +20,14 @@ export default function ManualEntryScreen() {
 
   return (
     <ContractForm
-      defaultValues={{ ...draftToForm({ ...EMPTY_DRAFT, contractType: 'recurring' }), quick: { amount: '', direction: quickDirectionAdvice('recurring').direction, frequency: quickDefaultFrequency('recurring'), nextDate: '' } }}
+      defaultValues={{ ...draftToForm({ ...EMPTY_DRAFT, contractType: 'recurring' }), quick: { amount: '', direction: quickDirectionAdvice('recurring').direction, frequency: quickDefaultFrequency('recurring'), day: '', nextDate: '' } }}
       variant="quick"
       today={today}
       header={
         <View style={{ paddingHorizontal: spacing.gutter, paddingTop: spacing.lg }}>
           <AppText variant="title2">빠르게 등록하기</AppText>
           <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
-            계약명만 있어도 저장할 수 있어요. 금액과 다음 결제일을 넣으면 캘린더에 결제 일정이 만들어져요.
+            계약명만 있어도 저장할 수 있어요. 금액과 결제일을 넣으면 캘린더에 결제 일정이 만들어져요.
           </AppText>
         </View>
       }

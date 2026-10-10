@@ -1,7 +1,7 @@
 /**
  * 직접 입력(빠른 입력) — 문서 없는 계약을 가계부처럼 30초 안에 등록
- * A 기본 화면: 계약명·유형·금액·결제 주기·다음 결제일 + 선택(시작·종료·자동갱신·메모)만, 상세 정보는 접혀 있음
- * B "유튜브 프리미엄 · 월 14,900원 · 다음 결제일 · 자동갱신 ON"만 입력해 저장 → 상세에 매월 결제로 표시
+ * A 기본 화면: 계약명·유형·금액·결제 주기·결제일(매월: N일) + 선택(시작·종료·자동갱신·메모)만, 상세 정보는 접혀 있음
+ * B "유튜브 프리미엄 · 월 14,900원 · 결제일 N일 · 자동갱신 ON"만 입력해 저장 → 상세에 매월 결제로 표시
  * C "+ 상세 정보 추가" → 상대방·체결일·통보기한·주요 날짜·위약금·종료 메모·기타 조건 펼침
  * D 금액만 넣고 날짜를 비우면 저장되지 않고 안내
  * F 분야 추천: 계약명 → "구독으로 분류했어요 [추천] 변경", 애매하면 추천 없음(기타), 직접 고르면 그 값 유지
@@ -53,7 +53,7 @@ const kst = (n) => {
   // A
   await openManual();
   await page.screenshot({ path: path.join(SHOTS, 'quick-01-form.png'), fullPage: true });
-  const visible = ['field-title', 'type-recurring', 'quick-amount', 'quick-frequency-monthly', 'quick-nextDate', 'field-startDate', 'field-endDate', 'field-autoRenewal', 'field-memo'];
+  const visible = ['field-title', 'type-recurring', 'quick-amount', 'quick-frequency-monthly', 'quick-day', 'field-startDate', 'field-endDate', 'field-autoRenewal', 'field-memo'];
   const hidden = ['field-counterparty', 'field-contractDate', 'field-terminationNoticeDays', 'add-date', 'field-penaltyTerms', 'field-earlyTerminationTerms', 'field-totalAmount', 'add-payment'];
   const missing = [];
   for (const id of visible) if (!(await has(id))) missing.push(id);
@@ -67,8 +67,11 @@ const kst = (n) => {
   const t0 = Date.now();
   await input('field-title').fill('유튜브 프리미엄');
   await input('quick-amount').fill('14900');
-  await input('quick-nextDate').fill(kst(3));
-  await input('quick-nextDate').blur();
+  // 매월: "결제일 N일"만 (다음 날짜를 계산해 넣지 않음)
+  const dayText = await page.locator(tid('quick-payment')).innerText();
+  check('H1', '매월 → "결제일" + "매월 몇 일에 결제되나요?" (다음 결제일 아님)', dayText.includes('결제일') && dayText.includes('매월 몇 일에 결제되나요?') && !dayText.includes('다음 결제일'));
+  await input('quick-day').fill(String(Number(kst(3).slice(4))));
+  await input('quick-day').blur();
   await page.click(tid('field-autoRenewal'));
   const period = await input('field-renewalPeriodMonths').inputValue();
   check('B1', '자동갱신을 켜면 갱신 주기가 결제 주기(1개월)로 미리 채워짐', period === '1', period);
@@ -97,7 +100,17 @@ const kst = (n) => {
   await page.click(tid('submit-contract'));
   await page.waitForTimeout(600);
   const body = await page.locator('body').innerText();
-  check('D', '금액만 있고 다음 결제일이 없으면 저장하지 않고 안내', body.includes('다음 결제일을 입력해주세요') && !(await has('detail-core')));
+  check('D', '금액만 있고 결제일이 없으면 저장하지 않고 안내', body.includes('결제일을 입력해주세요') && !(await has('detail-core')));
+  // 주기별 날짜 이름
+  const label = () => page.locator(tid('quick-payment')).innerText();
+  await page.click(tid('quick-frequency-quarterly'));
+  await page.waitForTimeout(150);
+  const q = await label();
+  await page.click(tid('quick-frequency-one_time'));
+  await page.waitForTimeout(150);
+  const o = await label();
+  await page.click(tid('quick-frequency-monthly'));
+  check('H2', '분기마다 → "첫 결제일" / 일회성 → "결제 예정일"', q.includes('첫 결제일') && o.includes('결제 예정일') && !q.includes('다음 결제일'));
 
   // F 분야 추천
   await openManual();
@@ -130,14 +143,14 @@ const kst = (n) => {
   const head = await page.locator('body').innerText();
   check('F8', '저장 → 상세에 분야 구독', head.includes('구독'), head.slice(0, 120));
 
-  // G 돈의 방향 — 유형으로 고정하지 않음 (추천만, 언제든 변경)
+  // G 금액 구분(지출·수입·중립) — 유형으로 고정하지 않음 (추천만, 언제든 변경)
   await openManual();
   const dir = async () => {
     for (const d of ['expense', 'income', 'neutral']) if ((await page.locator(`${tid(`quick-direction-${d}`)}[aria-selected="true"]`).count()) > 0) return d;
     return null;
   };
   const payText = () => page.locator(tid('quick-payment')).innerText();
-  check('G1', '금액 섹션 제목은 "금액" (내는 돈·받는 돈 고정 아님) · 방향 3가지', (await payText()).startsWith('금액') && (await has('quick-direction-expense')) && (await has('quick-direction-income')) && (await has('quick-direction-neutral')));
+  check('G1', '금액 섹션 제목은 "금액" (내는 돈·받는 돈 고정 아님) · "금액 구분" 3가지', (await payText()).startsWith('금액') && (await payText()).includes('금액 구분') && !(await payText()).includes('돈의 방향') && (await has('quick-direction-expense')) && (await has('quick-direction-income')) && (await has('quick-direction-neutral')));
   check('G2', '월 납입형 → 지출 추천', (await dir()) === 'expense' && (await payText()).includes('추천'));
   await page.click(tid('type-employment'));
   await page.waitForTimeout(150);
@@ -148,7 +161,7 @@ const kst = (n) => {
   check('G4', '매매 → 지출이 기본이지만 "추천" 표시 없음 · 매수/매도 안내', (await dir()) === 'expense' && !saleText.includes('추천') && saleText.includes('파는(매도)'));
   await page.click(tid('quick-direction-income'));
   await page.waitForTimeout(150);
-  check('G5', '매매에서 수입(매도) 선택 → 날짜 이름도 "지급일"', (await dir()) === 'income' && (await payText()).includes('지급일'));
+  check('G5', '매매에서 수입(매도) 선택 → 날짜 이름도 "지급 예정일"', (await dir()) === 'income' && (await payText()).includes('지급 예정일'));
   await page.click(tid('type-service'));
   await page.click(tid('type-sale'));
   await page.waitForTimeout(150);

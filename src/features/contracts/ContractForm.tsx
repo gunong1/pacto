@@ -142,7 +142,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   const [more, setMore] = useState(false);
   /** 빠른 입력: 사용자가 분야를 직접 골랐으면 더 이상 추천으로 바꾸지 않는다 */
   const [categoryPicked, setCategoryPicked] = useState(false);
-  /** 빠른 입력: 돈의 방향을 직접 골랐는지 (고른 뒤에는 유형을 바꿔도 유지) */
+  /** 빠른 입력: 금액 구분(지출·수입·중립)을 직접 골랐는지 (고른 뒤에는 유형을 바꿔도 유지) */
   const [directionPicked, setDirectionPicked] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
@@ -191,7 +191,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
     }
     // 빠른 입력: 주기를 직접 바꾸지 않았다면 새 유형의 기본 주기로
     if (quick && getValues('quick.frequency') === quickDefaultFrequency(prev)) setValue('quick.frequency', quickDefaultFrequency(next));
-    // 빠른 입력: 돈의 방향을 직접 고르지 않았다면 새 유형의 추천으로 (고른 뒤에는 유지)
+    // 빠른 입력: 금액 구분(지출·수입·중립)을 직접 고르지 않았다면 새 유형의 추천으로 (고른 뒤에는 유지)
     if (quick && !directionPicked) setValue('quick.direction', quickDirectionAdvice(next).direction);
     setValue('contractType', next);
     setValue('details', detailsToForm(next, cleanDetails(next, merged)));
@@ -495,7 +495,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
     </>
   );
   const submit = handleSubmit(
-    (v) => onSubmit(confirmEdited(formToDraft(v), defaultValues, getValues())),
+    (v) => onSubmit(confirmEdited(formToDraft(v, today), defaultValues, getValues())),
     (errors) => {
       // 빠른 입력: 접힌 상세 정보에 오류가 있으면 펼쳐서 보여준다
       if (quick && Object.keys(errors).some((k) => !QUICK_VISIBLE.has(k))) setMore(true);
@@ -517,6 +517,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
     const advice = quickDirectionAdvice(type);
     const income = q?.direction === 'income';
     const oneTime = q?.frequency === 'one_time';
+    const monthly = (q?.frequency ?? 'monthly') === 'monthly';
     const day = q?.nextDate && /^\d{4}-\d{2}-\d{2}$/.test(q.nextDate) ? Number(q.nextDate.slice(8, 10)) : null;
     return (
       <Screen edges={['bottom']} footer={footer}>
@@ -552,7 +553,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         <Section title="금액" caption="비워두면 결제 없이 저장돼요" testID="quick-payment">
           {field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
           <View style={styles.directionLabel}>
-            <FormLabel label="돈의 방향" />
+            <FormLabel label="금액 구분" />
             {advice.clear && !directionPicked && q?.direction === advice.direction ? <Badge label="추천" tone="primary" /> : null}
           </View>
           <Controller
@@ -576,10 +577,19 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           <FormLabel label={income ? '지급 주기' : '결제 주기'} />
           <Controller control={control} name="quick.frequency" render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value ?? 'monthly'} onChange={f.onChange} scroll testIDPrefix="quick-frequency" />} />
           <View style={{ height: spacing.lg }} />
-          {date('quick.nextDate', oneTime ? (income ? '지급일' : '결제일') : income ? '다음 지급일' : '다음 결제일', {
-            testID: 'quick-nextDate',
-            hint: day && !oneTime ? `${FREQUENCY_LABEL[q?.frequency ?? 'monthly']} ${day}일에 ${income ? '받아요' : '결제돼요'}` : undefined,
-          })}
+          {monthly
+            ? field('quick.day', income ? '지급일' : '결제일', {
+                keyboardType: 'number-pad',
+                suffix: '일',
+                maxLength: 2,
+                placeholder: '예: 15',
+                testID: 'quick-day',
+                hint: income ? '매월 몇 일에 받나요?' : '매월 몇 일에 결제되나요?',
+              })
+            : date('quick.nextDate', oneTime ? (income ? '지급 예정일' : '결제 예정일') : income ? '첫 지급일' : '첫 결제일', {
+                testID: 'quick-nextDate',
+                hint: day && !oneTime ? `이날부터 ${FREQUENCY_LABEL[q?.frequency ?? 'monthly']} ${day}일에 ${income ? '받아요' : '결제돼요'}` : undefined,
+              })}
         </Section>
 
         <SectionGap />
@@ -749,7 +759,7 @@ function SchedulePreview({ values, today }: { values: ContractFormValues; today:
   const preview = useMemo(() => {
     const parsed = contractFormSchema.safeParse(values);
     if (!parsed.success) return null;
-    const record = draftToRecord(formToDraft(parsed.data), 'preview', today);
+    const record = draftToRecord(formToDraft(parsed.data, today), 'preview', today);
     const pays = record.payments.map((p) => ({ p, first: expandPayment(p, record.contract, { start: '1900-01-01', end: '2999-12-31' }, record.dates)[0] ?? null }));
     const items = contractSchedule(record, { start: today, end: addMonths(today, 36) }, today).filter((i) => i.type !== 'payment');
     return { items: items.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6), pays };

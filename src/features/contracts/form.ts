@@ -19,7 +19,7 @@ import {
   type DetailFieldSpec,
   type Direction,
 } from '@/domain/contractTypes';
-import { isValidISODate, normalizeDateInput } from '@/domain/dates';
+import { daysInMonth, isValidISODate, normalizeDateInput, toISODate, todayInSeoul } from '@/domain/dates';
 import { formatAmountInput, parseAmount } from '@/domain/money';
 import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES } from '@/domain/types';
 
@@ -72,9 +72,12 @@ const paymentFormSchema = z.object({
  */
 const quickFormSchema = z.object({
   amount: optionalAmount,
-  /** 돈의 방향 — 유형으로 고정하지 않고 사용자가 고른다 (기본은 유형별 추천) */
+  /** 금액 구분(지출·수입·중립) — 유형으로 고정하지 않고 사용자가 고른다 (기본은 유형별 추천) */
   direction: z.enum(DIRECTIONS),
   frequency: z.enum(PAYMENT_FREQUENCIES),
+  /** 매월: 결제일(1~31)만 받는다 — 첫 결제일은 저장할 때 오늘 기준 다음 그날로 계산 */
+  day: optionalInt(1, 31, '1~31 사이로 입력해주세요').optional(),
+  /** 2개월마다·분기·6개월·매년: 첫 결제일 / 일회성: 결제 예정일 */
   nextDate: optionalDate,
 });
 
@@ -115,11 +118,17 @@ export const contractFormSchema = z
       ctx.addIssue({ code: 'custom', path: ['endDate'], message: '종료일이 시작일보다 빠릅니다' });
     }
     if (v.quick) {
-      const hasAmount = v.quick.amount.trim() !== '';
-      if (hasAmount && !v.quick.nextDate) {
-        ctx.addIssue({ code: 'custom', path: ['quick', 'nextDate'], message: v.quick.frequency === 'one_time' ? '결제일을 입력해주세요' : '다음 결제일을 입력해주세요' });
+      const q = v.quick;
+      const hasAmount = q.amount.trim() !== '';
+      const income = q.direction === 'income';
+      // 매월은 날짜(일)만, 그 밖의 주기는 날짜 — 해당 칸만 본다
+      const monthly = q.frequency === 'monthly';
+      const hasWhen = monthly ? !!q.day?.trim() : !!q.nextDate;
+      if (hasAmount && !hasWhen) {
+        const label = monthly ? (income ? '지급일' : '결제일') : q.frequency === 'one_time' ? (income ? '지급 예정일' : '결제 예정일') : income ? '첫 지급일' : '첫 결제일';
+        ctx.addIssue({ code: 'custom', path: ['quick', monthly ? 'day' : 'nextDate'], message: `${label}을 입력해주세요` });
       }
-      if (!hasAmount && v.quick.nextDate) ctx.addIssue({ code: 'custom', path: ['quick', 'amount'], message: '금액을 입력해주세요' });
+      if (!hasAmount && hasWhen) ctx.addIssue({ code: 'custom', path: ['quick', 'amount'], message: '금액을 입력해주세요' });
     }
     if (v.autoRenewal && v.renewalPeriodMonths.trim() === '') {
       ctx.addIssue({ code: 'custom', path: ['renewalPeriodMonths'], message: '갱신 주기를 입력해주세요' });
@@ -282,9 +291,20 @@ export function quickDirectionAdvice(type: ContractType): { direction: Direction
 }
 
 /** 빠른 입력 → 결제 1건. 다음 결제일이 첫 결제일, 그 날짜의 '일'이 매번 결제일 (예: 10월 12일 → 매월 12일) */
-export function quickToPayment(type: ContractType, q: NonNullable<ParsedContractForm['quick']>): PaymentDraft | null {
+/** 매월 결제일(일) → 오늘 이후 첫 그날 (이번 달에 지났으면 다음 달, 없는 날짜는 그 달 말일) */
+export function nextMonthlyDate(today: string, day: number): string {
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7));
+  const d = Number(today.slice(8, 10));
+  const [yy, mm] = day >= d || day >= daysInMonth(y, m) ? [y, m] : m === 12 ? [y + 1, 1] : [y, m + 1];
+  return toISODate(yy, mm, Math.min(day, daysInMonth(yy, mm)));
+}
+
+export function quickToPayment(type: ContractType, q: NonNullable<ParsedContractForm['quick']>, today: string = todayInSeoul()): PaymentDraft | null {
   const amount = parseAmount(q.amount);
-  if (amount == null || !q.nextDate) return null;
+  const monthlyDay = q.frequency === 'monthly' && q.day?.trim() ? Number(q.day) : null;
+  const first = monthlyDay ? nextMonthlyDate(today, monthlyDay) : q.nextDate;
+  if (amount == null || !first) return null;
   const kind = quickPaymentKind(type);
   const oneTime = q.frequency === 'one_time';
   return {
@@ -293,9 +313,10 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
     label: paymentKindLabel(kind),
     amount,
     frequency: q.frequency,
-    dayOfMonth: oneTime ? null : Number(q.nextDate.slice(8, 10)),
+    // 31일처럼 없는 달은 일정 계산에서 말일로 보정한다
+    dayOfMonth: oneTime ? null : (monthlyDay ?? Number(first.slice(8, 10))),
     monthOfYear: null,
-    startsOn: q.nextDate,
+    startsOn: first,
     endsOn: null,
     installmentCount: null,
     isVariable: false,
@@ -306,8 +327,8 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
   };
 }
 
-export function formToDraft(v: ParsedContractForm): ContractDraft {
-  const quick = v.quick ? quickToPayment(v.contractType, v.quick) : null;
+export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul()): ContractDraft {
+  const quick = v.quick ? quickToPayment(v.contractType, v.quick, today) : null;
   return {
     contractType: v.contractType,
     title: v.title.trim(),
