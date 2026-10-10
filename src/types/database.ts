@@ -304,13 +304,13 @@ isOneToOne: false
                   ]
                 },"notification_preferences": {
                   Row: {
-                    "categories": NonNullable<Json>,"created_at": string,"default_times": string[],"enabled": boolean,"time_of_day": string,"updated_at": string,"user_id": string
+                    "categories": NonNullable<Json>,"created_at": string,"default_times": (string)[],"enabled": boolean,"time_of_day": string,"updated_at": string,"user_id": string
                   }
                   Insert: {
-                    "categories"?: NonNullable<Json>,"created_at"?: string,"default_times"?: string[],"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
+                    "categories"?: NonNullable<Json>,"created_at"?: string,"default_times"?: (string)[],"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
                   }
                   Update: {
-                    "categories"?: NonNullable<Json>,"created_at"?: string,"default_times"?: string[],"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
+                    "categories"?: NonNullable<Json>,"created_at"?: string,"default_times"?: (string)[],"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -330,13 +330,13 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "ai_processing_agreed_at": string | null,"created_at": string,"display_name": string | null,"id": string,"onboarding_completed_at": string | null,"privacy_agreed_at": string | null,"push_preview_enabled": boolean,"terms_agreed_at": string | null,"timezone": string,"updated_at": string
+                    "ai_processing_agreed_at": string | null,"avatar_path": string | null,"created_at": string,"display_name": string | null,"id": string,"onboarding_completed_at": string | null,"privacy_agreed_at": string | null,"push_preview_enabled": boolean,"terms_agreed_at": string | null,"timezone": string,"updated_at": string
                   }
                   Insert: {
-                    "ai_processing_agreed_at"?: string | null,"created_at"?: string,"display_name"?: string | null,"id": string,"onboarding_completed_at"?: string | null,"privacy_agreed_at"?: string | null,"push_preview_enabled"?: boolean,"terms_agreed_at"?: string | null,"timezone"?: string,"updated_at"?: string
+                    "ai_processing_agreed_at"?: string | null,"avatar_path"?: string | null,"created_at"?: string,"display_name"?: string | null,"id": string,"onboarding_completed_at"?: string | null,"privacy_agreed_at"?: string | null,"push_preview_enabled"?: boolean,"terms_agreed_at"?: string | null,"timezone"?: string,"updated_at"?: string
                   }
                   Update: {
-                    "ai_processing_agreed_at"?: string | null,"created_at"?: string,"display_name"?: string | null,"id"?: string,"onboarding_completed_at"?: string | null,"privacy_agreed_at"?: string | null,"push_preview_enabled"?: boolean,"terms_agreed_at"?: string | null,"timezone"?: string,"updated_at"?: string
+                    "ai_processing_agreed_at"?: string | null,"avatar_path"?: string | null,"created_at"?: string,"display_name"?: string | null,"id"?: string,"onboarding_completed_at"?: string | null,"privacy_agreed_at"?: string | null,"push_preview_enabled"?: boolean,"terms_agreed_at"?: string | null,"timezone"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -416,8 +416,14 @@ isOneToOne: false
 "unregister_push_token":
 { Args: { "p_device_id": string }; Returns: undefined
                            },
+"valid_display_name":
+{ Args: { "v": string }; Returns: boolean
+                           },
 "valid_notification_categories":
 { Args: { "c": Json }; Returns: boolean
+                           },
+"valid_notification_times":
+{ Args: { "t": (string)[] }; Returns: boolean
                            }
           }
           Enums: {

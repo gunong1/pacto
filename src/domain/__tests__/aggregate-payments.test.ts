@@ -79,7 +79,7 @@ describe('서버 분석 결과', () => {
     result.payments.unshift({ ...result.payments[0], label: '보증금', amount: 20000000, date: null });
     const m = toReviewModel(result, ['doc-1']);
     expect(m.draft.payments.map((p) => p.label)).toEqual(['계약금', '잔금', '월세', '관리비']);
-    expect(m.references).toContainEqual({ label: '보증금', amount: 20000000 });
+    expect(m.references).toContainEqual({ label: '보증금', amount: 20000000, role: 'total' });
     expectFixed(draftToRecord(m.draft, 'lease', TODAY));
   });
 });

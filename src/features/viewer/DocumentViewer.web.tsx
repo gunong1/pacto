@@ -11,13 +11,10 @@ export type { ViewerEvent } from './viewerMessages';
 export function DocumentViewer({
   config,
   onEvent,
-  onMounted,
   controlRef,
 }: {
   config: ViewerConfig;
   onEvent: (e: ViewerEvent) => void;
-  onMounted?: () => void;
-  variant?: 'min' | 'base' | 'full';
   controlRef?: MutableRefObject<ViewerControl | null>;
 }) {
   const html = useMemo(() => htmlFor(config), [config]);
@@ -44,5 +41,5 @@ export function DocumentViewer({
   }, [onEvent]);
   // iframe 안에서는 window.ReactNativeWebView 대신 부모 창으로 알린다
   const doc = html.replace('<head>', '<head><script>window.ReactNativeWebView={postMessage:function(m){parent.postMessage(m,"*")}};</script>');
-  return <iframe ref={frame} title="계약서" srcDoc={doc} sandbox="allow-scripts" style={{ border: 0, flex: 1, width: '100%', height: '100%' }} data-testid="document-viewer" onLoad={() => onMounted?.()} />;
+  return <iframe ref={frame} title="계약서" srcDoc={doc} sandbox="allow-scripts" style={{ border: 0, flex: 1, width: '100%', height: '100%' }} data-testid="document-viewer" />;
 }

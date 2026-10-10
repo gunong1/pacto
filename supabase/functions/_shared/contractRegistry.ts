@@ -149,6 +149,8 @@ export type PaymentObligation = (typeof PAYMENT_OBLIGATIONS)[number];
 
 /** 지급일이 휴일일 때 실제 지급일 규칙 */
 export const BUSINESS_DAY_RULES = ['none', 'previous', 'next'] as const;
+/** 금액의 기준: 실제 결제액 / 할인 전(정상가) 금액 */
+export const PRICE_BASES = ['actual', 'before_discount'] as const;
 export type BusinessDayRule = (typeof BUSINESS_DAY_RULES)[number];
 
 /**
@@ -249,6 +251,7 @@ export const CHECK_TOPIC_DEFS: readonly { code: string; label: string; types: re
   { code: 'revision', label: '수정 요구', types: ['service'] },
   { code: 'copyright', label: '저작권·결과물', types: ['service'] },
   { code: 'handover', label: '인도·이전', types: ['sale'] },
+  { code: 'discount_terms', label: '할인·면제 조건', types: [] },
   { code: 'other', label: '기타', types: [] },
 ];
 

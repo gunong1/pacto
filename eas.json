@@ -8,7 +8,7 @@
       "distribution": "internal",
       "environment": "preview",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_SHOW_PUSH_TEST": "true", "EXPO_PUBLIC_VIEWER_DIAGNOSTICS": "true" }
+      "env": { "EXPO_PUBLIC_SHOW_PUSH_TEST": "true" }
     },
     "production": {
       "environment": "production",

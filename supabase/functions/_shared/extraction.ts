@@ -9,6 +9,7 @@
 
 import {
   AMOUNT_ROLES,
+  PRICE_BASES,
   BUSINESS_DAY_RULES,
   PAYMENT_OBLIGATIONS,
   CHECK_BEHAVIORS,
@@ -32,7 +33,7 @@ import { maskLevel1Deep } from './protection/sensitive.ts';
  * v7: document_check(문서 역할·쪽별 판정·계약 신호) + 모든 추출값에 근거 파일·쪽
  * v8: 결제 날짜의 출처(date_source) — "계약 당일 지급"처럼 다른 날짜를 기준으로 하는 금액은 그 기준 날짜를 쓰고, 옆 줄 날짜를 옮기지 않는다
  */
-export const PROMPT_VERSION = 'extract-v9';
+export const PROMPT_VERSION = 'extract-v10';
 
 export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export const FREQUENCIES = ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly', 'one_time'] as const;
@@ -176,6 +177,11 @@ export function extractionJsonSchema() {
         direction: { type: 'string', enum: [...DIRECTIONS], description: '사용자 기준: 내는 돈 expense / 받는 돈 income / 돌려받는 보증금 등 neutral' },
         label: { type: 'string', description: '계약서의 항목 이름 (예: 월 렌탈료, 초기 설치비, 월 급여, 잔금)' },
         amount: { type: 'integer', description: '1회 금액(원)' },
+        price_basis: {
+          type: 'string',
+          enum: [...PRICE_BASES],
+          description: 'actual: 실제로 내는(받는) 금액 / before_discount: "할인전·할인 전·정상가·프로모션 적용 전"처럼 할인을 적용하기 전 금액 (실제 결제액이 아님)',
+        },
         frequency: { type: 'string', enum: [...FREQUENCIES] },
         day_of_month: { type: ['integer', 'null'], description: '정기 결제·지급일(매월 N일의 N). 명시된 경우만' },
         date: { type: ['string', 'null'], description: '일시불의 지급일 또는 정기 결제의 첫 결제일 (YYYY-MM-DD). 이 금액의 문구에 날짜가 직접 적혀 있을 때만. 기준 날짜(date_source)를 따르면 그 기준 날짜 또는 null' },
@@ -289,6 +295,10 @@ export function extractionInstructions(today: string): string {
     '   - "매월 20일"은 정기 결제의 day_of_month=20 (date_source=explicit, date는 첫 결제일이 적혀 있을 때만).',
     '   - 급여·용역 대금 같은 정기 수입의 지급일은 "매월 25일 지급"처럼 적혀 있을 때만 day_of_month. 근로 시작일·계약 시작일의 날짜를 지급일로 쓰지 않습니다(없으면 null). day_of_month를 넣으면 evidence_quote에 지급일 문장을 포함합니다.',
     '   금액마다 payment_obligation을 판단합니다 (아래 원칙).',
+    '   할인 (중요): "할인전·할인 전·정상가·프로모션 적용 전"이 붙은 금액은 실제 결제액이 아닙니다 → price_basis=before_discount (실제 결제액을 계산해 넣지 않음).',
+    '   그 외에는 price_basis=actual. 할인액 자체(예: "전체회차 14,000원 할인")는 결제로 넣지 않고 checks(topic=discount_terms)에 원문 그대로 넣습니다.',
+    '   특정 회차 면제·무료(예: "1, 13, 25회차 면제")도 결제를 나누지 말고 checks(topic=discount_terms)에 넣습니다.',
+    '   면제된 비용(예: "등록비 100,000원 면제", "설치비 무료")은 role=reference로 넣습니다 (결제 일정 아님).',
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
     '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·해지·만기 조건(자동갱신, 연장 기간, 통보기한 일수, 중도해지·위약금). 계약서에 있는 key만 목록으로.',
@@ -397,6 +407,11 @@ export interface ExtractedPayment {
   conditionNote: string | null;
   /** 이 금액을 이루는 하위 항목 (합산하지 않는다) */
   components: ExtractedComponent[];
+  /**
+   * 금액 확인 필요 사유 — discount_unconfirmed: 계약서 금액이 할인 전(정상가) 금액이라 실제 결제액이 아님.
+   * 앱은 이 금액을 결제액으로 채우지 않고 사용자에게 실제 결제액을 입력받는다 (amount는 계약서에 적힌 할인 전 금액)
+   */
+  amountCheck?: 'discount_unconfirmed' | null;
   businessDayRule: (typeof BUSINESS_DAY_RULES)[number];
   confidence: Confidence;
   sourceType: ModelSource;
@@ -437,8 +452,8 @@ export interface AppExtractionResult {
   fields: Record<string, Extracted>;
   dates: ExtractedDate[];
   payments: ExtractedPayment[];
-  /** 합계·참고 금액 (결제·지출에 넣지 않음) */
-  references: (ExtractedComponent & { role: 'total' | 'reference' })[];
+  /** 합계·참고·면제·할인 금액 (결제·지출에 넣지 않음) — waived: 면제된 금액(등록비 면제 등), discount: 할인액 */
+  references: (ExtractedComponent & { role: 'total' | 'reference' | 'waived' | 'discount' })[];
   /** 유형별 속성 (DB 키 snake_case) — 앱이 선택된 유형의 스키마로 다시 검증한다 */
   details: Record<string, ExtractedDetail>;
   checks: ExtractedCheck[];
@@ -492,6 +507,19 @@ export function quoteHasPayDay(quote: string, day: number): boolean {
   if (new RegExp(`(?<![0-9])${day}\\s*일`).test(quote)) return true;
   return day >= 28 && /말일|마지막\s*날/.test(quote);
 }
+/** 할인을 적용하기 전 금액 — 실제 결제액으로 자동 저장하지 않는다 ("고정가·확정가"의 정가는 제외) */
+export const PRE_DISCOUNT = /할인\s*(?:적용\s*)?전|정상\s*가|(?<![고확])정가|프로모션\s*(?:적용\s*)?전|소비자\s*가격?/;
+/** 면제된 금액을 모아 보여주는 체크 제목 */
+export const WAIVED_CHECK_TITLE = '면제된 금액';
+/**
+ * 그 자체가 할인액인 항목 — 이름이 "…할인(액·금액·혜택)"으로 끝남 (예: E규정 할인, 프로모션 할인). 결제가 아님.
+ * "할인 적용 월 렌탈료"·"할인 후 요금"처럼 할인을 적용한 실제 금액은 해당하지 않는다
+ */
+const DISCOUNT_ITEM = /(?:할인|감면|캐시백)\s*(?:액|금액|혜택)?\s*\)?$/;
+const DISCOUNT_APPLIED = /할인\s*(?:적용|후)|적용\s*(?:가|금액|후)/;
+/** 면제된 일회성 비용 (등록비 면제·설치비 무료 등) — 결제가 아님. 정기 결제의 "N회차 면제"는 결제를 그대로 두고 조건으로 */
+const WAIVED = /면제|무료|무상/;
+
 /** 이용 기간이 아니라 한 번에 내는 돈 */
 const LUMP_SUM = /일시불|일시납|선납|1회\s*(?:결제|납부)|한\s*번에/;
 
@@ -720,6 +748,17 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
       references.push({ label, amount, role });
       continue;
     }
+    // 금액 문구(이름 + 원문)로 할인 전·할인액·면제를 가린다 — 모델이 결제로 보냈어도 결제로 만들지 않는다
+    const said = `${label} ${(quoteOf(p).evidence ?? []).map((e) => e.quote).join(' ')}`;
+    const beforeDiscount = p.price_basis === 'before_discount' || PRE_DISCOUNT.test(said);
+    if (!beforeDiscount && p.frequency === 'one_time' && WAIVED.test(said)) {
+      references.push({ label, amount, role: 'waived' });
+      continue;
+    }
+    if (!beforeDiscount && DISCOUNT_ITEM.test(label) && !DISCOUNT_APPLIED.test(label)) {
+      references.push({ label, amount, role: 'discount' });
+      continue;
+    }
     const frequency = oneOf(FREQUENCIES, p.frequency);
     if (frequency === null) continue;
     const oneTime = frequency === 'one_time';
@@ -741,6 +780,8 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
       isVariable: p.is_variable === true,
       ...obligationOf(p, label, quoteOf(p).evidence?.[0]?.quote ?? ''),
       components: [],
+      // 할인 전(정상가) 금액: 실제 결제액이 아니므로 확정하지 않고 사용자 확인을 받는다 (자동으로 빼서 계산하지 않음)
+      amountCheck: beforeDiscount ? 'discount_unconfirmed' : null,
       businessDayRule: oneTime ? 'none' : (oneOf(BUSINESS_DAY_RULES, p.business_day_rule) ?? 'none'),
       confidence: confidenceOf(p.confidence),
       sourceType: sourceOf(p.source_type),
@@ -851,6 +892,25 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
         suggestion: null as ExtractedCheck['suggestion'],
       };
     });
+
+  // 9-1) 면제된 금액(등록비·설치비 면제 등)은 결제가 아니라 "할인·면제 조건"으로 보관한다 (계약에 저장되는 체크로)
+  const waived = references.filter((r) => r.role === 'waived');
+  if (waived.length > 0 && !checks.some((c) => c.title === WAIVED_CHECK_TITLE)) {
+    checks.push({
+      severity: 'info',
+      topic: 'discount_terms',
+      title: WAIVED_CHECK_TITLE,
+      description: `${waived.map((r) => `${r.label} ${r.amount.toLocaleString('ko-KR')}원`).join(', ')} — 계약서에 면제로 적혀 있어 결제 일정에 넣지 않았어요.`,
+      confidence: 'medium',
+      evidenceQuote: null,
+      evidencePage: null,
+      evidenceFileIndex: null,
+      behavior: 'info',
+      rule: null,
+      relatedDate: null,
+      suggestion: null,
+    });
+  }
 
   // 8) 종료일 기준 통보기한 — 자동갱신이 아니고 같은 일수의 조건부 통보(예: 자진 퇴직 30일 전)가 있으면 그 조항을 잘못 옮긴 값
   let notice = fields.terminationNoticeDays.value as number | null;

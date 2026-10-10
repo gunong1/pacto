@@ -6,6 +6,7 @@ import { MockAIProvider } from './ai/MockAIProvider';
 import { MockContractRepository } from './mock/MockContractRepository';
 import { MockDocumentStore, type DocumentStore } from './documents';
 import { MockNotificationStore, SupabaseNotificationStore, type NotificationStore } from './notifications';
+import { MockProfileStore, SupabaseProfileStore, type ProfileStore } from './profile';
 import type { ContractRepository } from './repository';
 import { supabase } from './supabase/client';
 import { SupabaseContractRepository } from './supabase/SupabaseContractRepository';
@@ -28,4 +29,6 @@ export const aiProvider: AIProvider = isSupabaseConfigured && supabase ? new Sup
 export const notificationStore: NotificationStore =
   isSupabaseConfigured && supabase ? new SupabaseNotificationStore(supabase) : new MockNotificationStore(() => contractRepository.list());
 
-export type { AIProvider, ContractRepository, DocumentStore, NotificationStore };
+export const profileStore: ProfileStore = isSupabaseConfigured && supabase ? new SupabaseProfileStore(supabase) : new MockProfileStore();
+
+export type { AIProvider, ContractRepository, DocumentStore, NotificationStore, ProfileStore };

@@ -108,9 +108,21 @@ export interface ReviewModel {
   allDetails: Record<string, DetailValue>;
   /** PACTO 계약 체크 (원문 근거 문서 id 연결) */
   checks: ReviewCheck[];
-  /** 결제로 만들지 않은 합계·참고 금액 (예: 차량가) — 확인용으로만 보여준다 */
-  references: { label: string; amount: number }[];
+  /** 결제로 만들지 않은 합계·참고·면제·할인 금액 (예: 차량가, 등록비 면제) — 확인용으로만 보여준다 */
+  references: { label: string; amount: number; role: ReferenceRole }[];
+  /**
+   * 금액을 비워 두는 결제 (폼의 결제 순서) — 계약서 금액이 할인 전(정상가)이라 실제 결제액을 사용자가 입력해야 저장된다.
+   * draft의 amount는 계약서에 적힌 할인 전 금액 그대로 (안내 문구용)
+   */
+  blankAmounts: number[];
 }
+
+export type ReferenceRole = 'total' | 'reference' | 'waived' | 'discount';
+
+/** 할인 전 금액 안내 */
+export const DISCOUNT_CHECK_LABEL = '할인 적용 금액 확인 필요';
+export const discountNote = (base: number) =>
+  `${DISCOUNT_CHECK_LABEL} — 계약서의 ${formatWon(base)}은 할인 전(정상가) 금액이에요. 할인을 적용한 실제 결제액을 입력해주세요. (할인 조건은 아래 계약 체크에 있어요)`;
 
 /**
  * @param documentIds 보관된 원본 id (첨부 순서) — 계약 체크의 근거 파일 번호를 문서 id로 연결한다
@@ -196,6 +208,7 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
   }
 
   // 5·6) 결제 — 계약서에 있는 돈을 모두 결제 목록으로 (의미·주기·방향)
+  const blankAmounts: number[] = [];
   const firstPayment = result.dates.find((d) => d.meaning === 'first_payment');
   // 총액(보증금 등)이 계약금·잔금으로 나눠 함께 왔으면 총액은 합계(참고)로 — 이전 버전 서버 결과도 같은 돈을 두 번 세지 않도록
   const aggregates = findAggregateTotals(result.payments);
@@ -250,6 +263,12 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     }
     uncertain(`${path}.amount`, p.confidence);
     quote(`${path}.amount`, p.evidence);
+    // 할인 전(정상가) 금액: 결제액으로 채우지 않는다 — 사용자가 실제 결제액을 입력해야 저장 (자동 계산하지 않음)
+    if (p.amountCheck === 'discount_unconfirmed') {
+      blankAmounts.push(i);
+      flagged.add(`${path}.amount`);
+      notes[`${path}.amount`] = discountNote(p.amount);
+    }
     // 확정이 아닌 금액은 결제 일정·지출에 넣지 않는다 — 실제로 신청했거나 이미 생긴 일이면 "확정 결제"로 바꾸도록 안내
     if (p.obligation === 'optional') {
       flagged.add(`${path}.obligation`);
@@ -342,7 +361,18 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     suggestion: c.suggestion,
   }));
 
-  return { draft, flagged, evidence, notes, categorySuggestion, typeSuggestion, allDetails, checks, references: [...(result.references ?? []), ...aggregates].map(({ label, amount }) => ({ label, amount })) };
+  return {
+    draft,
+    flagged,
+    evidence,
+    notes,
+    categorySuggestion,
+    typeSuggestion,
+    allDetails,
+    checks,
+    references: [...(result.references ?? []).map(({ label, amount, role }) => ({ label, amount, role })), ...aggregates.map(({ label, amount }) => ({ label, amount, role: 'total' as const }))],
+    blankAmounts,
+  };
 }
 
 /** 해지 통보기한 날짜 (계약 체크 카드에 "언제까지"를 보여주기 위해) */

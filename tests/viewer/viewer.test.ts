@@ -11,7 +11,7 @@ import zlib from 'node:zlib';
 import { after, before, describe, test } from 'node:test';
 
 import { buildViewerHtml, htmlFor, isAllowedViewerNavigation, VIEWER_BASE_URL, type ViewerConfig } from '../../src/features/viewer/viewerHtml.ts';
-import { SAMPLE_PDF_BASE64 } from '../../src/features/viewer/samplePdf.ts';
+import { SAMPLE_PDF_BASE64 } from './samplePdf.ts';
 import { protectPdf } from '../../supabase/functions/_shared/protection/protect.ts';
 import { PDFDocument, PDFName } from '../../supabase/functions/_shared/vendor/pdf-lib.js';
 import createQpdf from '../../supabase/functions/_shared/vendor/qpdf.js';

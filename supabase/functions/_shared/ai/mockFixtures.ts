@@ -3,7 +3,7 @@
 const q = (quote: string | null, page = 1) => ({ evidence_quote: quote, evidence_page: quote ? page : null });
 const f = (value: unknown, confidence = 'high', quote: string | null = null) => ({ value, confidence, ...q(quote) });
 const pay = (p: Record<string, unknown>) => ({
-  role: 'recurring_cashflow', part_of: null, day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, payment_obligation: 'confirmed', condition: null,
+  role: 'recurring_cashflow', price_basis: 'actual', part_of: null, day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, payment_obligation: 'confirmed', condition: null,
   business_day_rule: 'none', confidence: 'high', source_type: 'explicit', evidence_quote: null, ...p,
 });
 const detail = (key: string, value: string | number | boolean, quote: string | null, source_type = 'explicit') => ({
@@ -57,6 +57,35 @@ export function rentalOutput(title: string) {
         description: '의무사용기간 내 중도해지 시 잔여 렌탈료 총액의 10%가 위약금으로 부과되는 것으로 기재되어 있습니다.',
         evidence_quote: '의무사용기간 내 중도해지 시 잔여 렌탈료 총액의 10%가 위약금으로 부과됩니다.',
       }),
+    ],
+  };
+}
+
+/**
+ * 할인이 붙은 정수기 렌탈 (모든 값은 가짜) — 월 렌탈료가 "할인전" 금액, 전체회차 할인·특정 회차 면제·등록비/설치비 면제.
+ * 모델이 실수한 경우를 일부러 섞는다: 할인전 금액을 actual로, 할인액을 매월 결제로, 면제된 등록비·설치비를 일회성 결제로 보냄
+ * → 서버 안전장치가 결제로 확정하지 않아야 한다.
+ */
+export function rentalDiscountOutput(title: string) {
+  const base = rentalOutput(title);
+  return {
+    ...base,
+    category: { ...base.category, reason: '정수기 렌탈 계약으로 기재되어 있습니다.' },
+    fields: { ...base.fields, counterparty: f('가짜정수기(주)', 'high', '렌탈 서비스 제공: 가짜정수기 주식회사'), autoRenewal: f(false, 'medium'), renewalPeriodMonths: f(null, 'low'), terminationNoticeDays: f(null, 'low') },
+    dates: [
+      { date: '2026-03-08', meaning: 'service_start', label: '계약 기간 시작', confidence: 'high', source_type: 'explicit', ...q('계약기간 : 2026.03.08 ~ 2031.03.07') },
+      { date: '2031-03-07', meaning: 'contract_end', label: '계약 기간 종료', confidence: 'high', source_type: 'explicit', ...q('계약기간 : 2026.03.08 ~ 2031.03.07') },
+    ],
+    payments: [
+      pay({ kind: 'recurring_fee', direction: 'expense', label: '월 렌탈료', amount: 45900, frequency: 'monthly', day_of_month: 15, ...q('월 렌탈료 : 45,900원(할인전)') }),
+      pay({ kind: 'recurring_fee', direction: 'expense', label: 'E규정 할인', amount: 14000, frequency: 'monthly', day_of_month: 15, ...q('E규정 : 전체회차 14,000원 할인') }),
+      pay({ role: 'one_time_cashflow', kind: 'setup_fee', direction: 'expense', label: '등록비', amount: 100000, frequency: 'one_time', ...q('면제 : 등록비(100,000원), 설치비(30,000원)') }),
+      pay({ role: 'one_time_cashflow', kind: 'setup_fee', direction: 'expense', label: '설치비', amount: 30000, frequency: 'one_time', ...q('면제 : 등록비(100,000원), 설치비(30,000원)') }),
+    ],
+    details: [detail('commitment_months', 60, '의무사용기간 : 60개월')],
+    checks: [
+      check({ severity: 'check', topic: 'discount_terms', title: '전체회차 할인', description: '월 렌탈료 45,900원(할인전)에 전체회차 14,000원 할인이 적용되는 것으로 기재되어 있습니다.', evidence_quote: 'E규정 : 전체회차 14,000원 할인' }),
+      check({ severity: 'check', topic: 'discount_terms', title: '회차 면제 프로모션', description: '1, 13, 25, 38, 48, 59회차 렌탈료가 면제되는 것으로 기재되어 있습니다.', evidence_quote: '7개월 프로모션 : 1, 13, 25, 38, 48, 59회차 면제' }),
     ],
   };
 }
@@ -236,7 +265,7 @@ export function mockDocumentOutput(names: string[]) {
     const out = stampFile(rentalOutput(title) as Record<string, unknown>, main.file);
     return { document_check: check('supporting', 'medium', { ...NO_SIGNALS, parties: true, amounts: true, dates: true }), ...out };
   }
-  const base = /근로/.test(name) ? employmentOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : rentalOutput(title);
+  const base = /근로/.test(name) ? employmentOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : rentalOutput(title);
   const out = stampFile(base as Record<string, unknown>, main.file, /출처불명/.test(names.join(' ')));
   // 계약과 무관한 쪽(예: 책상 사진의 가격표)에서 읽힌 값 — 그 쪽을 제외하면 결과에 남으면 안 된다
   for (const junk of pages.filter((p) => p.role === 'non_contract')) {

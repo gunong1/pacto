@@ -1,7 +1,0 @@
-{
-  "name": "pacto-crash-log",
-  "version": "1.0.0",
-  "private": true,
-  "main": "index.ts",
-  "description": "PACTO 내부 진단용: 안드로이드 앱 종료(크래시) 원인을 기기 안 파일에 남긴다 (주소·내용 없이 예외 종류·코드 위치만)"
-}

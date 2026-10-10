@@ -17,7 +17,7 @@ import { viewDocument } from '@/features/documents/openDocument';
 import { useCreateContract, useDocumentProtection, useToday } from '@/features/contracts/queries';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
 import { overallProtectionCopy } from '@/features/documents/protectionCopy';
-import { noticeDeadlineFor, toReviewModel, type ReviewCheck } from '@/features/registration/extraction';
+import { noticeDeadlineFor, toReviewModel, type ReferenceRole, type ReviewCheck } from '@/features/registration/extraction';
 import { finishRegistration } from '@/features/registration/finish';
 import { useRegistration } from '@/features/registration/store';
 import { colors, radius, spacing } from '@/theme';
@@ -128,13 +128,16 @@ export default function ReviewScreen() {
     return d ? withProtection(d) : undefined;
   };
   const noticeDate = noticeDeadlineFor(model.draft.endDate, model.draft.terminationNoticeDays);
+  // 할인 전(정상가) 금액은 결제액으로 채우지 않는다 — 실제 결제액을 입력해야 저장된다
+  const formDefaults = draftToForm(model.draft);
+  for (const i of model.blankAmounts) if (formDefaults.payments[i]) formDefaults.payments[i] = { ...formDefaults.payments[i], amount: '' };
 
   const trailing = (
     <View style={styles.trailing}>
       {model.references.length > 0 ? (
-        <Section title="결제에 넣지 않은 금액" caption="계약서에 있지만 실제로 오가는 돈이 아니라고 본 금액이에요 (합계·참고 금액)" testID="review-references">
+        <Section title="결제에 넣지 않은 금액" caption="계약서에 있지만 실제로 내는 돈이 아니라고 본 금액이에요 (합계·참고·면제·할인)" testID="review-references">
           {model.references.map((r, i) => (
-            <KeyValueRow key={`${r.label}-${i}`} label={r.label} value={formatWon(r.amount)} />
+            <KeyValueRow key={`${r.label}-${i}`} label={`${r.label}${REFERENCE_TAG[r.role]}`} value={formatWon(r.amount)} testID={`review-reference-${i}`} />
           ))}
           <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.sm }}>
             실제로 내거나 받는 돈이면 위 결제에 추가해주세요.
@@ -201,7 +204,7 @@ export default function ReviewScreen() {
       {protect.modal}
       <ContractForm
         trailing={trailing}
-        defaultValues={draftToForm(model.draft)}
+        defaultValues={formDefaults}
         flagged={model.flagged}
         evidence={extraction.provider === 'mock' ? undefined : model.evidence}
         notes={model.notes}
@@ -235,6 +238,9 @@ export default function ReviewScreen() {
     </>
   );
 }
+
+/** 결제에 넣지 않은 금액의 종류 표시 */
+const REFERENCE_TAG: Record<ReferenceRole, string> = { total: ' (합계)', reference: ' (참고)', waived: ' (면제)', discount: ' (할인)' };
 
 const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.lg, paddingBottom: spacing.md },

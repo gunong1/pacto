@@ -97,8 +97,8 @@ export default function RootLayout() {
             <Stack.Screen name="contract/[id]/notifications" options={{ title: '이 계약의 알림' }} />
             <Stack.Screen name="notifications" options={{ title: '알림' }} />
             <Stack.Screen name="viewer" options={{ title: '계약서' }} />
-            <Stack.Screen name="settings/viewer-diagnostics" options={{ title: '계약서 뷰어 진단' }} />
             <Stack.Screen name="register" options={{ headerShown: false, presentation: 'modal' }} />
+            <Stack.Screen name="settings/profile" options={{ title: '프로필 편집' }} />
             <Stack.Screen name="settings/delete-account" options={{ title: '회원 탈퇴' }} />
             <Stack.Screen name="settings/notifications" options={{ title: '알림 설정' }} />
             <Stack.Screen name="settings/notification-type" options={{ title: '알림 종류 설정' }} />

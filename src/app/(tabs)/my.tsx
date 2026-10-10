@@ -5,10 +5,11 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
 import { Divider, ListRow, Screen, Section, SectionGap } from '@/components/ui/layout';
-import { VIEWER_DIAGNOSTICS } from '@/features/viewer/diagnostics';
 import { useContracts } from '@/features/contracts/queries';
 import { authErrorMessage, authService } from '@/features/auth/authService';
 import { disablePushForThisDevice } from '@/features/notifications/push';
+import { Avatar } from '@/features/profile/Avatar';
+import { useProfile } from '@/features/profile/queries';
 import { useSession } from '@/features/session/store';
 import { notify as notice } from '@/lib/dialog';
 import { colors, spacing } from '@/theme';
@@ -23,25 +24,33 @@ export default function MyScreen() {
   const providerLabel = user?.provider === 'apple' ? 'Apple' : user?.provider === 'google' ? 'Google' : '이메일';
   const { data } = useContracts();
   const docs = data?.reduce((n, r) => n + r.documents.length, 0) ?? 0;
+  const { data: profile } = useProfile();
+  const nickname = profile?.displayName ?? null;
 
   return (
     <Screen>
       <View style={styles.header}>
         <AppText variant="title1">MY</AppText>
       </View>
-      <View style={styles.profile}>
-        <View style={styles.avatar}>
-          <Ionicons name="person" size={26} color={colors.textTertiary} />
-        </View>
+      {/* 프로필 — 누르면 프로필 편집. 닉네임이 있으면 닉네임을 크게, 이메일은 아래에 */}
+      <Pressable
+        onPress={() => router.push('/settings/profile')}
+        accessibilityRole="button"
+        accessibilityLabel="프로필 편집"
+        testID="my-profile"
+        style={({ pressed }) => [styles.profile, pressed && styles.profilePressed]}>
+        <Avatar uri={profile?.avatarUrl} testID="my-avatar" />
         <View style={{ flex: 1 }}>
-          <AppText variant="title3" numberOfLines={1}>
-            {user?.email ?? '팩토 사용자'}
+          <AppText variant="title3" numberOfLines={1} testID="my-profile-name">
+            {nickname ?? user?.email ?? '팩토 사용자'}
           </AppText>
-          <AppText variant="caption" color="textTertiary">
-            {providerLabel} 계정{authService.mode === 'mock' ? ' · 미리보기 모드' : ''}
+          <AppText variant="caption" color="textTertiary" numberOfLines={1} testID="my-profile-sub">
+            {nickname && user?.email ? user.email : `${providerLabel} 계정`}
+            {authService.mode === 'mock' ? ' · 미리보기 모드' : ''}
           </AppText>
         </View>
-      </View>
+        <Ionicons name="chevron-forward" size={16} color={colors.textDisabled} />
+      </Pressable>
       <View style={styles.stats}>
         {/* 바로가기 — 계약 탭으로 (t: 같은 바로가기로 다시 들어와도 필터가 다시 적용되도록) */}
         <Stat
@@ -62,12 +71,6 @@ export default function MyScreen() {
       <SectionGap />
       <Section title="설정">
         <ListRow title="알림 설정" subtitle="알림 받을 시점·시간, 잠금화면 표시" chevron onPress={() => router.push('/settings/notifications')} testID="open-notification-settings" />
-        {VIEWER_DIAGNOSTICS ? (
-          <>
-            <Divider />
-            <ListRow title="계약서 뷰어 진단 (테스트용)" subtitle="단계별로 열어 문제 위치 확인" chevron onPress={() => router.push('/settings/viewer-diagnostics')} testID="open-viewer-diagnostics" />
-          </>
-        ) : null}
         <Divider />
         <ListRow title="보안" subtitle="앱 잠금(Face ID·지문)" right={<Badge label="준비중" />} />
         <Divider />
@@ -119,8 +122,8 @@ function Stat({ label, value, onPress, testID }: { label: string; value: string;
 
 const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.md },
-  profile: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.gutter, paddingTop: spacing.xl },
-  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.bgSubtle, alignItems: 'center', justifyContent: 'center' },
+  profile: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginHorizontal: spacing.gutter - spacing.xs, paddingHorizontal: spacing.xs, paddingVertical: spacing.xs, marginTop: spacing.xl - spacing.xs, borderRadius: 12 },
+  profilePressed: { backgroundColor: colors.bgSubtle },
   stats: { flexDirection: 'row', paddingHorizontal: spacing.gutter, paddingVertical: spacing.xl, gap: spacing.xl },
   stat: { gap: 2, paddingVertical: spacing.xs, paddingHorizontal: spacing.xs, marginHorizontal: -spacing.xs, borderRadius: 8 },
   statPressed: { backgroundColor: colors.bgSubtle },

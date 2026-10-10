@@ -59,15 +59,10 @@ export const VIEWER_WEBVIEW_PROPS = {
 export function DocumentViewer({
   config,
   onEvent,
-  onMounted,
-  variant = 'full',
   controlRef,
 }: {
   config: ViewerConfig;
   onEvent: (e: ViewerEvent) => void;
-  onMounted?: () => void;
-  /** 진단용: min = 설정 없이 HTML만 / base = + 가상 주소(baseUrl) / full = 실제 뷰어 설정 전부 */
-  variant?: 'min' | 'base' | 'full';
   /** 비밀번호 전달용 (원본 보기) */
   controlRef?: MutableRefObject<ViewerControl | null>;
 }) {
@@ -88,19 +83,6 @@ export function DocumentViewer({
     const m = parseViewerMessage(e.nativeEvent.data);
     if (m) onEvent(m);
   };
-  if (variant !== 'full') {
-    return (
-      <Suspense fallback={null}>
-        <LazyWebView
-          style={styles.web}
-          source={variant === 'base' ? { html, baseUrl: VIEWER_BASE_URL } : { html }}
-          onMessage={onMessage}
-          onLoadEnd={() => onMounted?.()}
-          onRenderProcessGone={() => onEvent({ type: 'error', code: 'webview_renderer_gone' })}
-        />
-      </Suspense>
-    );
-  }
   return (
     <Suspense fallback={null}>
       <LazyWebView
@@ -110,7 +92,6 @@ export function DocumentViewer({
         originWhitelist={[VIEWER_BASE_URL, 'about:*']}
         onShouldStartLoadWithRequest={(req) => isAllowedViewerNavigation(req.url)}
         onMessage={onMessage}
-        onLoadEnd={() => onMounted?.()}
         onError={() => onEvent({ type: 'error', code: 'webview_load' })}
         onHttpError={() => onEvent({ type: 'error', code: 'webview_http' })}
         onRenderProcessGone={() => onEvent({ type: 'error', code: 'webview_renderer_gone' })}

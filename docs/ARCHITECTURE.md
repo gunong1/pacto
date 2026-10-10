@@ -1303,12 +1303,9 @@ pacto/
   WebView 콘솔 로그는 앱으로 넘기지 않고, 뷰어는 상태 코드·쪽수만 앱에 알린다. 기존 접근 권한(본인 문서 · 비공개 저장소 · 짧은 Signed URL)은 그대로.
   Supabase Storage Signed URL은 `Access-Control-Allow-Origin: *`라 WebView에서 바로 받을 수 있다(로컬 Supabase로 확인. 배포 환경은 기기 확인 필요).
 - **테스트**: `npm run test:viewer` (Playwright Chromium, 휴대폰 390×844·배율 2.75): 세로·가로·스캔·/Rotate 90·180·보호본·원본·JPG·PNG 첫 화면 폭 맞춤·가로 넘침 없음·비율, 여러 쪽 세로 순서, 근거 쪽 이동, 핀치 2.5배 확대 후 고해상도 다시 그림·이동, 20쪽 스캔 메모리, 외부 요청 차단, 오류 코드.
-- **진단 모드·안전장치 (개정 21-1, 실기기 크래시 조사)**: preview APK(`EXPO_PUBLIC_VIEWER_DIAGNOSTICS=true`)·개발 빌드에서 MY → "계약서 뷰어 진단".
-  1 화면만(WebView 없음) · 2 빈 WebView · 3 pdf.js 초기화만 · 4 앱에 포함된 1쪽 PDF(`samplePdf.ts`) · 5 실제 보호본 PDF.
-  단계 기록(`viewer_route`·`webview_mounting`·`webview_mounted`·`pdfjs_loaded`·`pdf_fetch_started`·`pdf_loaded`·`first_page_render_started`·`first_page_rendered`·`error(코드)`)은
-  기기 안 파일에 동기식으로 바로 써서(expo-file-system) 앱이 종료돼도 다음 실행 때 보인다. 기록은 시각·모드·단계·코드만 (주소·토큰·내용·오류 메시지 없음).
-  react-native-webview는 불러오는 순간 네이티브 모듈을 찾고 없으면 오류를 던지므로 화면에 붙일 때 lazy로 불러오고, 실패·렌더 오류는 Error Boundary,
+- **안전장치**: react-native-webview는 불러오는 순간 네이티브 모듈을 찾고 없으면 오류를 던지므로 화면에 붙일 때 lazy로 불러오고, 실패·렌더 오류는 Error Boundary,
   뷰어가 열려 있는 동안의 JS 오류는 전역 처리기로 잡아 앱을 종료하지 않고 오류 화면("계약서를 불러오지 못했어요. 잠시 후 다시 시도해주세요.")을 보여준다.
+  (개정 21-1의 진단 모드·단계 기록·crash/lifecycle 기록 모듈은 개정 23에서 삭제 — 사용자 화면·운영 코드에 남기지 않음)
   사진(JPG·PNG)은 pdf.js 없이 이미지 한 장 HTML. 문서마다 mime_type(없으면 확장자)으로 PDF/사진을 나눈다. Signed URL이 없거나 https가 아니면 뷰어를 열지 않는다.
 - **실기기 크래시 원인 (개정 21-2, Galaxy S26 · Android 16 · One UI 8.5)**: 진단 기록 `viewer_route → webview_mounting` 뒤 종료, 안드로이드 종료 기록
   `java.lang.ClassCastException: java.lang.String cannot be cast to [ReadableArray]` at `RNCWebViewManagerDelegate.setProperty` ← `ViewManager.createViewInstance` ← Fabric `preallocateView`.
@@ -1331,3 +1328,21 @@ pacto/
 - **원본 보기**: `requireReveal()` → 기기 안 뷰어(pdf.js)가 비밀번호를 요청 → 앱이 입력받아 WebView로만 전달 (서버로 보내지 않음, 기억하지 않음). 보호본은 비밀번호 없이.
 - **민감정보가 없는 암호 PDF**: 보호본(=복호화 사본)을 저장하지 않으므로 계약서를 볼 때마다 원본 비밀번호가 필요하다.
 - **정확도 비교**: `scripts/encrypted-bench.ts` (배포 환경·실제 AI, 같은 가짜 계약서를 일반 PDF / 암호 PDF→보호본으로 분석해 값 비교).
+
+### 할인 전 금액 · 할인/면제 조건 (개정 23, V1)
+- 원칙: 기본 가격 ≠ 실제 결제액. "할인전·할인 전·정상가·정가·프로모션 적용 전·소비자가"가 붙은 금액(또는 모델 `price_basis=before_discount`)은
+  확정 결제로 자동 저장하지 않는다 → 결제의 `amountCheck='discount_unconfirmed'` → 확인 화면에서 금액 칸을 비우고 **"할인 적용 금액 확인 필요"** 안내.
+  사용자가 실제 결제액을 입력해야 저장된다(그 값이 `amount`, 일정·지출은 기존 로직). V1은 할인액을 빼서 자동 계산하지 않는다.
+- 할인액 자체("E규정 할인 14,000원")는 결제가 아니라 참고 금액(할인). 면제된 일회성 비용(등록비·설치비 면제)은 참고 금액(면제) + 계약 체크 "면제된 금액".
+  할인 적용 금액("할인 적용 월 렌탈료")·정기 결제의 "N회차 면제"는 결제 그대로 (실제 결제를 숨기지 않음).
+- 특정 회차 면제·전체회차 할인 같은 조건은 회차별 결제 일정을 만들지 않고 계약 체크 `topic=discount_terms`(할인·면제 조건)로 보관 (`ai_checks`, DB 변경 없음).
+- 보류(대규모 구조 변경): base_amount·discount_amount·waived_installments, 회차별 면제 일정 엔진.
+- 테스트: `src/domain/__tests__/discount-price.test.ts`, `e2e/discount-price.js` (mock 시나리오: 파일 이름에 "할인").
+
+### 프로필 (개정 23)
+- 닉네임: `profiles.display_name` 재사용. 앞뒤 공백 제거·2~20자(DB 검사 `valid_display_name`), 없으면 이메일을 메인으로 표시.
+- 프로필 사진: 비공개 버킷 `profile-images/{user_id}/avatar.jpg` (512×512 JPEG, 1MB 한도, image/jpeg만). `profiles.avatar_path`는 본인 경로만 가리킬 수 있다(검사 제약).
+  Storage 정책: 본인 폴더만 읽기·올리기·덮어쓰기·지우기. 화면 표시는 Signed URL(1시간)만, 공개 URL 없음.
+  업로드 실패 시 기존 사진·경로 유지, 닉네임 등 다른 변경은 저장. 삭제는 경로를 먼저 비우고 파일 삭제. 회원 탈퇴 시 `delete-account`가 폴더째 삭제.
+- 화면: MY 상단 프로필 영역 → 프로필 편집(사진 선택·변경·삭제, 닉네임, 이메일 읽기 전용, "변경사항 저장").
+- 테스트: `src/__integration__/step17-profile.test.ts`(RLS·Storage 차단·탈퇴 삭제), `e2e/profile.js`.
