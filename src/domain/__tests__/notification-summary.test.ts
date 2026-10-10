@@ -13,7 +13,7 @@ describe('알림 설정 요약', () => {
     expect(notificationSettingsSummary({ categories: { payment: off } })).toEqual({ title: '오전 9:00 · 중요 일정 중심', detail: '결제 알림 꺼짐' });
   });
   test('시점을 모두 뺀 종류도 꺼진 것으로', () => {
-    expect(notificationSettingsSummary({ timeOfDay: '08:00', categories: { payment: { enabled: true, offsets: [] } } }).title).toBe('오전 8:00 · 중요 일정 중심');
+    expect(notificationSettingsSummary({ defaultTimes: ['08:00'], categories: { payment: { enabled: true, offsets: [] } } }).title).toBe('오전 8:00 · 중요 일정 중심');
   });
   test('계약 알림 일부 꺼짐', () => {
     expect(notificationSettingsSummary({ categories: { termination_notice: off } })).toEqual({ title: '오전 9:00 · 일부 계약 알림 꺼짐', detail: null });

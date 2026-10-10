@@ -304,13 +304,13 @@ isOneToOne: false
                   ]
                 },"notification_preferences": {
                   Row: {
-                    "categories": NonNullable<Json>,"created_at": string,"enabled": boolean,"time_of_day": string,"updated_at": string,"user_id": string
+                    "categories": NonNullable<Json>,"created_at": string,"default_times": string[],"enabled": boolean,"time_of_day": string,"updated_at": string,"user_id": string
                   }
                   Insert: {
-                    "categories"?: NonNullable<Json>,"created_at"?: string,"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
+                    "categories"?: NonNullable<Json>,"created_at"?: string,"default_times"?: string[],"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
                   }
                   Update: {
-                    "categories"?: NonNullable<Json>,"created_at"?: string,"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
+                    "categories"?: NonNullable<Json>,"created_at"?: string,"default_times"?: string[],"enabled"?: boolean,"time_of_day"?: string,"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     

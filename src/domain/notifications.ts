@@ -4,7 +4,7 @@
  * 순서 (한 곳에서만):
  *  1 계약 일정·기한 계산(schedule/status) → 2 중요도·출처(notificationPriority)
  *  → 3 PACTO 기본 알림 시점 → 4 사용자 전체 설정 → 5 계약별 설정 (getEffectiveNotificationPreferences)
- *  → 6 시간대 + 알림 받는 시간 (resolveSendTime) → 7 같은 계약·같은 시각끼리 묶기 (groupReminders)
+ *  → 6 시간대 + 알림 시간 (기본 알림 시간 또는 종류별 시간, 여러 개 가능 · resolveSendTime) → 7 같은 계약·같은 시각끼리 묶기 (groupReminders)
  *  → 8 발송 예정 알림 (planNotifications) → 9 중복 방지 키 (buildNotificationDedupeKey)
  *
  * 계약상 기한(예: 해지 통보기한 9/11) ≠ 알림 발송일(8/12, 9/4, 9/10, 9/11). 알림 시점은 PACTO·사용자 설정이다.
@@ -12,7 +12,7 @@
  */
 import { NOTIFICATION_SOURCE_LABEL, type ActionEventType, type NotificationPriority, type NotificationSource } from './notificationPriority';
 import { groupReminders, type ReminderGroup } from './reminderGroups';
-import { REMINDER_RULES, upcomingReminders, type ReminderRules } from './reminders';
+import { REMINDER_RULES, upcomingReminders, type Reminder, type ReminderRules } from './reminders';
 import type { Contract, ContractRecord, ISODate } from './types';
 
 // ===== 3·4·5) 알림 설정 =====
@@ -60,6 +60,8 @@ export interface CategoryPrefs {
   enabled: boolean;
   /** 기한 며칠 전 (0 = 당일), 큰 수부터 */
   offsets: number[];
+  /** 이 종류만 다른 알림 시간 ('HH:MM', 1~4개). 없으면 기본 알림 시간 사용 */
+  times?: string[];
 }
 export type CategoryPrefsMap = Record<NotificationCategory, CategoryPrefs>;
 
@@ -67,8 +69,8 @@ export type CategoryPrefsMap = Record<NotificationCategory, CategoryPrefs>;
 export interface NotificationPreferences {
   /** PACTO 알림 전체 */
   enabled: boolean;
-  /** 알림 받는 시간 HH:MM (알림 기준 시간대) */
-  timeOfDay: string;
+  /** 기본 알림 시간 'HH:MM' 1~4개 (알림 기준 시간대) — 종류별 시간이 없으면 이 시간에 보낸다 */
+  defaultTimes: string[];
   /** 알림 기준 시간대 (IANA). 기기 시간대가 바뀌어도 자동으로 바꾸지 않는다 */
   timezone: string;
   /** 잠금화면 알림에 계약명·금액 표시 (기본 꺼짐) */
@@ -81,6 +83,9 @@ export interface NotificationPreferences {
 export type ContractNotificationOverride = Partial<CategoryPrefsMap>;
 
 export const DEFAULT_TIME_OF_DAY = '09:00';
+export const DEFAULT_TIMES: readonly string[] = [DEFAULT_TIME_OF_DAY];
+/** 기본 알림 시간·종류별 시간 최대 개수 */
+export const MAX_NOTIFICATION_TIMES = 4;
 export const DEFAULT_TIMEZONE = 'Asia/Seoul';
 
 const sortOffsets = (xs: readonly number[]) => [...new Set(xs.filter((x) => ALLOWED_OFFSETS.has(x)))].sort((a, b) => b - a);
@@ -92,11 +97,18 @@ export const PACTO_DEFAULT_CATEGORIES: CategoryPrefsMap = Object.fromEntries(
 
 export const DEFAULT_PREFERENCES: NotificationPreferences = {
   enabled: true,
-  timeOfDay: DEFAULT_TIME_OF_DAY,
+  defaultTimes: [...DEFAULT_TIMES],
   timezone: DEFAULT_TIMEZONE,
   showDetails: false,
   categories: {},
 };
+
+/** 알림 시간 목록 정리 — 'HH:MM'만, 중복 제거, 이른 시간부터, 최대 4개. 비면 null */
+export function normalizeTimes(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const xs = [...new Set(raw.filter(isValidTimeOfDay))].sort().slice(0, MAX_NOTIFICATION_TIMES);
+  return xs.length ? xs : null;
+}
 
 /** 저장값 정리 (형식이 틀린 값은 버리고 기본값) — 앱·서버·DB 어디서 왔든 같은 규칙 */
 export function normalizeCategoryPrefs(raw: unknown): Partial<CategoryPrefsMap> {
@@ -105,10 +117,11 @@ export function normalizeCategoryPrefs(raw: unknown): Partial<CategoryPrefsMap> 
   for (const c of NOTIFICATION_CATEGORIES) {
     const v = (raw as Record<string, unknown>)[c];
     if (!v || typeof v !== 'object') continue;
-    const o = v as { enabled?: unknown; offsets?: unknown };
+    const o = v as { enabled?: unknown; offsets?: unknown; times?: unknown };
     const offsets = Array.isArray(o.offsets) ? sortOffsets(o.offsets.filter((x): x is number => Number.isInteger(x))) : null;
     if (typeof o.enabled !== 'boolean' || !offsets) continue;
-    out[c] = { enabled: o.enabled, offsets };
+    const times = normalizeTimes(o.times);
+    out[c] = times ? { enabled: o.enabled, offsets, times } : { enabled: o.enabled, offsets };
   }
   return out;
 }
@@ -121,7 +134,8 @@ export type PreferenceOrigin = 'pacto' | 'user' | 'contract';
 
 export interface EffectivePreferences {
   enabled: boolean;
-  timeOfDay: string;
+  /** 기본 알림 시간 (1개 이상) */
+  defaultTimes: string[];
   timezone: string;
   showDetails: boolean;
   categories: CategoryPrefsMap;
@@ -140,17 +154,34 @@ export function getEffectiveNotificationPreferences(user: Partial<NotificationPr
     const contractPick = contractCats[c] ?? (from ? contractCats[from] : undefined);
     const userPick = userCats[c] ?? (from ? userCats[from] : undefined);
     const pick = contractPick ?? userPick ?? PACTO_DEFAULT_CATEGORIES[c];
-    categories[c] = { enabled: pick.enabled, offsets: [...pick.offsets] };
+    // 종류별 시간: 계약별 설정에 없으면 사용자 설정의 그 종류 시간 (없으면 기본 알림 시간)
+    const times = contractPick?.times ?? userPick?.times;
+    categories[c] = times ? { enabled: pick.enabled, offsets: [...pick.offsets], times: [...times] } : { enabled: pick.enabled, offsets: [...pick.offsets] };
     origin[c] = contractPick ? 'contract' : userPick ? 'user' : 'pacto';
   }
   return {
     enabled: user?.enabled ?? true,
-    timeOfDay: isValidTimeOfDay(user?.timeOfDay) ? user!.timeOfDay! : DEFAULT_TIME_OF_DAY,
+    defaultTimes: normalizeTimes(user?.defaultTimes) ?? [...DEFAULT_TIMES],
     timezone: user?.timezone && isValidTimeZone(user.timezone) ? user.timezone : DEFAULT_TIMEZONE,
     showDetails: user?.showDetails === true,
     categories,
     origin,
   };
+}
+
+/** 이 종류의 실제 알림 시간 — 종류별 시간이 있으면 그것, 없으면 기본 알림 시간 */
+export function timesFor(p: Pick<EffectivePreferences, 'defaultTimes' | 'categories'>, c: NotificationCategory): string[] {
+  return p.categories[c].times?.length ? p.categories[c].times! : p.defaultTimes;
+}
+
+/** 일정(알림 대상) → 알림 종류 — 통보기한은 의미(해지·갱신 통보 / 갱신 여부 확인)에 따라 */
+export function reminderCategory(r: Pick<Reminder, 'kind' | 'actionType'>): NotificationCategory {
+  if (r.kind === 'payment') return 'payment';
+  if (r.kind === 'contract_end') return 'contract_end';
+  if (r.kind === 'renewal') return 'renewal';
+  if (r.actionType === 'renewal_notice') return 'renewal_notice';
+  if (r.actionType === 'renewal_decision') return 'renewal_decision';
+  return 'termination_notice';
 }
 
 /** 설정 → 일정 계산용 알림 시점 (꺼진 종류는 빈 목록) */
@@ -173,7 +204,7 @@ export function isPactoDefault(categories: Partial<CategoryPrefsMap>): boolean {
     const v = n[c];
     if (!v) return true;
     const d = PACTO_DEFAULT_CATEGORIES[c];
-    return v.enabled === d.enabled && v.offsets.join(',') === d.offsets.join(',');
+    return v.enabled === d.enabled && v.offsets.join(',') === d.offsets.join(',') && !v.times;
   });
 }
 
@@ -236,8 +267,8 @@ export function zonedTimeToUtc(date: ISODate, time: string, tz: string): Date {
  * 알림 날짜 → 실제 발송 시각. 방해 금지 시간(quiet hours) 같은 규칙은 여기에만 붙인다.
  * critical도 사용자가 정한 시간 외에 임의로 보내지 않는다.
  */
-export function resolveSendTime(fireOn: ISODate, prefs: Pick<EffectivePreferences, 'timeOfDay' | 'timezone'>): Date {
-  return zonedTimeToUtc(fireOn, prefs.timeOfDay, prefs.timezone);
+export function resolveSendTime(fireOn: ISODate, time: string, timezone: string): Date {
+  return zonedTimeToUtc(fireOn, time, timezone);
 }
 
 /** 화면 표시: "10월 19일 오전 9:00" (알림 기준 시간대) */
@@ -252,6 +283,28 @@ export function formatSendTime(at: Date | string, tz: string): string {
 export function formatTimeOfDay(time: string): string {
   const [h, m] = time.split(':').map(Number);
   return `${h < 12 ? '오전' : '오후'} ${h % 12 === 0 ? 12 : h % 12}:${pad(m)}`;
+}
+
+/** "오전 9:00, 오후 6:30" */
+export function formatTimes(times: readonly string[]): string {
+  return times.map(formatTimeOfDay).join(', ');
+}
+
+/** "30·7·1일 전" · "1일 전·당일" · "당일" */
+export function formatOffsets(offsets: readonly number[]): string {
+  const days = offsets.filter((d) => d > 0);
+  const parts = days.length ? [`${days.join('·')}일 전`] : [];
+  if (offsets.includes(0)) parts.push('당일');
+  return parts.join('·');
+}
+
+/**
+ * 알림 종류 한 줄 요약 (설정 첫 화면) — "30·7·1일 전 · 기본 시간 (오전 9:00)" / "1일 전 · 오전 9:00, 오후 6:00" / "꺼짐"
+ */
+export function categorySummary(prefs: CategoryPrefs, defaultTimes: readonly string[]): string {
+  if (!prefs.enabled || prefs.offsets.length === 0) return '꺼짐';
+  const when = prefs.times?.length ? formatTimes(prefs.times) : `기본 시간 (${formatTimes(defaultTimes)})`;
+  return `${formatOffsets(prefs.offsets)} · ${when}`;
 }
 
 // ===== 7·8·9) 발송 예정 알림 =====
@@ -375,38 +428,55 @@ export function planNotifications(input: PlanInput): PlannedNotification[] {
   const base = getEffectiveNotificationPreferences(input.preferences);
   if (!base.enabled) return [];
   const today = localDateIn(input.now, base.timezone);
-  const rulesFor = (c: Contract) => toReminderRules(getEffectiveNotificationPreferences(input.preferences, input.overrides.get(c.id)));
+  const effCache = new Map<string, EffectivePreferences>();
+  const effFor = (contractId: string) => {
+    let e = effCache.get(contractId);
+    if (!e) effCache.set(contractId, (e = getEffectiveNotificationPreferences(input.preferences, input.overrides.get(contractId))));
+    return e;
+  };
+  const rulesFor = (c: Contract) => toReminderRules(effFor(c.id));
   const reminders = upcomingReminders(input.records, today, input.windowDays ?? PLAN_WINDOW_DAYS, { rulesFor });
+  // 알림 시간별로 나눈 뒤 묶는다 — 종류마다 시간이 다를 수 있고, 시간이 여러 개면 그 시간마다 한 번씩
+  const byTime = new Map<string, Reminder[]>();
+  for (const r of reminders) {
+    for (const t of timesFor(effFor(r.contractId), reminderCategory(r))) {
+      const list = byTime.get(t);
+      if (list) list.push(r);
+      else byTime.set(t, [r]);
+    }
+  }
   const out: PlannedNotification[] = [];
-  for (const group of groupReminders(reminders)) {
-    const at = resolveSendTime(group.fireOn, base);
-    if (at.getTime() <= input.now.getTime()) continue;
-    const scheduledAt = at.toISOString();
-    const head = group.reminders.find((r) => r.kind === group.kind)!;
-    const eventType = eventTypeOf(group);
-    const checkId = group.reminders.find((r) => r.evidence)?.evidence?.checkId ?? null;
-    out.push({
-      contractId: group.contractId,
-      eventKey: head.key,
-      eventType,
-      priority: group.priority,
-      source: head.source,
-      eventDate: head.targetDate,
-      fireOn: group.fireOn,
-      scheduledAt,
-      offsetDays: head.daysBefore,
-      groupKey: buildGroupKey(input.userId, group.contractId, scheduledAt),
-      dedupeKey: buildNotificationDedupeKey(input.userId, scheduledAt, group.reminders.map((r) => r.key)),
-      push: buildNotificationMessage(group, { showDetails: base.showDetails }),
-      data: { url: notificationUrl(group.contractId, eventType, checkId), contractId: group.contractId, eventType, eventKey: head.key, checkId },
-      display: {
-        contractTitle: group.contractTitle,
-        message: group.kind === 'payment' ? group.message : headline(group),
-        detail: group.detail,
-        eventLines: group.eventLines,
-        sourceLabel: group.kind === 'payment' ? null : NOTIFICATION_SOURCE_LABEL[head.source],
-      },
-    });
+  for (const [time, list] of byTime) {
+    for (const group of groupReminders(list)) {
+      const at = resolveSendTime(group.fireOn, time, base.timezone);
+      if (at.getTime() <= input.now.getTime()) continue;
+      const scheduledAt = at.toISOString();
+      const head = group.reminders.find((r) => r.kind === group.kind)!;
+      const eventType = eventTypeOf(group);
+      const checkId = group.reminders.find((r) => r.evidence)?.evidence?.checkId ?? null;
+      out.push({
+        contractId: group.contractId,
+        eventKey: head.key,
+        eventType,
+        priority: group.priority,
+        source: head.source,
+        eventDate: head.targetDate,
+        fireOn: group.fireOn,
+        scheduledAt,
+        offsetDays: head.daysBefore,
+        groupKey: buildGroupKey(input.userId, group.contractId, scheduledAt),
+        dedupeKey: buildNotificationDedupeKey(input.userId, scheduledAt, group.reminders.map((r) => r.key)),
+        push: buildNotificationMessage(group, { showDetails: base.showDetails }),
+        data: { url: notificationUrl(group.contractId, eventType, checkId), contractId: group.contractId, eventType, eventKey: head.key, checkId },
+        display: {
+          contractTitle: group.contractTitle,
+          message: group.kind === 'payment' ? group.message : headline(group),
+          detail: group.detail,
+          eventLines: group.eventLines,
+          sourceLabel: group.kind === 'payment' ? null : NOTIFICATION_SOURCE_LABEL[head.source],
+        },
+      });
+    }
   }
   return out.sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
 }
@@ -428,7 +498,7 @@ export function notificationSettingsSummary(prefs: Partial<NotificationPreferenc
   const eff = getEffectiveNotificationPreferences(prefs);
   if (!eff.enabled) return { title: '알림이 꺼져 있어요', detail: null };
   const on = (c: NotificationCategory) => eff.categories[c].enabled && eff.categories[c].offsets.length > 0;
-  const time = formatTimeOfDay(eff.timeOfDay);
+  const time = formatTimes(eff.defaultTimes);
   const payOn = on('payment');
   const contractCats = NOTIFICATION_CATEGORIES.filter((c) => c !== 'payment');
   const contractOn = contractCats.filter(on).length;

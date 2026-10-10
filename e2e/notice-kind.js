@@ -95,10 +95,11 @@ function daysToDeadline() {
 
     // 4) 알림 설정 — 묶음 표시
     await page.goto(BASE + '/settings/notifications', { waitUntil: 'networkidle' });
-    await page.waitForSelector(tid('notif-renewal_decision'));
+    await page.waitForSelector(tid('notif-type-renewal_decision'));
     const st = await page.locator('body').innerText();
     assert(st.includes('해지·갱신 통보기한') && st.includes('갱신 여부 확인'), '알림 설정 묶음 없음');
-    assert(await page.locator(tid('notif-renewal_decision-30')).isVisible(), '갱신 여부 확인 기본 시점 없음');
+    const rd = await page.locator(tid('notif-type-renewal_decision')).innerText();
+    assert(rd.includes('30·7일 전'), '갱신 여부 확인 기본 시점 없음: ' + rd);
     await shot('05-settings');
     log('4 알림 설정: 해지·갱신 통보기한 / 갱신 여부 확인 (기본 30·7일 전)');
 

@@ -6,7 +6,9 @@ import { draftToRecord, EMPTY_DRAFT } from '@/data/draft';
 import { contractFormSchema, draftToForm, formToDraft } from '@/features/contracts/form';
 
 import {
+  categorySummary,
   formatSendTime,
+  normalizeCategoryPrefs,
   getEffectiveNotificationPreferences,
   isPactoDefault,
   localDateIn,
@@ -174,8 +176,8 @@ describe('C·D. 설정 병합: PACTO 기본 → 사용자 → 계약별', () => 
   });
 
   test('저장값이 이상하면 버리고 기본값 (허용되지 않은 며칠 전, 형식 오류)', () => {
-    const eff = getEffectiveNotificationPreferences({ timeOfDay: '25:00', timezone: 'Mars/Base', categories: { payment: { enabled: true, offsets: [1, 2, 999] } } as never });
-    expect(eff.timeOfDay).toBe('09:00');
+    const eff = getEffectiveNotificationPreferences({ defaultTimes: ['25:00'], timezone: 'Mars/Base', categories: { payment: { enabled: true, offsets: [1, 2, 999] } } as never });
+    expect(eff.defaultTimes).toEqual(['09:00']);
     expect(eff.timezone).toBe('Asia/Seoul');
     expect(eff.categories.payment.offsets).toEqual([1]);
   });
@@ -200,7 +202,7 @@ describe('시간대 · 알림 받는 시간', () => {
     expect(zonedTimeToUtc('2026-07-01', '09:00', 'America/New_York').toISOString()).toBe('2026-07-01T13:00:00.000Z'); // 서머타임
     expect(zonedTimeToUtc('2026-12-01', '09:00', 'America/New_York').toISOString()).toBe('2026-12-01T14:00:00.000Z');
     expect(localDateIn(new Date('2026-10-07T16:00:00Z'), 'Asia/Seoul')).toBe('2026-10-08');
-    const p = plan([lease()], { preferences: { timeOfDay: '20:30', timezone: 'America/New_York' } }).find((x) => x.eventType === 'payment')!;
+    const p = plan([lease()], { preferences: { defaultTimes: ['20:30'], timezone: 'America/New_York' } }).find((x) => x.eventType === 'payment')!;
     expect(p.scheduledAt).toBe('2026-10-20T00:30:00.000Z');
     expect(formatSendTime(p.scheduledAt, 'America/New_York')).toBe('10월 19일 오후 8:30');
     expect(formatSendTime('2026-10-19T00:00:00.000Z', 'Asia/Seoul')).toBe('10월 19일 오전 9:00');
@@ -245,5 +247,61 @@ describe('L·M·N·O. 출처', () => {
     expect(LEGAL_RULES).toHaveLength(0);
     const all = [...plan([lease(), rental()]), ...plan([lease(), rental()], { now: new Date('2026-09-01T00:00:00Z') })];
     expect(all.some((p) => p.source === 'legal')).toBe(false);
+  });
+});
+
+describe('알림 시간: 기본 알림 시간(여러 개) + 종류별 시간', () => {
+  /** 11/30 종료 · 30일 전 해지 통보(10/31) · 매월 20일 렌탈료 */
+  const shortTerm = () =>
+    record('c-short', {
+      title: '단기 렌탈', category: 'rental', contractType: 'recurring', startDate: '2026-01-01', endDate: '2026-11-30', notice: '30',
+      payments: [{ kind: 'recurring_fee', direction: 'expense', label: '렌탈료', amount: '30,000', frequency: 'monthly', dayOfMonth: '20' }],
+    });
+  const kstHour = (iso: string) => (new Date(iso).getUTCHours() + 9) % 24;
+
+  test('기본 알림 시간 2개 → 같은 날 두 번 (오전 9:00 · 오후 6:30), 서로 다른 중복 방지 키', () => {
+    const ps = plan([lease()], { preferences: { defaultTimes: ['18:30', '09:00'] } }).filter((p) => p.eventType === 'payment');
+    expect(ps.map((p) => p.scheduledAt)).toEqual(['2026-10-19T00:00:00.000Z', '2026-10-19T09:30:00.000Z']);
+    expect(new Set(ps.map((p) => p.dedupeKey)).size).toBe(2);
+  });
+
+  test('해지·갱신 통보기한만 [오전 9:00, 오후 6:00] → 통보기한은 두 시간, 결제는 기본 시간만', () => {
+    const ps = plan([shortTerm()], { preferences: { defaultTimes: ['09:00'], categories: { termination_notice: { enabled: true, offsets: [7], times: ['09:00', '18:00'] } } } });
+    const at18 = ps.filter((p) => kstHour(p.scheduledAt) === 18);
+    expect(at18.length).toBeGreaterThan(0);
+    expect(at18.every((p) => p.eventType !== 'payment')).toBe(true);
+    expect(at18.map((p) => p.fireOn)).toContain('2026-10-24'); // 10/31 통보기한 7일 전
+    const pay = ps.filter((p) => p.eventType === 'payment');
+    expect(pay.length).toBeGreaterThan(0);
+    expect(pay.every((p) => kstHour(p.scheduledAt) === 9)).toBe(true);
+  });
+
+  test('종류별 시간이 없으면 기본 알림 시간을 따른다 (기본 시간을 바꾸면 함께 바뀜)', () => {
+    const ps = plan([shortTerm()], { preferences: { defaultTimes: ['07:30'] } });
+    expect(ps.length).toBeGreaterThan(0);
+    expect(ps.every((p) => p.scheduledAt.endsWith('T22:30:00.000Z'))).toBe(true); // 한국 07:30 = 전날 22:30 UTC
+  });
+
+  test('계약별 설정(시점만)이 있어도 사용자의 종류별 시간은 유지', () => {
+    const ps = plan([shortTerm()], {
+      preferences: { defaultTimes: ['09:00'], categories: { termination_notice: { enabled: true, offsets: [7], times: ['18:00'] } } },
+      overrides: new Map([['c-short', { termination_notice: { enabled: true, offsets: [1] } }]]),
+    });
+    const notice = ps.filter((p) => p.fireOn === '2026-10-30');
+    expect(notice.length).toBe(1);
+    expect(kstHour(notice[0].scheduledAt)).toBe(18);
+  });
+
+  test('저장값 정리: 시간은 HH:MM만 · 중복 제거 · 이른 순 · 최대 4개, 비면 times 없음', () => {
+    expect(normalizeCategoryPrefs({ payment: { enabled: true, offsets: [1], times: ['18:00', '09:00', '09:00', '25:00', 'x'] } }).payment).toEqual({ enabled: true, offsets: [1], times: ['09:00', '18:00'] });
+    expect(normalizeCategoryPrefs({ payment: { enabled: true, offsets: [1], times: [] } }).payment).toEqual({ enabled: true, offsets: [1] });
+    expect(getEffectiveNotificationPreferences({ defaultTimes: ['06:00', '07:00', '08:00', '09:00', '10:00'] }).defaultTimes).toEqual(['06:00', '07:00', '08:00', '09:00']);
+  });
+
+  test('설정 첫 화면 한 줄 요약', () => {
+    expect(categorySummary({ enabled: true, offsets: [1] }, ['09:00'])).toBe('1일 전 · 기본 시간 (오전 9:00)');
+    expect(categorySummary({ enabled: true, offsets: [30, 7, 1, 0], times: ['09:00', '18:00'] }, ['09:00'])).toBe('30·7·1일 전·당일 · 오전 9:00, 오후 6:00');
+    expect(categorySummary({ enabled: false, offsets: [1] }, ['09:00'])).toBe('꺼짐');
+    expect(isPactoDefault({ payment: { enabled: true, offsets: [1], times: ['18:00'] } })).toBe(false);
   });
 });

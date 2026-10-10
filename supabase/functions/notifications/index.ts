@@ -17,7 +17,7 @@ const EXPO_TOKEN = Deno.env.get('EXPO_ACCESS_TOKEN') || undefined;
 async function planUser(userId: string, now = new Date()): Promise<{ created: number; updated: number; cancelled: number; planned: number } | null> {
   const [profile] = await restJson<{ timezone: string; push_preview_enabled: boolean }[]>(`profiles?id=eq.${userId}&select=timezone,push_preview_enabled`, {}, 'profile');
   if (!profile) return null; // 탈퇴한 사용자
-  const [prefs] = await restJson<{ enabled: boolean; time_of_day: string; categories: unknown }[]>(`notification_preferences?user_id=eq.${userId}&select=enabled,time_of_day,categories`, {}, 'prefs');
+  const [prefs] = await restJson<{ enabled: boolean; time_of_day: string; default_times: string[] | null; categories: unknown }[]>(`notification_preferences?user_id=eq.${userId}&select=enabled,time_of_day,default_times,categories`, {}, 'prefs');
   const overrides = await restJson<{ contract_id: string; categories: unknown }[]>(`contract_notification_overrides?user_id=eq.${userId}&select=contract_id,categories`, {}, 'overrides');
   const rows = await restJson<unknown[]>(`contracts?user_id=eq.${userId}&select=${encodeURIComponent(CONTRACT_SELECT)}`, {}, 'contracts');
   const planned = planNotifications({
@@ -25,7 +25,8 @@ async function planUser(userId: string, now = new Date()): Promise<{ created: nu
     records: rows.map(toRecord),
     preferences: {
       enabled: prefs?.enabled ?? true,
-      timeOfDay: prefs?.time_of_day?.slice(0, 5),
+      // 기본 알림 시간 (예전 데이터는 time_of_day 하나)
+      defaultTimes: prefs?.default_times?.length ? prefs.default_times : prefs?.time_of_day ? [prefs.time_of_day.slice(0, 5)] : undefined,
       timezone: profile.timezone,
       showDetails: profile.push_preview_enabled,
       categories: normalizeCategoryPrefs(prefs?.categories),

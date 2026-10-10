@@ -5,8 +5,10 @@
  */
 import {
   DEFAULT_PREFERENCES,
+  DEFAULT_TIMES,
   getEffectiveNotificationPreferences,
   normalizeCategoryPrefs,
+  normalizeTimes,
   planNotifications,
   type ContractNotificationOverride,
   type NotificationPreferences,
@@ -69,17 +71,18 @@ export class SupabaseNotificationStore implements NotificationStore {
   async getPreferences(): Promise<NotificationPreferences> {
     const uid = await this.uid();
     const [{ data: p }, { data: profile }] = await Promise.all([
-      this.sb.from('notification_preferences').select('enabled, time_of_day, categories').eq('user_id', uid).maybeSingle(),
+      this.sb.from('notification_preferences').select('enabled, time_of_day, default_times, categories').eq('user_id', uid).maybeSingle(),
       this.sb.from('profiles').select('timezone, push_preview_enabled').eq('id', uid).maybeSingle(),
     ]);
     const eff = getEffectiveNotificationPreferences({
       enabled: p?.enabled ?? true,
-      timeOfDay: p?.time_of_day?.slice(0, 5),
+      // 기본 알림 시간 (예전 데이터는 time_of_day 하나)
+      defaultTimes: p?.default_times?.length ? p.default_times : p?.time_of_day ? [p.time_of_day.slice(0, 5)] : undefined,
       timezone: profile?.timezone,
       showDetails: profile?.push_preview_enabled ?? false,
       categories: normalizeCategoryPrefs(p?.categories),
     });
-    return { enabled: eff.enabled, timeOfDay: eff.timeOfDay, timezone: eff.timezone, showDetails: eff.showDetails, categories: normalizeCategoryPrefs(p?.categories) };
+    return { enabled: eff.enabled, defaultTimes: eff.defaultTimes, timezone: eff.timezone, showDetails: eff.showDetails, categories: normalizeCategoryPrefs(p?.categories) };
   }
 
   async savePreferences(patch: Partial<NotificationPreferences>): Promise<NotificationPreferences> {
@@ -94,13 +97,14 @@ export class SupabaseNotificationStore implements NotificationStore {
           .eq('id', uid),
       );
     }
-    if (patch.enabled !== undefined || patch.timeOfDay !== undefined || patch.categories !== undefined) {
+    if (patch.enabled !== undefined || patch.defaultTimes !== undefined || patch.categories !== undefined) {
       // upsert는 보낸 칸만 덮어쓴다 (처음이면 나머지는 DB 기본값)
       writes.push(
         this.sb.from('notification_preferences').upsert({
           user_id: uid,
           ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-          ...(patch.timeOfDay !== undefined ? { time_of_day: patch.timeOfDay } : {}),
+          // time_of_day는 DB 트리거가 default_times[1]로 맞춘다 (예전 앱 호환)
+          ...(patch.defaultTimes !== undefined ? { default_times: normalizeTimes(patch.defaultTimes) ?? [...DEFAULT_TIMES] } : {}),
           ...(patch.categories !== undefined ? { categories: normalizeCategoryPrefs(patch.categories) as unknown as { [key: string]: Json } } : {}),
         }),
       );
@@ -196,7 +200,12 @@ export class MockNotificationStore implements NotificationStore {
     return { ...this.prefs, categories: { ...this.prefs.categories } };
   }
   async savePreferences(patch: Partial<NotificationPreferences>) {
-    this.prefs = { ...this.prefs, ...patch, categories: normalizeCategoryPrefs(patch.categories ?? this.prefs.categories) };
+    this.prefs = {
+      ...this.prefs,
+      ...patch,
+      defaultTimes: patch.defaultTimes ? (normalizeTimes(patch.defaultTimes) ?? [...DEFAULT_TIMES]) : this.prefs.defaultTimes,
+      categories: normalizeCategoryPrefs(patch.categories ?? this.prefs.categories),
+    };
     return this.getPreferences();
   }
   async getOverride(contractId: string) {

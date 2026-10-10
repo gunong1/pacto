@@ -170,10 +170,29 @@ describe('알림 계획 (계약 저장·수정·삭제·설정 변경 → 예정
     expect(await rows(a.user.id)).toEqual([]);
   });
 
+  test('알림 시간: 기본 알림 시간 2개 → 결제 전날 두 번 / 결제만 다른 시간 → 그 시간만 / 예전 앱 time_of_day 변경도 반영', async () => {
+    const { a, store } = await setup('times');
+    const payAt = async () =>
+      near((await rows(a.user.id)).filter((r) => r.status === 'scheduled' && r.event_type === 'payment'))
+        .filter((r) => r.fire_on === addDays(PAY_DAY, -1))
+        .map((r) => new Date(r.scheduled_at).toISOString())
+        .sort();
+    const at = (t: string) => new Date(`${addDays(PAY_DAY, -1)}T${t}:00+09:00`).toISOString();
+    await store.savePreferences({ defaultTimes: ['18:30', '09:00'] });
+    expect((await store.getPreferences()).defaultTimes).toEqual(['09:00', '18:30']);
+    expect(await payAt()).toEqual([at('09:00'), at('18:30')]);
+    await store.savePreferences({ categories: { payment: { enabled: true, offsets: [1], times: ['07:00'] } } });
+    expect(await payAt()).toEqual([at('07:00')]);
+    expect((await store.getPreferences()).categories.payment).toEqual({ enabled: true, offsets: [1], times: ['07:00'] });
+    // 예전 앱: time_of_day만 바꿔도 기본 알림 시간이 함께 바뀐다 (DB 트리거)
+    await a.client.from('notification_preferences').update({ time_of_day: '08:00' }).eq('user_id', a.user.id);
+    expect((await store.getPreferences()).defaultTimes).toEqual(['08:00']);
+  });
+
   test('알림 기준 시간대: 잘못된 이름 거부 / 바꾸면 그 시간대 오전 9시로 다시 계산', async () => {
     const { a, store } = await setup('tz');
     await expect(store.savePreferences({ timezone: 'Mars/Base' })).rejects.toThrow('invalid_timezone');
-    await store.savePreferences({ timezone: 'Asia/Tokyo', timeOfDay: '20:30' });
+    await store.savePreferences({ timezone: 'Asia/Tokyo', defaultTimes: ['20:30'] });
     const live = (await rows(a.user.id)).filter((r) => r.status === 'scheduled' && r.event_type === 'payment');
     expect(new Date(live[0].scheduled_at).toISOString()).toBe(new Date(`${addDays(PAY_DAY, -1)}T20:30:00+09:00`).toISOString());
   });

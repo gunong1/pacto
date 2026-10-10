@@ -142,27 +142,59 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.waitForSelector(tid('notif-enabled'));
     const st = await body();
     check('I', '웹: 이 기기에서는 푸시를 받을 수 없다는 안내 (앱은 정상 동작)', st.includes('이 기기에서는 푸시 알림을 받을 수 없어요') && st.includes('웹에서는 푸시 알림을 받을 수 없어요'));
-    check('S0', '기본값: 결제 1일 전 · 통보기한 30·7·1·당일 · 만료 90·30·7 · 자동갱신 30·7 / 기본값 사용 중', st.includes('PACTO 기본 알림 설정을 쓰고 있어요') && st.includes('해지·갱신 통보기한') && st.includes('알림 받는 시간') && st.includes('한국 시간 기준'));
+    check('S0', '기본값: 기본 알림 시간 오전 9:00 · 종류별 요약(통보기한 30·7·1일 전·당일 · 기본 시간) / 기본값 사용 중', st.includes('PACTO 기본 알림 설정을 쓰고 있어요') && st.includes('기본 알림 시간') && st.includes('해지·갱신 통보기한') && st.includes('30·7·1일 전·당일 · 기본 시간 (오전 9:00)') && st.includes('한국 시간 기준'), st.slice(0, 400));
+    check('N1', '첫 화면은 요약만 (며칠 전 칩·종류별 스위치 없음)', (await page.locator('[data-testid^="type-offset-"]').count()) === 0 && (await page.locator('[data-testid$="-switch"]').count()) === 0);
     await shot('04-settings');
 
+    // 종류별 화면: 해지·갱신 통보기한 끄기 확인
+    await page.click(tid('notif-type-termination_notice'));
+    await page.waitForSelector(tid('type-enabled'));
     dialogs.length = 0;
     dialogAnswer = false; // 유지하기
-    await page.click(tid('notif-termination_notice-switch'));
+    await page.click(tid('type-enabled'));
     await page.waitForTimeout(600);
-    const kept = (await page.locator(tid('notif-termination_notice-30')).count()) === 1;
+    const kept = (await page.locator(tid('type-offset-30')).count()) === 1;
     check('K1', '해지 통보기한 알림을 끄려 하면 확인 → "유지하기"면 그대로', dialogs.some((m) => m.includes('해지·갱신 통보기한 알림을 끌까요?') && m.includes('계약상 중요한 기한을 놓칠 수 있어요')) && kept);
     dialogAnswer = true; // 끄기
-    await page.click(tid('notif-termination_notice-switch'));
+    await page.click(tid('type-enabled'));
     await page.waitForTimeout(1200);
-    check('K2', '확인 후 끄기 → 꺼짐 (강제로 다시 켜지 않음)', (await page.locator(tid('notif-termination_notice-30')).count()) === 0);
+    check('K2', '확인 후 끄기 → 꺼짐 (강제로 다시 켜지 않음)', (await page.locator(tid('type-offset-30')).count()) === 0);
+    await page.goBack();
+    await page.waitForSelector(tid('notif-type-payment'));
+    check('K2b', '첫 화면 요약에 "꺼짐"', (await page.locator(tid('notif-type-termination_notice')).innerText()).includes('꺼짐'));
+
+    // 결제·입금: 확인 없이 끄기/켜기 + 이 알림만 다른 시간 (오전 9:00 + 오후 6:00)
+    await page.click(tid('notif-type-payment'));
+    await page.waitForSelector(tid('type-enabled'));
     dialogs.length = 0;
-    await page.click(tid('notif-payment-switch'));
+    await page.click(tid('type-enabled'));
     await page.waitForTimeout(800);
-    check('K3', '결제 알림은 확인 없이 끔', dialogs.length === 0 && (await page.locator(tid('notif-payment-1')).count()) === 0);
-    await page.click(tid('notif-payment-switch'));
+    check('K3', '결제 알림은 확인 없이 끔', dialogs.length === 0 && (await page.locator(tid('type-offset-1')).count()) === 0);
+    await page.click(tid('type-enabled'));
     await page.waitForTimeout(800);
-    await page.click(tid('notif-time-08:00'));
-    await page.waitForTimeout(800);
+    await page.click(tid('type-time-mode-custom'));
+    await page.waitForSelector(tid('type-time-09:00'));
+    await page.click(tid('type-add'));
+    await page.locator(tid('time-picker-input')).fill('18:00');
+    await page.click(tid('time-picker-ok'));
+    await page.waitForSelector(tid('type-time-18:00'));
+    await shot('04b-type-payment');
+    await page.goBack();
+    await page.waitForSelector(tid('notif-type-payment'));
+    const paySum = await page.locator(tid('notif-type-payment')).innerText();
+    check('O1', '결제·입금만 다른 시간 → 요약 "1일 전 · 오전 9:00, 오후 6:00"', paySum.includes('1일 전 · 오전 9:00, 오후 6:00'), paySum);
+
+    // 기본 알림 시간: 오전 9:00 → 오전 8:00 변경 + 오후 6:30 추가
+    await page.click(tid('notif-default-change-09:00'));
+    await page.locator(tid('time-picker-input')).fill('08:00');
+    await page.click(tid('time-picker-ok'));
+    await page.waitForSelector(tid('notif-default-time-08:00'));
+    await page.click(tid('notif-default-add'));
+    await page.locator(tid('time-picker-input')).fill('18:30');
+    await page.click(tid('time-picker-ok'));
+    await page.waitForSelector(tid('notif-default-time-18:30'));
+    const sum = await page.locator(tid('notif-types')).innerText();
+    check('S1t', '기본 알림 시간 오전 8:00 · 오후 6:30 → 기본 시간을 쓰는 종류 요약에 반영, 결제는 자기 시간 유지', sum.includes('기본 시간 (오전 8:00, 오후 6:30)') && sum.includes('1일 전 · 오전 9:00, 오후 6:00'), sum);
     await page.click(tid('notif-show-details'));
     await page.waitForTimeout(800);
     const st2 = await body();
@@ -200,7 +232,8 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.waitForSelector(tid('notif-reset'));
     await page.click(tid('notif-reset'));
     await page.waitForSelector(tid('notif-is-default'), { timeout: 10000 });
-    check('S2', 'PACTO 기본값으로 되돌리기', (await page.locator(tid('notif-termination_notice-30')).count()) === 1 && (await page.locator(tid('notif-time-09:00')).getAttribute('aria-selected')) !== 'false');
+    const reset = await page.locator(tid('notif-types')).innerText();
+    check('S2', 'PACTO 기본값으로 되돌리기 (기본 시간 오전 9:00 하나, 종류별 시간 없음)', reset.includes('30·7·1일 전·당일 · 기본 시간 (오전 9:00)') && reset.includes('1일 전 · 기본 시간 (오전 9:00)') && (await page.locator(tid('notif-default-time-09:00')).count()) === 1 && (await page.locator(tid('notif-default-time-18:30')).count()) === 0, reset);
   } catch (e) {
     check('X', '예외 없음', false, e.message);
   }

@@ -1,28 +1,19 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Chip, SwitchRow } from '@/components/ui/controls';
-import { Screen, Section, SectionGap } from '@/components/ui/layout';
-import {
-  DEFAULT_TIME_OF_DAY,
-  formatTimeOfDay,
-  getEffectiveNotificationPreferences,
-  isPactoDefault,
-  OFFSET_PRESETS,
-  type CategoryPrefs,
-  type NotificationCategory,
-} from '@/domain/notifications';
+import { Divider, ListRow, Screen, Section, SectionGap } from '@/components/ui/layout';
+import { categorySummary, DEFAULT_TIMES, getEffectiveNotificationPreferences, isPactoDefault, NOTIFICATION_CATEGORY_GROUPS } from '@/domain/notifications';
 import { notificationStore } from '@/data';
-import { CategoryPrefsEditor } from '@/features/notifications/CategoryPrefsEditor';
 import { PushPermissionCard } from '@/features/notifications/PushPermissionCard';
+import { TimeList } from '@/features/notifications/TimeList';
 import { usePushPermission, useNotificationPreferences, useSaveNotificationPreferences } from '@/features/notifications/queries';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, radius, spacing } from '@/theme';
 
-/** 알림 받는 시간 선택지 (V1: 자유 입력 대신) */
-const TIMES = ['07:00', '08:00', '09:00', '10:00', '12:00', '18:00', '20:00', '21:00'];
 /** 알림 기준 시간대 선택지 — 기기 시간대가 바뀌어도 자동으로 바꾸지 않는다 */
 const TIMEZONES: { value: string; label: string }[] = [
   { value: 'Asia/Seoul', label: '한국' },
@@ -43,17 +34,17 @@ export default function NotificationSettingsScreen() {
   const save = useSaveNotificationPreferences();
   const [permission, refreshPermission] = usePushPermission();
   const [testing, setTesting] = useState(false);
+  const [tzOpen, setTzOpen] = useState(false);
   if (!prefs) return <Screen edges={[]} />;
   const eff = getEffectiveNotificationPreferences(prefs);
   const patch = (p: Parameters<typeof save.mutate>[0]) => save.mutate(p, { onError: () => notify('저장하지 못했어요', '잠시 후 다시 시도해주세요.') });
 
-  const setCategory = (changes: Partial<Record<NotificationCategory, CategoryPrefs>>) => patch({ categories: { ...eff.categories, ...changes } });
   const toggleAll = async (on: boolean) => {
     if (!on && !(await confirm('PACTO 알림을 모두 끌까요?', '해지 통보기한 같은 중요한 기한 알림도 오지 않아요.', '끄기', '유지하기'))) return;
     patch({ enabled: on });
   };
   const reset = async () => {
-    if (await confirm('PACTO 기본값으로 되돌릴까요?', '알림 종류와 시점, 알림 받는 시간이 기본값으로 돌아가요.', '되돌리기')) patch({ categories: {}, timeOfDay: DEFAULT_TIME_OF_DAY, enabled: true });
+    if (await confirm('PACTO 기본값으로 되돌릴까요?', '알림 종류와 시점, 알림 시간이 기본값(오전 9:00)으로 돌아가요.', '되돌리기')) patch({ categories: {}, defaultTimes: [...DEFAULT_TIMES], enabled: true });
   };
   const sendTest = async (delaySeconds = 0) => {
     setTesting(true);
@@ -64,30 +55,53 @@ export default function NotificationSettingsScreen() {
     else notify('테스트 알림', r.devices === 0 ? '알림을 받을 기기가 없어요. 먼저 "알림 받기"를 눌러주세요.' : `기기 ${r.devices}대 중 ${r.ok}대로 보냈어요.${r.errors.length ? ` (오류: ${r.errors.join(', ')})` : ''}`);
   };
 
+  const tzLabel = TIMEZONES.find((t) => t.value === eff.timezone)?.label ?? eff.timezone;
   return (
     <Screen edges={[]}>
       <PushPermissionCard permission={permission} onChanged={refreshPermission} />
-      <Section title="PACTO 알림" caption="알림 시점은 기한 자체가 아니라, 기한을 언제 미리 알려줄지예요. 기한은 계약서나 입력한 계약 정보를 기준으로 해요.">
+      <Section>
         <SwitchRow label="PACTO 알림 받기" value={eff.enabled} onValueChange={toggleAll} testID="notif-enabled" />
-        <View style={{ marginTop: spacing.sm }}>
-          <CategoryPrefsEditor value={eff.categories} onChange={setCategory} presets={OFFSET_PRESETS} disabled={!eff.enabled} />
-        </View>
       </Section>
-      <SectionGap />
-      <Section title="알림 받는 시간" caption={`${TIMEZONES.find((t) => t.value === eff.timezone)?.label ?? eff.timezone} 시간 기준`}>
-        <View style={styles.chips}>
-          {TIMES.map((t) => (
-            <Chip key={t} label={formatTimeOfDay(t)} selected={eff.timeOfDay === t} onPress={() => patch({ timeOfDay: t })} testID={`notif-time-${t}`} />
+      <View style={eff.enabled ? undefined : styles.off} pointerEvents={eff.enabled ? 'auto' : 'none'}>
+        <SectionGap />
+        <Section title="기본 알림 시간" caption={`모든 알림이 이 시간에 와요 (${tzLabel} 시간 기준). 알림 종류마다 다른 시간을 쓸 수도 있어요.`} testID="notif-default-times">
+          <TimeList times={eff.defaultTimes} onChange={(t) => patch({ defaultTimes: t })} testIDPrefix="notif-default" />
+        </Section>
+        <SectionGap />
+        <Section title="알림 종류" caption="기한 며칠 전에, 몇 시에 알려줄지예요. 눌러서 바꿀 수 있어요." testID="notif-types">
+          {NOTIFICATION_CATEGORY_GROUPS.map((g, i) => (
+            <View key={g.key}>
+              {i > 0 ? <Divider /> : null}
+              <ListRow
+                title={g.label}
+                subtitle={categorySummary(eff.categories[g.key], eff.defaultTimes)}
+                chevron
+                onPress={() => router.push({ pathname: '/settings/notification-type', params: { key: g.key } })}
+                testID={`notif-type-${g.key}`}
+              />
+            </View>
           ))}
-        </View>
-      </Section>
+        </Section>
+      </View>
       <SectionGap />
       <Section title="알림 기준 시간대" caption="해외에 있어도 자동으로 바뀌지 않아요. 계약 기한 알림 시간이 흔들리지 않도록 직접 바꿀 때만 바뀌어요.">
-        <View style={styles.chips}>
-          {TIMEZONES.map((t) => (
-            <Chip key={t.value} label={t.label} selected={eff.timezone === t.value} onPress={() => patch({ timezone: t.value })} testID={`notif-tz-${t.value}`} />
-          ))}
-        </View>
+        <ListRow title={tzLabel} subtitle={tzOpen ? undefined : '바꾸기'} chevron onPress={() => setTzOpen((o) => !o)} testID="notif-tz-toggle" />
+        {tzOpen ? (
+          <View style={styles.chips}>
+            {TIMEZONES.map((t) => (
+              <Chip
+                key={t.value}
+                label={t.label}
+                selected={eff.timezone === t.value}
+                onPress={() => {
+                  patch({ timezone: t.value });
+                  setTzOpen(false);
+                }}
+                testID={`notif-tz-${t.value}`}
+              />
+            ))}
+          </View>
+        ) : null}
       </Section>
       <SectionGap />
       <Section title="잠금화면 표시">
@@ -100,7 +114,7 @@ export default function NotificationSettingsScreen() {
         />
       </Section>
       <View style={styles.footer}>
-        {!isPactoDefault(prefs.categories) || eff.timeOfDay !== DEFAULT_TIME_OF_DAY || !eff.enabled ? (
+        {!isPactoDefault(prefs.categories) || eff.defaultTimes.join(',') !== DEFAULT_TIMES.join(',') || !eff.enabled ? (
           <Button label="PACTO 기본값으로 되돌리기" variant="secondary" onPress={reset} testID="notif-reset" />
         ) : (
           <AppText variant="caption" color="textTertiary" style={{ textAlign: 'center' }} testID="notif-is-default">
@@ -124,7 +138,8 @@ export default function NotificationSettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingBottom: spacing.md },
+  off: { opacity: 0.45 },
   footer: { padding: spacing.gutter, paddingTop: spacing.xl },
   dev: { margin: spacing.gutter, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, gap: spacing.sm },
   devRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
