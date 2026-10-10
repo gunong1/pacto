@@ -29,10 +29,14 @@ export interface MonthGridProps {
   markers: Map<ISODate, Set<ScheduleItemType>>;
   onSelect: (date: ISODate) => void;
   onChangeMonth: (delta: number) => void;
+  /** 제목(연·월)을 누르면 — 연도·월 빠른 이동 */
+  onPressTitle?: () => void;
+  /** 이번 달이 아닐 때 "오늘" 버튼 — 이번 달로 바로 돌아가기 */
+  onToday?: () => void;
 }
 
 /** 계약 전용 월 캘린더. 날짜 아래 점 색 = 일정 유형. */
-export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onChangeMonth }: MonthGridProps) {
+export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onChangeMonth, onPressTitle, onToday }: MonthGridProps) {
   const { year, month } = yearMonth;
   const first = toISODate(year, month, 1);
   const lead = weekdayOf(first);
@@ -49,9 +53,28 @@ export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onCha
         <Pressable onPress={() => onChangeMonth(-1)} hitSlop={hitSlop} accessibilityLabel="이전 달" testID="calendar-prev">
           <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
         </Pressable>
-        <AppText variant="title2" tabular testID="calendar-title">
-          {year}년 {month}월
-        </AppText>
+        <View style={styles.titleRow}>
+          <Pressable
+            onPress={onPressTitle}
+            disabled={!onPressTitle}
+            hitSlop={hitSlop}
+            accessibilityRole="button"
+            accessibilityLabel={`${year}년 ${month}월, 연도·월 빠르게 이동`}
+            testID="calendar-title"
+            style={({ pressed }) => [styles.title, pressed && styles.titlePressed]}>
+            <AppText variant="title2" tabular>
+              {year}년 {month}월
+            </AppText>
+            {onPressTitle ? <Ionicons name="chevron-down" size={16} color={colors.textTertiary} /> : null}
+          </Pressable>
+          {onToday ? (
+            <Pressable onPress={onToday} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel="이번 달로 이동" testID="calendar-today" style={styles.todayChip}>
+              <AppText variant="caption" color="primary">
+                오늘
+              </AppText>
+            </Pressable>
+          ) : null}
+        </View>
         <Pressable onPress={() => onChangeMonth(1)} hitSlop={hitSlop} accessibilityLabel="다음 달" testID="calendar-next">
           <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
         </Pressable>
@@ -98,6 +121,10 @@ export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onCha
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm, marginBottom: spacing.sm },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  title: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.xs, paddingVertical: 2, borderRadius: radius.md },
+  titlePressed: { backgroundColor: colors.bgSubtle },
+  todayChip: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary },
   week: { flexDirection: 'row', marginBottom: spacing.xs },
   cellText: { flex: 1 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },

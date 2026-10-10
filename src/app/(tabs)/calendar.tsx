@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { EVENT_LEGEND } from '@/components/pacto';
 import { MonthGrid } from '@/components/pacto/MonthGrid';
+import { MonthPickerSheet } from '@/components/pacto/MonthPickerSheet';
 import { AppText } from '@/components/ui/AppText';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { dayMarkers, groupCalendarItems } from '@/domain/calendarGroups';
@@ -23,7 +24,15 @@ export default function CalendarScreen() {
   // 계약 상세 "캘린더 보기": ?date=YYYY-MM-DD&t=<nonce>
   const params = useLocalSearchParams<{ date?: string; t?: string }>();
   const [ym, setYm] = useState<YearMonth>(() => yearMonthOf(today));
+  const [picker, setPicker] = useState(false);
+  /** 연도·월 빠른 이동 / 오늘 */
   const [selected, setSelected] = useState<ISODate | null>(today);
+  const goTo = (next: YearMonth) => {
+    setYm(next);
+    // 이번 달로 돌아오면 오늘을 선택 (처음 들어왔을 때와 같게)
+    const now = yearMonthOf(today);
+    setSelected(next.year === now.year && next.month === now.month ? today : null);
+  };
   const [appliedNonce, setAppliedNonce] = useState<string | undefined>(undefined);
   if (params.t !== appliedNonce) {
     setAppliedNonce(params.t);
@@ -87,7 +96,10 @@ export default function CalendarScreen() {
             setYm(shiftYearMonth(ym, d));
             setSelected(null);
           }}
+          onPressTitle={() => setPicker(true)}
+          onToday={isThisMonth ? undefined : () => goTo(yearMonthOf(today))}
         />
+        <MonthPickerSheet visible={picker} value={ym} current={yearMonthOf(today)} onSelect={goTo} onClose={() => setPicker(false)} />
         <View style={styles.legend} testID="calendar-legend">
           {EVENT_LEGEND.map((l) => (
             <View key={l.label} style={styles.legendItem}>
