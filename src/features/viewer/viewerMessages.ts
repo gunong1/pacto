@@ -2,7 +2,9 @@
 export type ViewerEvent =
   | { type: 'loaded'; kind: string; pages: number; fit: boolean }
   | { type: 'error'; code: string }
-  | { type: 'step'; step: string; code?: string };
+  | { type: 'step'; step: string; code?: string }
+  /** 암호 PDF: 비밀번호 입력 요청 (invalid = 직전 입력이 틀림) — 비밀번호 자체는 오가지 않는다 */
+  | { type: 'password'; invalid: boolean };
 
 const CODE = /^[a-z0-9_]{1,40}$/;
 
@@ -23,6 +25,7 @@ export function parseViewerMessage(data: string): ViewerEvent | null {
         code:
           typeof m.code === "string" && CODE.test(m.code) ? m.code : "unknown",
       };
+    if (m.type === 'password') return { type: 'password', invalid: m.invalid === true };
     if (m.type === 'step' && typeof m.step === "string" && CODE.test(m.step))
       return {
         type: 'step',

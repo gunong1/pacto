@@ -29,7 +29,11 @@ export interface DocumentStore {
    * 민감정보 보호 처리 (서버). regions가 있으면 사용자의 가림 선택을 반영해 보호본을 다시 만든다.
    * 원본은 수정하지 않는다. mock 모드는 처리하지 않는다(pending).
    */
-  protect(documentId: string, regions?: { id: string; state: 'masked' | 'unmasked' }[]): Promise<ProtectionSummary>;
+  /**
+   * password: 암호 PDF의 비밀번호 (사용자 입력) — POST body로만 보내고 저장하지 않는다.
+   * 결과 access: password_required(비밀번호 필요) · invalid_password(틀림, 저장되지 않는 한 번의 결과) · unsupported_encryption
+   */
+  protect(documentId: string, regions?: { id: string; state: 'masked' | 'unmasked' }[], opts?: { password?: string }): Promise<ProtectionSummary>;
   /** 문서별 보호 결과 (계약에 연결 전인 업로드 문서 포함) */
   getProtection(documentIds: string[]): Promise<Record<string, DocumentProtection>>;
 }
@@ -37,6 +41,8 @@ export interface DocumentStore {
 export interface ProtectionSummary {
   status: ProtectionStatus;
   detail: string | null;
+  /** 암호 PDF: 비밀번호가 필요하거나 틀렸으면 보호 처리를 하지 않고 이 값만 온다 */
+  access?: 'accessible' | 'password_required' | 'invalid_password' | 'unsupported_encryption';
 }
 
 /** 원본 열기 대상: 보호 표시본(기본) 또는 원본 */

@@ -179,9 +179,14 @@ export interface SensitiveRegion {
   contextLabel: string | null;
 }
 
+/** PDF 원본 접근: 비밀번호가 필요한지 (null = 확인 전·사진). 비밀번호·입력 실패는 저장하지 않는다 */
+export type DocumentAccessStatus = 'accessible' | 'password_required' | 'unsupported_encryption';
+
 export interface DocumentProtection {
   status: ProtectionStatus;
   detail: string | null;
+  /** PDF 원본 접근 (암호) — password_required면 원본은 비밀번호를 다시 입력해야 열린다 (보호본은 비밀번호 없이) */
+  access?: DocumentAccessStatus | null;
   /** 텍스트 문서 안 이미지(서명·사본 등)는 확인하지 못함 */
   imagesUnchecked: boolean;
   /** 보호 표시본 경로 (status = protected일 때) */

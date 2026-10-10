@@ -6,7 +6,11 @@
 //   사용자가 가림만 바꾸면 OCR을 다시 하지 않고 저장된 위치로 보호본을 다시 그린다
 // - 보호본에서 원문이 다시 추출되면 실패 처리 — "보호됨"으로 표시하지 않는다
 // - 원문 값은 저장·로그에 남기지 않는다 (위치·종류·가린 표시값만). 로그에는 문서 id·상태·종류별 개수·시간만
-// 요청: { documentId, regions?: [{ id, state: 'masked' | 'unmasked' }] } — regions가 있으면 사용자의 가림 선택을 반영해 보호본을 다시 만든다
+// - 암호 PDF: 요청 body의 password(사용자 입력)로 서버 메모리에서만 연다 (qpdf). 원본은 암호 상태 그대로 두고,
+//   복호화한 PDF는 저장소·DB·로그에 남기지 않는다. 비밀번호도 저장·로그하지 않는다 (이 요청 처리 중 메모리에서만).
+//   비밀번호가 필요한데 없거나 틀리면 { access: 'password_required' | 'invalid_password' }만 돌려준다 (보호 처리 안 함).
+//   보호본(민감정보를 실제로 지운 PDF)은 암호 없는 일반 PDF로 저장 — 비밀번호 없이 열람·AI 분석에 쓴다.
+// 요청: { documentId, regions?: [{ id, state: 'masked' | 'unmasked' }], password? } — regions가 있으면 사용자의 가림 선택을 반영해 보호본을 다시 만든다
 import {
   deleteDerivative,
   downloadObject,
@@ -23,6 +27,7 @@ import {
 } from '../_shared/admin.ts';
 import { corsHeaders, json } from '../_shared/cors.ts';
 import { ClovaOcr } from '../_shared/protection/ocrProvider.ts';
+import { acceptablePassword, decryptPdf, inspectEncryption } from '../_shared/protection/pdfDecrypt.ts';
 import { protectPdf, safeErrorCode, type ProtectedRegion, type ProtectResult, type RegionState, type ScanRunner } from '../_shared/protection/protect.ts';
 import { decodeScanResponse, encodeScanRequest } from '../_shared/protection/scanWorker.ts';
 import { protectImage, redrawImage, type ImageProtectDiagnostics } from '../_shared/protection/protectImage.ts';
@@ -86,8 +91,11 @@ Deno.serve(async (req) => {
 
   let documentId = '';
   let updates: { id: string; state: 'masked' | 'unmasked' }[] = [];
+  // 사용자가 입력한 PDF 비밀번호 — 이 요청 처리 중 메모리에서만 쓴다 (저장·로그 금지)
+  let password: string | null = null;
   try {
     const body = await req.json();
+    password = acceptablePassword(body?.password) ? body.password : null;
     documentId = typeof body?.documentId === 'string' && UUID.test(body.documentId) ? body.documentId : '';
     updates = (Array.isArray(body?.regions) ? body.regions : [])
       .filter((r: unknown): r is { id: string; state: 'masked' | 'unmasked' } => {
@@ -109,6 +117,8 @@ Deno.serve(async (req) => {
   let result: ProtectResult | null = null;
   let imageDiag: ImageProtectDiagnostics | null = null;
   let derivativeCreated = false;
+  /** PDF 원본 접근 상태 (암호) — 저장 가능한 값만 */
+  let access: 'accessible' | 'password_required' | 'unsupported_encryption' | null = null;
   const logDiagnostics = (extra: Record<string, unknown>) =>
     console.log(
       `protect-document diagnostics: ${JSON.stringify({
@@ -159,17 +169,45 @@ Deno.serve(async (req) => {
       result = { status: 'unsupported_scan', detail: 'image_file', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 1, diagnostics: undefined as never, pages: [], scanMetrics: [] };
     } else {
       stage = 'download';
-      const bytes = await downloadObject(BUCKET, doc.storage_path);
-      stage = 'protect';
-      // 가림만 바꾼 경우: 스캔 페이지는 저장된 위치로 다시 그린다 (OCR 다시 안 함). 텍스트 페이지는 매번 원본에서 다시 (외부 호출 없음)
-      const redraw = updates.length > 0 && doc.protection_status === 'protected' ? prev.filter((r) => r.source === 'ocr').map(toRegion) : null;
-      try {
-        result = await protectPdf(bytes, prevStates, {}, { scan: scanWorker(documentId), redrawScanRegions: redraw });
-      } catch (e) {
-        result = { status: 'failed', detail: 'error', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 0, diagnostics: undefined as never, pages: [], scanMetrics: [] };
-        logDiagnostics({ errorCode: safeErrorCode(e), downloadedBytes: bytes.byteLength });
+      const original = await downloadObject(BUCKET, doc.storage_path);
+      // 암호 PDF: 메모리에서만 연 사본으로 처리 (원본은 그대로). 비밀번호가 필요하면 여기서 멈추고 앱에 알린다
+      stage = 'decrypt';
+      let bytes: Uint8Array | null = original;
+      const enc = await inspectEncryption(original);
+      access = 'accessible';
+      if (enc.encrypted) {
+        const d = await decryptPdf(original, password, enc);
+        password = null;
+        if (d.kind === 'password_required' || d.kind === 'invalid_password') {
+          // 원본 상태(비밀번호 필요)만 저장. 입력 실패는 저장하지 않는다. 보호 상태는 바꾸지 않는다
+          await updateDocumentProtection(userId, documentId, { access_status: 'password_required' });
+          console.log(`protect-document: doc=${documentId} access=${d.kind} ms=${Date.now() - started}`);
+          return json({ access: d.kind });
+        }
+        if (d.kind === 'ok') {
+          bytes = d.bytes;
+          access = d.needsPassword ? 'password_required' : 'accessible';
+        } else {
+          bytes = null;
+          access = d.kind === 'unsupported_encryption' ? 'unsupported_encryption' : 'password_required';
+          result = { status: 'failed', detail: d.kind === 'unsupported_encryption' ? 'unsupported_encryption' : 'decrypt_failed', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 0, diagnostics: undefined as never, pages: [], scanMetrics: [] };
+        }
+      }
+      if (bytes) {
+        stage = 'protect';
+        // 가림만 바꾼 경우: 스캔 페이지는 저장된 위치로 다시 그린다 (OCR 다시 안 함). 텍스트 페이지는 매번 원본에서 다시 (외부 호출 없음)
+        const redraw = updates.length > 0 && doc.protection_status === 'protected' ? prev.filter((r) => r.source === 'ocr').map(toRegion) : null;
+        try {
+          result = await protectPdf(bytes, prevStates, {}, { scan: scanWorker(documentId), redrawScanRegions: redraw });
+        } catch (e) {
+          result = { status: 'failed', detail: 'error', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 0, diagnostics: undefined as never, pages: [], scanMetrics: [] };
+          logDiagnostics({ errorCode: safeErrorCode(e), downloadedBytes: bytes.byteLength });
+        }
+        // 복호화 사본은 여기서 버린다 (보호본만 아래에서 저장)
+        bytes = null;
       }
     }
+    if (!result) throw new Error('protect_failed');
 
     // 보호 표시본 (원본과 별도 경로) — 보호됨일 때만 두고, 아니면 지운다
     const view = isImage ? viewBytes : result.protectedPdf;
@@ -215,6 +253,7 @@ Deno.serve(async (req) => {
       // 페이지별 종류·상태 (PDF만 — 원문 없음)
       protection_pages: result.pages.length ? result.pages.map((p) => ({ page: p.page, kind: p.kind, status: p.status, detail: p.detail })) : null,
       protected_at: new Date().toISOString(),
+      ...(access ? { access_status: access } : {}),
     });
     stage = 'done';
     console.log(`protect-document: doc=${documentId} status=${result.status} detail=${result.detail ?? '-'} pages=${result.pageCount} regions=${detectionCounts(result.regions)} ms=${Date.now() - started}`);
@@ -223,6 +262,7 @@ Deno.serve(async (req) => {
     return json({
       status: result.status,
       detail: result.detail,
+      ...(access ? { access } : {}),
       imagesUnchecked: result.imagesUnchecked,
       regionCount: result.regions.length,
       ...(result.pages.length ? { pages: result.pages } : {}),

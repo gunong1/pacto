@@ -14,6 +14,8 @@ import { buildViewerHtml, htmlFor, isAllowedViewerNavigation, VIEWER_BASE_URL, t
 import { SAMPLE_PDF_BASE64 } from '../../src/features/viewer/samplePdf.ts';
 import { protectPdf } from '../../supabase/functions/_shared/protection/protect.ts';
 import { PDFDocument, PDFName } from '../../supabase/functions/_shared/vendor/pdf-lib.js';
+import createQpdf from '../../supabase/functions/_shared/vendor/qpdf.js';
+import { QPDF_WASM_BASE64 } from '../../supabase/functions/_shared/vendor/qpdf-wasm.js';
 import { employmentContractPdf } from '../protection/fixtures.ts';
 import { readFix } from '../protection/scanFixtures.ts';
 
@@ -414,5 +416,86 @@ describe('실패해도 오류 코드만 (앱 종료 없음)', () => {
     assert.ok(html.length < 5000, `사진 HTML 크기 ${html.length}`);
     assert.ok(!html.includes('GlobalWorkerOptions'));
     assert.ok(htmlFor({ kind: 'pdf', url: 'https://docs.pacto.test/a.pdf' }).length > 1_000_000);
+  });
+});
+
+describe('암호 원본 (기기 안 pdf.js로만 열기)', () => {
+  /** AES-256 사용자 비밀번호 PDF (테스트용, 가짜 내용) */
+  async function encrypted(password: string) {
+    const q = await createQpdf({ noInitialRun: true, locateFile: () => `data:application/wasm;base64,${QPDF_WASM_BASE64}` });
+    q.FS.writeFile('/p.pdf', await pdfOf([{ size: [595, 842] }]));
+    q.callMain(['--encrypt', password, 'owner-pw', '256', '--', '/p.pdf', '/e.pdf']);
+    return Buffer.from(q.FS.readFile('/e.pdf'));
+  }
+  /** 앱이 WebView로 보내는 것과 같은 메시지 (Android: document 'message') */
+  const send = (page: Pw, m: unknown) => page.evaluate((d) => document.dispatchEvent(new MessageEvent('message', { data: d })), JSON.stringify(m));
+  const msgs = (page: Pw) => page.evaluate(() => (window.__msgs as string[]).map((m) => JSON.parse(m)));
+
+  async function openLocked(password: string) {
+    files.set('locked.pdf', { body: await encrypted(password), type: 'application/pdf' });
+    const ctx = await browser.newContext({ viewport: PHONE, deviceScaleFactor: 2.75, isMobile: true, hasTouch: true });
+    const page = await ctx.newPage();
+    const consoleLines: string[] = [];
+    page.on('console', (m) => consoleLines.push(m.text()));
+    const url = `${DOCS}object/sign/locked.pdf?token=secret-token`;
+    await page.route(`${VIEWER_BASE_URL}**`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: htmlFor({ url, kind: 'pdf' }) }));
+    await page.route(`${DOCS}**`, (r) => r.fulfill({ status: 200, contentType: 'application/pdf', body: files.get('locked.pdf')!.body, headers: { 'access-control-allow-origin': '*' } }));
+    await page.addInitScript(() => {
+      window.__msgs = [];
+      window.ReactNativeWebView = { postMessage: (m) => window.__msgs.push(m) };
+    });
+    await page.goto(VIEWER_BASE_URL);
+    return { page, consoleLines, close: () => ctx.close() };
+  }
+
+  test('F·G·H. 비밀번호 요청 → 틀림(재요청) 여러 번 → 맞으면 열림 · 비밀번호는 앱으로 되돌아가거나 콘솔에 남지 않음', async () => {
+    const pw = 'Ab1!@#한글 비번';
+    const o = await openLocked(pw);
+    try {
+      const passwordMsgs = async () => (await msgs(o.page)).filter((m) => m.type === 'password');
+      await o.page.waitForFunction(() => (window.__msgs as string[]).some((m) => JSON.parse(m).type === 'password'), null, { timeout: 30000 });
+      assert.deepEqual((await passwordMsgs())[0], { type: 'password', invalid: false });
+      for (let i = 0; i < 3; i++) {
+        await send(o.page, { type: 'pacto_password', password: `wrong-${i}` });
+        await o.page.waitForFunction((n) => (window.__msgs as string[]).filter((m) => JSON.parse(m).type === 'password').length >= n, i + 2, { timeout: 30000 });
+      }
+      assert.ok((await passwordMsgs()).slice(1).every((m) => m.invalid === true), '틀린 비밀번호는 invalid=true로 다시 요청');
+      await send(o.page, { type: 'pacto_password', password: pw });
+      await o.page.waitForFunction(() => (window.__msgs as string[]).some((m) => JSON.parse(m).type === 'loaded'), null, { timeout: 30000 });
+      const all = JSON.stringify(await msgs(o.page)) + o.consoleLines.join('\n');
+      assert.ok(!all.includes(pw) && !all.includes('wrong-0'), '비밀번호가 앱 메시지·콘솔에 남으면 안 됨');
+      const fs = await firstScreen(o.page);
+      assert.ok(fs.ink > 0, '첫 쪽이 그려짐');
+    } finally {
+      await o.close();
+    }
+  });
+
+  test('비밀번호 입력 취소 → pdf_password 오류 (앱은 종료되지 않고 안내)', async () => {
+    const o = await openLocked('pw1234');
+    try {
+      await o.page.waitForFunction(() => (window.__msgs as string[]).some((m) => JSON.parse(m).type === 'password'), null, { timeout: 30000 });
+      await send(o.page, { type: 'pacto_password_cancel' });
+      await o.page.waitForFunction(() => (window.__msgs as string[]).some((m) => JSON.parse(m).type === 'error'), null, { timeout: 30000 });
+      assert.deepEqual((await msgs(o.page)).find((m) => m.type === 'error'), { type: 'error', code: 'pdf_password' });
+    } finally {
+      await o.close();
+    }
+  });
+
+  test('비밀번호를 기다리지 않을 때 온 메시지는 무시 (형식이 다른 메시지도)', async () => {
+    const o = await openLocked('pw1234');
+    try {
+      await send(o.page, { type: 'pacto_password', password: 'early' });
+      await send(o.page, 'not-json');
+      await o.page.waitForFunction(() => (window.__msgs as string[]).some((m) => JSON.parse(m).type === 'password'), null, { timeout: 30000 });
+      await send(o.page, { type: 'other', password: 'pw1234' });
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal((await msgs(o.page)).some((m) => m.type === 'loaded'), false);
+      await send(o.page, { type: 'pacto_password', password: 'pw1234' });
+      await o.page.waitForFunction(() => (window.__msgs as string[]).some((m) => JSON.parse(m).type === 'loaded'), null, { timeout: 30000 });
+    } finally {
+      await o.close();
+    }
   });
 });

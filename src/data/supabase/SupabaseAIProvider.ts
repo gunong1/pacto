@@ -9,7 +9,13 @@ const MESSAGES: Record<string, string> = {
   model_refused: '이 문서는 자동으로 정리하지 못했어요. 직접 입력해주세요.',
   confirmation_required: '계약 관련 문서인지 먼저 확인해주세요.',
   not_allowed: '이 파일은 계약서로 확인되지 않아 정리할 수 없어요.',
+  password_required: '비밀번호가 설정된 계약서예요. PDF 비밀번호를 입력한 뒤 다시 시도해주세요.',
+  invalid_password: '비밀번호가 맞지 않아요.\n다시 확인해주세요.',
+  protection_required: '민감정보 보호를 마치지 못한 암호 PDF는 자동으로 정리하지 않아요. 직접 입력으로 계속할 수 있어요.',
 };
+
+/** 암호 PDF 비밀번호 — 있을 때만 body에 (주소에는 넣지 않는다) */
+const passwordsBody = (input: ExtractInput) => (input.passwords && Object.keys(input.passwords).length ? { passwords: input.passwords } : {});
 
 /**
  * 서버(Edge Function 'analyze-contract')를 통한 실제 AI 분석.
@@ -20,12 +26,13 @@ export class SupabaseAIProvider implements AIProvider {
   constructor(private readonly sb: PactoSupabase) {}
 
   async analyze(input: ExtractInput): Promise<AnalysisOutcome> {
-    return await this.call({ documentIds: input.documentIds });
+    return await this.call({ documentIds: input.documentIds, ...passwordsBody(input) });
   }
 
-  async finalize(jobId: string | undefined, choice: AnalysisChoice): Promise<AnalysisOutcome> {
+  async finalize(jobId: string | undefined, choice: AnalysisChoice, input?: ExtractInput): Promise<AnalysisOutcome> {
     if (!jobId) throw new AIExtractionError('분석 기록을 찾지 못했어요. 다시 시도해주세요.');
-    return await this.call({ jobId, ...choice });
+    // 다시 분석이 필요하면 서버가 암호 PDF를 다시 열어야 할 수 있어 비밀번호를 함께 (POST body)
+    return await this.call({ jobId, ...choice, ...(input ? passwordsBody(input) : {}) });
   }
 
   private async call(body: Record<string, unknown>): Promise<AnalysisOutcome> {

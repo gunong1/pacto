@@ -1,11 +1,17 @@
-import { lazy, Suspense, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { StyleSheet } from 'react-native';
-import type { WebViewMessageEvent, WebViewProps } from 'react-native-webview';
+import type { WebView as WebViewType, WebViewMessageEvent, WebViewProps } from 'react-native-webview';
 
 import { htmlFor, isAllowedViewerNavigation, VIEWER_BASE_URL, type ViewerConfig } from './viewerHtml';
 import { parseViewerMessage, type ViewerEvent } from './viewerMessages';
 
 export type { ViewerEvent } from './viewerMessages';
+
+/** 앱 → 뷰어: 암호 PDF 비밀번호 전달 / 입력 취소 (비밀번호는 기기 안 뷰어로만, 기록하지 않음) */
+export interface ViewerControl {
+  sendPassword: (password: string) => void;
+  cancelPassword: () => void;
+}
 
 /**
  * react-native-webview는 불러오는 순간 네이티브 모듈(RNCWebViewModule)을 찾고, 없으면 오류를 던진다.
@@ -55,14 +61,29 @@ export function DocumentViewer({
   onEvent,
   onMounted,
   variant = 'full',
+  controlRef,
 }: {
   config: ViewerConfig;
   onEvent: (e: ViewerEvent) => void;
   onMounted?: () => void;
   /** 진단용: min = 설정 없이 HTML만 / base = + 가상 주소(baseUrl) / full = 실제 뷰어 설정 전부 */
   variant?: 'min' | 'base' | 'full';
+  /** 비밀번호 전달용 (원본 보기) */
+  controlRef?: MutableRefObject<ViewerControl | null>;
 }) {
   const html = useMemo(() => htmlFor(config), [config]);
+  const web = useRef<WebViewType | null>(null);
+  // 비밀번호 전달 통로 (원본 보기) — 화면에 붙은 뒤에 연결
+  useEffect(() => {
+    if (!controlRef) return;
+      controlRef.current = {
+        sendPassword: (password) => web.current?.postMessage(JSON.stringify({ type: 'pacto_password', password })),
+        cancelPassword: () => web.current?.postMessage(JSON.stringify({ type: 'pacto_password_cancel' })),
+      };
+    return () => {
+      controlRef.current = null;
+    };
+  }, [controlRef]);
   const onMessage = (e: WebViewMessageEvent) => {
     const m = parseViewerMessage(e.nativeEvent.data);
     if (m) onEvent(m);
@@ -83,6 +104,7 @@ export function DocumentViewer({
   return (
     <Suspense fallback={null}>
       <LazyWebView
+        ref={web}
         style={styles.web}
         source={{ html, baseUrl: VIEWER_BASE_URL }}
         originWhitelist={[VIEWER_BASE_URL, 'about:*']}

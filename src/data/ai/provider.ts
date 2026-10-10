@@ -29,6 +29,8 @@ export interface ExtractInput {
   /** 비공개 저장소에 보관된 원본 id — 서버 분석은 이 문서를 읽는다 */
   documentIds: string[];
   today: string;
+  /** 암호 PDF 비밀번호 (문서 id → 비밀번호) — 등록 화면 메모리에만 있고, 분석 요청 POST body로만 보낸다 */
+  passwords?: Readonly<Record<string, string>>;
 }
 
 /**

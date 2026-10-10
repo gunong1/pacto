@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { signViewerFile, VIEWER_TITLE } from '@/features/documents/openDocument';
-import { DocumentViewer, type ViewerEvent } from '@/features/viewer/DocumentViewer';
+import { PdfPasswordModal } from '@/features/documents/PdfPasswordForm';
+import { DocumentViewer, type ViewerControl, type ViewerEvent } from '@/features/viewer/DocumentViewer';
 import { errorCode, recordViewerStep, VIEWER_DIAGNOSTICS, type ViewerMode, type ViewerStep } from '@/features/viewer/diagnostics';
 import { SAMPLE_PDF_BASE64 } from '@/features/viewer/samplePdf';
 import { dropViewerSession, getViewerSession } from '@/features/viewer/session';
@@ -19,7 +20,7 @@ const LOAD_FAILED = '계약서를 불러오지 못했어요.\n잠시 후 다시 
 
 /** 오류 코드 → 안내 (내부 코드·주소는 보여주지 않는다. 진단 모드에서만 코드를 함께 보여준다) */
 function errorCopy(code: string): string {
-  if (code === 'pdf_password') return '암호가 걸린 문서는 앱에서 열 수 없어요.';
+  if (code === 'pdf_password') return 'PDF 비밀번호를 입력해야 원본을 볼 수 있어요.';
   return LOAD_FAILED;
 }
 
@@ -58,6 +59,9 @@ export default function ViewerScreen() {
   const [state, setState] = useState<'loading' | 'ready' | { error: string }>(() => (mode === 'route' ? 'ready' : config ? 'loading' : { error: 'no_session' }));
   const [showWeb, setShowWeb] = useState(false);
   const [steps, setSteps] = useState<string[]>([]);
+  /** 암호 원본: 비밀번호 입력 (기기 안 뷰어로만 전달 — 저장·서버 전송 없음) */
+  const control = useRef<ViewerControl | null>(null);
+  const [askPassword, setAskPassword] = useState<{ invalid: boolean } | null>(null);
 
   const record = useCallback(
     (step: ViewerStep, code?: string) => {
@@ -96,6 +100,7 @@ export default function ViewerScreen() {
   const onEvent = useCallback(
     (e: ViewerEvent) => {
       if (e.type === 'step') return record(e.step as ViewerStep, e.code);
+      if (e.type === 'password') return setAskPassword({ invalid: e.invalid });
       if (e.type === 'loaded') {
         record('loaded');
         return setState('ready');
@@ -128,6 +133,19 @@ export default function ViewerScreen() {
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
       <Stack.Screen options={{ title }} />
+      <PdfPasswordModal
+        visible={askPassword !== null}
+        invalid={askPassword?.invalid}
+        submitLabel="원본 열기"
+        onSubmit={(pw) => {
+          setAskPassword(null);
+          control.current?.sendPassword(pw);
+        }}
+        onCancel={() => {
+          setAskPassword(null);
+          control.current?.cancelPassword();
+        }}
+      />
       {files ? (
         <View style={styles.tabsBar}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
@@ -170,6 +188,7 @@ export default function ViewerScreen() {
             onEvent={onEvent}
             onMounted={() => record('webview_mounted')}
             variant={mode === 'blank_min' ? 'min' : mode === 'blank_base' ? 'base' : 'full'}
+            controlRef={control}
           />
         </ViewerErrorBoundary>
       ) : null}

@@ -1314,3 +1314,20 @@ pacto/
   `java.lang.ClassCastException: java.lang.String cannot be cast to [ReadableArray]` at `RNCWebViewManagerDelegate.setProperty` ← `ViewManager.createViewInstance` ← Fabric `preallocateView`.
   원인: `dataDetectorTypes="none"`(글자). 네이티브 정의는 목록(`ReadonlyArray`)이고, iOS 쪽 JS는 글자를 목록으로 바꾸지만 Android 쪽은 그대로 넘겨 WebView를 만드는 순간 종료.
   수정: `['none']`(목록). 고정 설정은 `VIEWER_WEBVIEW_PROPS` 한 곳에 두고, 테스트(`webview-props.test.ts`)가 react-native-webview 네이티브 정의와 값 형식(목록·참거짓·글자·숫자)을 대조한다.
+
+### 암호 PDF (개정 22)
+- **원칙**: 사용자가 비밀번호를 아는 경우에만 연다. 비밀번호 추측·우회·크랙은 하지 않는다.
+- **판별** (`_shared/protection/pdfDecrypt.ts`): 트레일러 `/Encrypt`만 본다 (pdf-lib, 내용은 읽지 않음). 표준 보안 방식(Standard, R2~R6)이 아니면 `unsupported_encryption`.
+- **복호화**: qpdf 12.2.0(WASM, `@neslinesli93/qpdf-wasm@0.3.0`)을 요청마다 새 인스턴스로 띄워 **emscripten 메모리 파일 시스템(RAM)** 안에서만 연다. 끝나면 파일을 지우고 인스턴스를 버린다. 복호화 PDF는 저장소·DB·임시 파일·로그에 남기지 않는다.
+  - 먼저 비밀번호 없이 시도 → 소유자 비밀번호만 걸린 문서는 묻지 않고 연다 (`accessible`).
+  - qpdf 메시지는 번들에서 콘솔 대신 지역 배열로만 받아 판정에만 쓴다 (`invalid password` → 비밀번호 필요/틀림).
+- **원본**: 암호 상태 그대로 보관 (덮어쓰지 않음). `contract_documents.access_status` = `accessible` | `password_required` | `unsupported_encryption`. "비밀번호 틀림"은 저장하지 않는 한 번의 응답(`invalid_password`).
+- **보호본**: 복호화 사본 → 기존 보호 파이프라인(텍스트·스캔 페이지) → 민감정보를 지운 **암호 없는** 보호본 저장 → 비밀번호 없이 열람.
+- **AI 분석** (`analyze-contract`): 암호 PDF는 원본을 보내지 않는다.
+  - `protected` → 보호본 / `no_sensitive_data` → 요청 body의 비밀번호로 서버 메모리 복호화 사본 (보호본이 없으므로)
+  - `failed`·`unreadable`·`unsupported_scan`·지원하지 않는 암호·처리 전 → AI를 부르지 않고 `protection_required`(422). 앱이 먼저 안내.
+  - 암호 없는 문서는 기존과 같다 (원본).
+- **비밀번호**: 앱 등록 화면 메모리(`useRegistration.passwords`)에만 → `protect-document`·`analyze-contract` **POST body**로만. 주소·DB·AsyncStorage·SecureStore·로그·분석 도구에 넣지 않는다. 분석 완료·취소·화면 종료 시 지운다.
+- **원본 보기**: `requireReveal()` → 기기 안 뷰어(pdf.js)가 비밀번호를 요청 → 앱이 입력받아 WebView로만 전달 (서버로 보내지 않음, 기억하지 않음). 보호본은 비밀번호 없이.
+- **민감정보가 없는 암호 PDF**: 보호본(=복호화 사본)을 저장하지 않으므로 계약서를 볼 때마다 원본 비밀번호가 필요하다.
+- **정확도 비교**: `scripts/encrypted-bench.ts` (배포 환경·실제 AI, 같은 가짜 계약서를 일반 PDF / 암호 PDF→보호본으로 분석해 값 비교).

@@ -111,6 +111,7 @@ export function toProtection(r: DocumentRow): DocumentProtection {
   return {
     status: r.protection_status as ProtectionStatus,
     detail: r.protection_detail,
+    access: (r.access_status as DocumentProtection['access']) ?? null,
     imagesUnchecked: r.protection_images_unchecked,
     protectedViewPath: r.protection_status === 'protected' && view ? view.storage_path : null,
     pages: toProtectionPages(r.protection_pages),

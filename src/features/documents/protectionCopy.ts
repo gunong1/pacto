@@ -74,7 +74,11 @@ export function protectionCopy(p: DocumentProtection | undefined): { title: stri
     case 'failed':
       return { title: '민감정보 보호 처리 중 문제가 발생했어요.', body: `${failedReason(p.detail)}${pageList(p, 'failed') ? `문제가 생긴 페이지: ${pageList(p, 'failed')}. ` : ''}원본은 비공개로 보관돼요.`, tone: 'warning' };
     case 'pending':
-      return p.detail === 'preview_mode' ? null : { title: '민감정보 보호 전이에요', body: '계약서 속 주민등록번호·계좌번호 등을 찾아 가려서 표시할 수 있어요.', tone: 'neutral' };
+      if (p.detail === 'preview_mode') return null;
+      if (p.access === 'password_required') {
+        return { title: '비밀번호가 설정된 계약서예요', body: 'PDF 비밀번호를 입력하면 민감정보를 가린 보호본을 만들어요. 입력한 비밀번호는 저장하지 않습니다.', tone: 'neutral' };
+      }
+      return { title: '민감정보 보호 전이에요', body: '계약서 속 주민등록번호·계좌번호 등을 찾아 가려서 표시할 수 있어요.', tone: 'neutral' };
   }
 }
 
@@ -101,7 +105,12 @@ function failedReason(detail: string | null | undefined): string {
     case 'image_decode':
       return '이 사진 형식은 자동으로 가리지 못했어요. 다시 촬영하거나 다른 사진으로 등록해주세요. ';
     case 'encrypted':
-      return '암호가 걸린 문서는 자동으로 가릴 수 없어요. ';
+      // 암호 PDF 지원 이전에 처리한 문서 — 다시 시도하면 비밀번호를 입력해 보호할 수 있다
+      return '비밀번호가 설정된 문서예요. 다시 시도하면 PDF 비밀번호를 입력해 보호할 수 있어요. ';
+    case 'unsupported_encryption':
+      return '이 PDF의 보안 방식은 현재 지원하지 않아요. 잠금이 해제된 PDF를 다시 등록해주세요. ';
+    case 'decrypt_failed':
+      return '비밀번호가 설정된 문서를 열지 못했어요. ';
     case 'form_fields':
       return '입력 양식이 들어 있는 문서는 아직 자동 가리기를 지원하지 않아요. ';
     case 'unsupported_font':
@@ -117,7 +126,9 @@ function failedReason(detail: string | null | undefined): string {
 
 /** 이 문서를 지금 보호 처리할 수 있는지 (처리 전·실패·자동 보호 이전에 등록한 사진·스캔 PDF) */
 export const canProtect = (p: DocumentProtection | undefined) =>
-  !!p && (p.status === 'pending' || p.status === 'failed' || (p.status === 'unsupported_scan' && (p.detail === 'image_file' || p.detail === LEGACY_SCAN_DETAIL)));
+  !!p &&
+  p.access !== 'unsupported_encryption' &&
+  (p.status === 'pending' || p.status === 'failed' || (p.status === 'unsupported_scan' && (p.detail === 'image_file' || p.detail === LEGACY_SCAN_DETAIL)));
 
 /**
  * 여러 장(문서)의 전체 보호 상태 — 보수적으로: 모든 장이 보호됨 또는 감지되지 않음일 때만 완료.

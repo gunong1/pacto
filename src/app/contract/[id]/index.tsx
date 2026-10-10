@@ -23,11 +23,12 @@ import { currentTerm, deriveStatus, terminationNoticeDeadline } from '@/domain/s
 import { endProfile, isActionable, nextAction } from '@/domain/nextAction';
 import type { AiCheck, ContractRecord } from '@/domain/types';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
+import { useProtectWithPassword } from '@/features/documents/useProtectWithPassword';
 import { viewDocument, viewDocuments, viewOriginal } from '@/features/documents/openDocument';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
 import { ContractNotificationSection, PushOpenedBanner, PushPromptSheet } from '@/features/notifications/ContractNotificationParts';
 import { overallProtectionCopy } from '@/features/documents/protectionCopy';
-import { useAttachOriginal, useContract, useContractActions, useProtectDocument, useRemoveContract, useToday } from '@/features/contracts/queries';
+import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
@@ -54,7 +55,8 @@ export default function ContractDetailScreen() {
   const actions = useContractActions(id);
   const remove = useRemoveContract();
   const attach = useAttachOriginal(id);
-  const protect = useProtectDocument();
+  // 암호 PDF는 비밀번호를 받아 다시 요청 (기억하지 않음)
+  const protect = useProtectWithPassword();
   const attachOriginal = async (kind: 'pdf' | 'photo') => {
     const files = kind === 'pdf' ? await pickPdf() : await pickPhotos();
     if (files) attach.mutate(files, { onError: (e) => notify('원본 추가', e instanceof Error ? e.message : '원본을 보관하지 못했어요.') });
@@ -110,6 +112,7 @@ export default function ContractDetailScreen() {
 
   return (
     <>
+      {protect.modal}
       <Stack.Screen
         options={{
           title: '',
@@ -401,8 +404,8 @@ export default function ContractDetailScreen() {
               <ProtectionCard
                 protection={d.protection}
                 busy={protect.isPending}
-                onChangeRegion={(r, state) => protect.mutate({ documentId: d.id, regions: [{ id: r.id, state }] }, { onError: () => notify('민감정보 보호', '변경하지 못했어요. 잠시 후 다시 시도해주세요.') })}
-                onProtect={() => protect.mutate({ documentId: d.id })}
+                onChangeRegion={(r, state) => protect.run(d.id, [{ id: r.id, state }])}
+                onProtect={() => protect.run(d.id)}
                 onViewOriginal={d.storagePath ? () => viewOriginal(d) : undefined}
                 testID={`protection-${d.id}`}
               />

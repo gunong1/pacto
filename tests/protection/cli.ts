@@ -5,6 +5,8 @@
  *     scan-mixed: 텍스트 페이지 + scan-lease / scan-ccitt: 특수 형식(CCITT) 스캔 → unsupported_scan
  *   node --experimental-strip-types tests/protection/cli.ts text <in.pdf>
  *   node --experimental-strip-types tests/protection/cli.ts diagnose <in.pdf>   (상태·진단 숫자만 — 원문 출력 없음)
+ *   node --experimental-strip-types tests/protection/cli.ts encrypt <in.pdf> <aes256|aes128|rc4_128> <사용자 비밀번호|-> <out.pdf>   (테스트용 암호 PDF, '-'는 소유자 비밀번호만)
+ *   node --experimental-strip-types tests/protection/cli.ts pubsec <in.pdf> <out.pdf>   (지원하지 않는 보안 방식 표시만 붙인 PDF)
  */
 import fs from 'node:fs';
 
@@ -16,6 +18,8 @@ import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFStream } from '.
 import { extractText, getDocumentProxy } from '../../supabase/functions/_shared/vendor/unpdf.js';
 import { ContractPdf, employmentContractPdf, rentalContractPdf } from './fixtures.ts';
 import { buildPdf, readFix, type PageSpec } from './scanFixtures.ts';
+import createQpdf from '../../supabase/functions/_shared/vendor/qpdf.js';
+import { QPDF_WASM_BASE64 } from '../../supabase/functions/_shared/vendor/qpdf-wasm.js';
 
 /** 임대차계약서 스캔 페이지 (lease-a4 2400×3391 JPEG, 숨은 OCR 글자층: 주민등록번호를 이미지와 같은 자리에) */
 export const leaseScanPage = (): PageSpec => ({
@@ -40,6 +44,12 @@ if (cmd === 'make') {
   let bytes: Uint8Array;
   if (kind === 'employment') bytes = await employmentContractPdf();
   else if (kind === 'rental') bytes = await rentalContractPdf();
+  else if (kind === 'clean') {
+    // 민감정보 없는 계약서 (날짜·금액·갱신·해지 조건만)
+    const c = await ContractPdf.create();
+    await c.page(['헬스장 이용 계약서', '이용기간: 2026년 11월 1일부터 2027년 10월 31일까지', '월 이용료 55,000원, 매월 5일 결제', '계약 만료 30일 전까지 해지 의사가 없으면 1년 자동 연장']);
+    bytes = await c.save();
+  }
   else if (kind === 'cmap') bytes = await predefinedCMapPdf('UniKS-UCS2-H', CMAP_LINES);
   else if (kind === 'repeated') bytes = await simpleFontValuesPdf(REPEATED_VALUES);
   else if (kind === 'type3') bytes = await type3ValuesPdf(REPEATED_VALUES);
@@ -55,6 +65,18 @@ if (cmd === 'make') {
     bytes = await c.save();
   }
   fs.writeFileSync(file, bytes);
+} else if (cmd === 'encrypt') {
+  const [, , mode, user, out] = process.argv.slice(2);
+  const q = await createQpdf({ noInitialRun: true, locateFile: () => `data:application/wasm;base64,${QPDF_WASM_BASE64}` });
+  q.FS.writeFile('/p.pdf', new Uint8Array(fs.readFileSync(kind)));
+  const opts = mode === 'aes256' ? ['256'] : mode === 'aes128' ? ['128', '--use-aes=y'] : ['128', '--use-aes=n'];
+  const rc = q.callMain([...(mode === 'rc4_128' ? ['--allow-weak-crypto'] : []), '--encrypt', user === '-' ? '' : user, 'owner-pw', ...opts, '--', '/p.pdf', '/e.pdf']);
+  if (rc !== 0 && rc !== 3) throw new Error(`encrypt rc=${rc}`);
+  fs.writeFileSync(out, q.FS.readFile('/e.pdf'));
+} else if (cmd === 'pubsec') {
+  const doc = await PDFDocument.load(new Uint8Array(fs.readFileSync(kind)));
+  doc.context.trailerInfo.Encrypt = doc.context.register(doc.context.obj({ Filter: PDFName.of('Adobe.PubSec'), V: PDFNumber.of(4), R: PDFNumber.of(4) }));
+  fs.writeFileSync(file, await doc.save({ useObjectStreams: false }));
 } else if (cmd === 'text') {
   const { text } = await extractText(await getDocumentProxy(new Uint8Array(fs.readFileSync(kind)), PDFJS_OPTIONS as never), { mergePages: true });
   process.stdout.write(String(text));

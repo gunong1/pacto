@@ -4,6 +4,8 @@
 // - 메모리: 화면 근처 쪽만 그리고, 멀어진 쪽은 캔버스를 비운다 (큰 스캔 PDF)
 // - 네트워크: 문서 Signed URL 한 곳만 (CSP connect-src). CMap·wasm·글꼴은 내장 데이터 — 외부 요청 없음
 // - 로그: 남기지 않는다 (URL·내용 없음). 앱으로는 상태 코드·쪽수만 보낸다
+// - 암호 PDF(원본): 앱에 비밀번호를 요청하고({type:'password'}), 앱이 보낸 비밀번호로 이 기기 안에서만 연다.
+//   비밀번호는 pdf.js에 넘긴 뒤 바로 버리고, 앱으로 다시 보내거나 기록하지 않는다
 import * as pdfjs from 'pdfjs-legacy';
 import { KOREAN_CMAPS } from '../../supabase/functions/_shared/vendor/korean-cmaps.js';
 import { WORKER_SOURCE, WASM_FILES } from 'pacto-viewer-embedded';
@@ -143,8 +145,31 @@ async function showPdf() {
       return fail('download_network');
     }
   }
+  // 앱이 보낸 비밀번호 받기 (RN WebView: document 'message', 웹 iframe: window 'message') — 기다리는 동안에만 받는다
+  let waitPassword = null;
+  let passwordCancelled = false;
+  const onAppMessage = (e) => {
+    if (!waitPassword || typeof e.data !== 'string') return;
+    let m;
+    try {
+      m = JSON.parse(e.data);
+    } catch (_) {
+      return;
+    }
+    if (m && m.type === 'pacto_password' && typeof m.password === 'string' && m.password) {
+      const w = waitPassword;
+      waitPassword = null;
+      w(m.password);
+    } else if (m && m.type === 'pacto_password_cancel') {
+      const w = waitPassword;
+      waitPassword = null;
+      w(null);
+    }
+  };
+  window.addEventListener('message', onAppMessage);
+  document.addEventListener('message', onAppMessage);
   try {
-    doc = await pdfjs.getDocument({
+    const task = pdfjs.getDocument({
       data,
       CMapReaderFactory: EmbeddedCMaps,
       cMapPacked: true,
@@ -157,9 +182,25 @@ async function showPdf() {
       disableAutoFetch: true,
       disableStream: true,
       verbosity: 0,
-    }).promise;
+    });
+    // 비밀번호가 필요하면(1) / 틀리면(2) 앱에 입력을 요청 — 취소하면 열지 않는다
+    task.onPassword = (updatePassword, reason) => {
+      post({ type: 'password', invalid: reason === 2 });
+      waitPassword = (pw) => {
+        if (pw) updatePassword(pw);
+        else {
+          passwordCancelled = true;
+          task.destroy().catch(() => undefined);
+        }
+      };
+    };
+    doc = await task.promise;
   } catch (e) {
-    return fail(e && e.name === 'PasswordException' ? 'pdf_password' : 'pdf_open');
+    return fail(passwordCancelled || (e && e.name === 'PasswordException') ? 'pdf_password' : 'pdf_open');
+  } finally {
+    waitPassword = null;
+    window.removeEventListener('message', onAppMessage);
+    document.removeEventListener('message', onAppMessage);
   }
   data = null;
   step('pdf_loaded');

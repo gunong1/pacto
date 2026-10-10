@@ -12,8 +12,9 @@ import { noticeLabelOf } from '@/domain/noticeKind';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
 import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm } from '@/features/contracts/form';
+import { useProtectWithPassword } from '@/features/documents/useProtectWithPassword';
 import { viewDocument } from '@/features/documents/openDocument';
-import { useCreateContract, useDocumentProtection, useProtectDocument, useToday } from '@/features/contracts/queries';
+import { useCreateContract, useDocumentProtection, useToday } from '@/features/contracts/queries';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
 import { overallProtectionCopy } from '@/features/documents/protectionCopy';
 import { noticeDeadlineFor, toReviewModel, type ReviewCheck } from '@/features/registration/extraction';
@@ -30,7 +31,8 @@ export default function ReviewScreen() {
   const create = useCreateContract();
   // 민감정보 보호 결과 (분석 전에 서버가 처리) — 원본은 그대로, 기본 표시는 보호본
   const protection = useDocumentProtection(uploaded.map((d) => d.id));
-  const protect = useProtectDocument();
+  // 암호 PDF는 비밀번호를 받아 다시 요청 (기억하지 않음)
+  const protect = useProtectWithPassword();
   const withProtection = <T extends { id: string }>(d: T) => ({ ...d, protection: protection.data?.[d.id] });
   const model = useMemo(() => (extraction ? toReviewModel(extraction, uploaded.map((d) => d.id)) : null), [extraction, uploaded]);
   // 계약 체크에서 "캘린더에 추가"를 고른 항목 (계약서에 명시된 날짜)
@@ -101,8 +103,8 @@ export default function ReviewScreen() {
             protection={protection.data?.[d.id]}
             fileName={uploaded.length > 1 ? d.fileName : undefined}
             busy={protect.isPending}
-            onChangeRegion={(r, state) => protect.mutate({ documentId: d.id, regions: [{ id: r.id, state }] })}
-            onProtect={() => protect.mutate({ documentId: d.id })}
+            onChangeRegion={(r, state) => protect.run(d.id, [{ id: r.id, state }])}
+            onProtect={() => protect.run(d.id)}
             testID={`review-protection-${uploaded.indexOf(d)}`}
           />
         </View>
@@ -195,39 +197,42 @@ export default function ReviewScreen() {
   );
 
   return (
-    <ContractForm
-      trailing={trailing}
-      defaultValues={draftToForm(model.draft)}
-      flagged={model.flagged}
-      evidence={extraction.provider === 'mock' ? undefined : model.evidence}
-      notes={model.notes}
-      typeSuggestion={model.typeSuggestion}
-      categorySuggestion={model.categorySuggestion}
-      allDetails={model.allDetails}
-      header={header}
-      today={today}
-      submitLabel="계약 저장"
-      footerNote="저장 후에도 언제든 수정할 수 있어요"
-      submitting={create.isPending}
-      onSubmit={(draft) =>
-        create.mutate(
-          {
-            draft,
-            source: 'upload',
-            documents: uploaded.map((d) => ({ id: d.id, fileName: d.fileName, mimeType: d.mimeType, sizeBytes: d.sizeBytes, storagePath: d.storagePath, localUri: d.localUri, pageCount: null })),
-            aiChecks: model.checks.map((c, i) => ({ ...c, status: addEvents.has(i) ? ('acknowledged' as const) : ('new' as const) })),
-            events: model.checks.flatMap((c, i) => (addEvents.has(i) && c.suggestion?.kind === 'add_event' ? [{ title: c.suggestion.title, eventDate: c.suggestion.eventDate, eventType: 'custom' as const }] : [])),
-            analysisJobId: extraction.jobId ?? null,
-          },
-          {
-            onSuccess: (record) => {
-              saved.current = true;
-              finishRegistration(record.contract.id);
+    <>
+      {protect.modal}
+      <ContractForm
+        trailing={trailing}
+        defaultValues={draftToForm(model.draft)}
+        flagged={model.flagged}
+        evidence={extraction.provider === 'mock' ? undefined : model.evidence}
+        notes={model.notes}
+        typeSuggestion={model.typeSuggestion}
+        categorySuggestion={model.categorySuggestion}
+        allDetails={model.allDetails}
+        header={header}
+        today={today}
+        submitLabel="계약 저장"
+        footerNote="저장 후에도 언제든 수정할 수 있어요"
+        submitting={create.isPending}
+        onSubmit={(draft) =>
+          create.mutate(
+            {
+              draft,
+              source: 'upload',
+              documents: uploaded.map((d) => ({ id: d.id, fileName: d.fileName, mimeType: d.mimeType, sizeBytes: d.sizeBytes, storagePath: d.storagePath, localUri: d.localUri, pageCount: null })),
+              aiChecks: model.checks.map((c, i) => ({ ...c, status: addEvents.has(i) ? ('acknowledged' as const) : ('new' as const) })),
+              events: model.checks.flatMap((c, i) => (addEvents.has(i) && c.suggestion?.kind === 'add_event' ? [{ title: c.suggestion.title, eventDate: c.suggestion.eventDate, eventType: 'custom' as const }] : [])),
+              analysisJobId: extraction.jobId ?? null,
             },
-          },
-        )
-      }
-    />
+            {
+              onSuccess: (record) => {
+                saved.current = true;
+                finishRegistration(record.contract.id);
+              },
+            },
+          )
+        }
+      />
+    </>
   );
 }
 

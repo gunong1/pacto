@@ -44,7 +44,7 @@ describe('Step 11 — 민감정보 보호', () => {
     const { docs } = stores(a.client, original);
     const up = await docs.upload(file('근로계약서.pdf'));
 
-    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null });
+    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null, access: 'accessible' });
     const prot = (await docs.getProtection([up.id]))[up.id];
     expect(prot.status).toBe('protected');
     expect(prot.protectedViewPath).toBe(`${a.user.id}/${up.id}.protected_view.pdf`);
@@ -78,7 +78,7 @@ describe('Step 11 — 민감정보 보호', () => {
     const a = await newUser(`protect-${kind}`);
     const { docs } = stores(a.client, fixture(kind));
     const up = await docs.upload(file(`${kind}.pdf`));
-    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null });
+    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null, access: 'accessible' });
     const prot = (await docs.getProtection([up.id]))[up.id];
     const view = textOf(await download(await docs.openUrl({ ...up, protection: prot }, 'protected_view'))).replace(/[-.]/g, '');
     for (const s of secrets) expect(view).not.toContain(s.replace(/[-.]/g, ''));
@@ -105,7 +105,7 @@ describe('Step 11 — 민감정보 보호', () => {
     expect(await photo.protect(p.id)).toEqual({ status: 'failed', detail: 'image_format' });
     const scan = stores(a.client, fixture('scan-ccitt')).docs;
     const s = await scan.upload(file('스캔.pdf'));
-    expect(await scan.protect(s.id)).toEqual({ status: 'unsupported_scan', detail: 'scan_format' });
+    expect(await scan.protect(s.id)).toEqual({ status: 'unsupported_scan', detail: 'scan_format', access: 'accessible' });
     const prot = await scan.getProtection([p.id, s.id]);
     expect(prot[p.id]).toMatchObject({ status: 'failed', protectedViewPath: null, regions: [] });
     expect(prot[s.id]).toMatchObject({ status: 'unsupported_scan', protectedViewPath: null, regions: [] });

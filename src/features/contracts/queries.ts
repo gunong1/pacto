@@ -141,7 +141,9 @@ export function useDocumentProtection(documentIds: string[]) {
 export function useProtectDocument() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ documentId, regions }: { documentId: string; regions?: { id: string; state: 'masked' | 'unmasked' }[] }) => documentStore.protect(documentId, regions),
+    // password: 암호 PDF 비밀번호 — 요청 body로만, 저장하지 않음 (useProtectWithPassword)
+    mutationFn: ({ documentId, regions, password }: { documentId: string; regions?: { id: string; state: 'masked' | 'unmasked' }[]; password?: string }) =>
+      documentStore.protect(documentId, regions, password ? { password } : undefined),
     onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: contractKeys.all }), qc.invalidateQueries({ queryKey: ['protection'] })]),
   });
 }

@@ -59,7 +59,7 @@ describe('Step 15 — 스캔 PDF 보호 (로컬 Edge)', () => {
     const docs = store(a.client, original);
     const up = await docs.upload(file('스캔계약서.pdf'));
     const before = clova.calls;
-    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null });
+    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null, access: 'accessible' });
     expect(clova.calls - before).toBe(2);
 
     const prot = (await docs.getProtection([up.id]))[up.id];
@@ -83,7 +83,7 @@ describe('Step 15 — 스캔 PDF 보호 (로컬 Edge)', () => {
     const a = await newUser('scan-mixed');
     const docs = store(a.client, fixture('scan-mixed'));
     const up = await docs.upload(file('혼합.pdf'));
-    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null });
+    expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null, access: 'accessible' });
     let prot = (await docs.getProtection([up.id]))[up.id];
     expect(prot.pages).toEqual([
       { page: 1, kind: 'text', status: 'protected' },
@@ -97,7 +97,7 @@ describe('Step 15 — 스캔 PDF 보호 (로컬 Edge)', () => {
 
     const phone = prot.regions.find((r) => r.page === 2 && r.type === 'phone')!;
     const before = clova.calls;
-    expect(await docs.protect(up.id, [{ id: phone.id, state: 'unmasked' }])).toEqual({ status: 'protected', detail: null });
+    expect(await docs.protect(up.id, [{ id: phone.id, state: 'unmasked' }])).toEqual({ status: 'protected', detail: null, access: 'accessible' });
     expect(clova.calls).toBe(before);
     prot = (await docs.getProtection([up.id]))[up.id];
     expect(prot.regions.filter((r) => r.state === 'unmasked')).toEqual([expect.objectContaining({ page: 2, type: 'phone', maskedPreview: phone.maskedPreview })]);
@@ -109,7 +109,7 @@ describe('Step 15 — 스캔 PDF 보호 (로컬 Edge)', () => {
     const docs = store(a.client, fixture('scan-ccitt'));
     const up = await docs.upload(file('팩스.pdf'));
     const before = clova.calls;
-    expect(await docs.protect(up.id)).toEqual({ status: 'unsupported_scan', detail: 'scan_format' });
+    expect(await docs.protect(up.id)).toEqual({ status: 'unsupported_scan', detail: 'scan_format', access: 'accessible' });
     expect(clova.calls).toBe(before);
     expect((await docs.getProtection([up.id]))[up.id]).toMatchObject({ protectedViewPath: null, regions: [], pages: [{ page: 1, kind: 'unsupported', status: 'unsupported_scan' }] });
   });
@@ -119,7 +119,7 @@ describe('Step 15 — 스캔 PDF 보호 (로컬 Edge)', () => {
     const docs = store(a.client, fixture('scan-lease'));
     const up = await docs.upload(file('스캔.pdf'));
     clova.failWith = 503;
-    expect(await docs.protect(up.id)).toEqual({ status: 'failed', detail: 'ocr_server' });
+    expect(await docs.protect(up.id)).toEqual({ status: 'failed', detail: 'ocr_server', access: 'accessible' });
     expect((await docs.getProtection([up.id]))[up.id]).toMatchObject({ protectedViewPath: null, pages: [{ page: 1, kind: 'scan', status: 'failed' }] });
   });
 

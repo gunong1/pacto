@@ -58,11 +58,13 @@ export interface DocumentRow {
   size_bytes: number;
   sort_order: number;
   protection_status?: string;
+  /** PDF 원본 접근: accessible | password_required | unsupported_encryption (null = 확인 전·사진) */
+  access_status?: string | null;
 }
 
 /** 본인 소유 문서만 조회 (user_id 조건 필수) */
 export async function selectOwnDocuments(userId: string, ids: string[]): Promise<DocumentRow[]> {
-  const res = await rest(`contract_documents?select=id,user_id,storage_path,mime_type,original_filename,size_bytes,sort_order,protection_status&user_id=eq.${userId}&id=in.(${ids.join(',')})&order=sort_order.asc`);
+  const res = await rest(`contract_documents?select=id,user_id,storage_path,mime_type,original_filename,size_bytes,sort_order,protection_status,access_status&user_id=eq.${userId}&id=in.(${ids.join(',')})&order=sort_order.asc`);
   if (!res.ok) throw new Error(`documents_${res.status}`);
   return await res.json();
 }
