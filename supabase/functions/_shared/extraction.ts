@@ -10,7 +10,7 @@
 // 분석 순서: 1 분야 → 2 구조 → 3·4 날짜 → 5·6 금액 → 7 유형별 속성 → 8 종료·갱신·통보 → 9 계약 체크
 import { CATEGORY_CODES, CONTRACT_TYPE_CODES } from './contractRegistry.ts';
 import { attachSuggestions, cleanChecks, conditionalCostsToChecks, waivedCheck } from './analysisRules/checks.ts';
-import { cleanDates } from './analysisRules/dates.ts';
+import { assignDateUses, cleanDates } from './analysisRules/dates.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
 import { resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
 import { buildPayments } from './analysisRules/payments.ts';
@@ -24,7 +24,7 @@ import { maskLevel1Deep } from './protection/sensitive.ts';
 export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export { PROMPT_VERSION, extractionInstructions, extractionJsonSchema } from './extractionPrompt.ts';
 export { BANNED_PHRASES, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUENCIES, NOTICE_KIND_CODES, type DateSource } from './analysisRules/vocabulary.ts';
-export { DATE_ANCHORS } from './analysisRules/dates.ts';
+export { DATE_ANCHORS, isRecurringPaymentDay } from './analysisRules/dates.ts';
 export { PRE_DISCOUNT, quoteHasDate, quoteHasPayDay } from './analysisRules/keywords.ts';
 export { anchorFromQuote, resolvePaymentDate } from './analysisRules/paymentDates.ts';
 export { resolveNoticeKind } from './analysisRules/notices.ts';
@@ -62,6 +62,8 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   // 5·6) 금액 — 결제 + 결제가 아닌 금액(참고·면제·할인·할인 전) + 총액(계약 요약 칸으로)
   const { payments, references, totals } = buildPayments(output.payments, dates);
   totalsToFields(totals, fields, references);
+  // 3·4) 날짜의 쓰임 (체결·시작·종료·통보·주요 날짜·결제 정보) — 서버가 정하고 앱은 옮기기만
+  assignDateUses(dates, contractType.value, payments);
   // 7) 유형별 속성
   const details = buildDetails(output.details, payments);
   // 9) 계약 체크

@@ -64,3 +64,16 @@ test('정리 함수는 서버 전용 (사용자 권한으로 실행 불가)', as
   const { error } = await a.client.rpc('migrate_informational_payments' as never);
   expect(error).not.toBeNull();
 });
+
+test('결제일 없는 기존 정기 지출 → 이전에 보이던 날짜(결제 시작일의 일)로 결제일 채움 · 수입은 그대로', async () => {
+  const a = await newUser('payday-backfill');
+  const admin = adminClient();
+  const c = (await admin.from('contracts').insert({ user_id: a.user.id, title: '기존 계약', contract_type: 'recurring', category: 'rental' }).select('id').single()).data!;
+  const row = (label: string, direction: string, sort: number) => ({
+    user_id: a.user.id, contract_id: c.id, kind: direction === 'income' ? 'salary' : 'recurring_fee', direction, label, amount: 10_000, frequency: 'monthly' as const, starts_on: '2026-03-12', day_of_month: null, sort_order: sort,
+  });
+  expect((await admin.from('contract_payments').insert([row('월 렌탈료', 'expense', 0), row('급여', 'income', 1)])).error).toBeNull();
+  expect((await admin.rpc('backfill_payment_days' as never)).error).toBeNull();
+  const rows = (await admin.from('contract_payments').select('label, day_of_month').eq('contract_id', c.id).order('sort_order')).data!;
+  expect(rows).toEqual([{ label: '월 렌탈료', day_of_month: 12 }, { label: '급여', day_of_month: null }]);
+});

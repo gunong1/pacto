@@ -206,7 +206,8 @@ describe('6. 연납 보험: 결제 달에 연간 보험료 전액', () => {
     startDate: '2026-12-01',
     endDate: '2027-11-30',
     details: { renewable: true, renewalCycleYears: 1 },
-    payments: [pay({ kind: 'premium', label: '연간 보험료', amount: 1_200_000, frequency: 'yearly' })],
+    // 리팩터링 D: 결제일(1일)이 있어야 반복 일정이 생긴다 (보험 시작일의 날짜를 결제일로 쓰지 않음)
+    payments: [pay({ kind: 'premium', label: '연간 보험료', amount: 1_200_000, frequency: 'yearly', dayOfMonth: 1 })],
     dates: [{ kind: 'renewal', label: '갱신일', date: '2027-12-01' }],
   });
 
@@ -325,7 +326,8 @@ describe('상세 화면 핵심 정보 — 유형별로 다른 항목', () => {
       payments: [pay({ kind: 'premium', label: '연간 보험료', amount: 1_200_000, frequency: 'yearly' })],
       dates: [{ kind: 'renewal', label: '갱신일', date: '2027-12-01' }],
     });
-    expect(core(r)).toMatchObject({ '연간 보험료': '1,200,000원 · 매년', '보험 기간': '2026. 12. 1. ~ 2027. 11. 30.', 갱신형: '갱신형 · 1년마다', 갱신일: '2027. 12. 1.' });
+    // 리팩터링 D: 결제일이 없으면 보험 시작일의 날짜로 추측하지 않고 "결제일 확인 필요"
+    expect(core(r)).toMatchObject({ '연간 보험료': '1,200,000원 · 매년 · 결제일 확인 필요', '보험 기간': '2026. 12. 1. ~ 2027. 11. 30.', 갱신형: '갱신형 · 1년마다', 갱신일: '2027. 12. 1.' });
   });
 
   test('일회성: 계약금·중도금·잔금 각 날짜와 완료일', () => {

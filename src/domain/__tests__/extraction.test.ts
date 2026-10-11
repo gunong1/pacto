@@ -123,7 +123,8 @@ describe('분석 v4 — 서버 스키마·프롬프트', () => {
     expect(r.category).toMatchObject({ value: 'other', confidence: 'low' });
     expect(r.contractType).toMatchObject({ value: 'other', confidence: 'low', alternatives: ['loan'], reason: '계약서 내용을 바탕으로 분류했어요.' });
     expect(r.fields.renewalPeriodMonths).toMatchObject({ value: null, confidence: 'low' });
-    expect(r.dates).toEqual([{ date: '2026-03-01', meaning: 'other', label: '기타', confidence: 'high', sourceType: 'inferred' }]); // 출처를 모르면 추정으로
+    // 출처를 모르면 추정으로 · 리팩터링 D: 서버가 날짜의 쓰임(주요 날짜·기타)을 정해 함께 준다
+    expect(r.dates).toEqual([{ date: '2026-03-01', meaning: 'other', label: '기타', confidence: 'high', sourceType: 'inferred', use: 'key', keyKind: 'other' }]);
     expect(r.payments.map((p) => [p.kind, p.direction, p.amount])).toEqual([['salary', 'income', 3000000]]);
     expect(Object.keys(r.details)).toEqual(['principal']);
     expect(r.checks[0].description).toBe('계약서의 해당 조항을 확인해주세요.');
@@ -294,9 +295,10 @@ describe('헬스장 샘플 계약서: 락커 이용료(선택, 결제일 없음 
     ],
   });
 
-  test('락커 이용료는 선택형 — 결제 일정·지출에 넣지 않고, 이용하게 되면 쓸 결제일(월 이용료와 같은 5일)만 준비', () => {
+  // 리팩터링 D: 다른 결제의 결제일을 빌려오지 않는다 — 락커 결제일은 비워 두고, 이용 시작 때 사용자가 고른 날짜로 정한다
+  test('락커 이용료는 선택형 — 결제 일정·지출에 넣지 않고, 결제일도 빌려오지 않음(비워 둠)', () => {
     const m = review(gym());
-    expect(m.draft.payments.map((p) => [p.label, p.obligation, p.dayOfMonth])).toEqual([['월 이용료', 'confirmed', 5], ['락커 이용료', 'optional', 5]]);
+    expect(m.draft.payments.map((p) => [p.label, p.obligation, p.dayOfMonth])).toEqual([['월 이용료', 'confirmed', 5], ['락커 이용료', 'optional', null]]);
     expect(m.notes['payments.1.obligation']).toContain('선택 항목');
     expect(m.flagged.has('payments.1.obligation')).toBe(true);
     expect(titlesOn(m, '2026-11-03')).toEqual(['이용 시작']);

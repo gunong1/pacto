@@ -268,7 +268,7 @@ export default function ContractDetailScreen() {
             <View style={styles.notice} testID="detail-payday-unknown">
               <Ionicons name="information-circle-outline" size={18} color={colors.check} />
               <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
-                {view.dayUnknown[0].kind === 'salary' ? '급여' : view.dayUnknown[0].label} 지급일 확인 필요 — 계약서에 지급일이 없어 캘린더에 반복 일정을 만들지 않았어요. 지급일을 알면 정보 수정에서 입력해주세요.
+                {view.dayUnknown[0].kind === 'salary' ? '급여' : view.dayUnknown[0].label} {view.dayUnknown[0].direction === 'income' ? '지급일' : '결제일'} 확인 필요 — 계약서에 {view.dayUnknown[0].direction === 'income' ? '지급일' : '결제일'}이 없어 캘린더에 반복 일정을 만들지 않았어요. 알면 정보 수정에서 입력해주세요.
               </AppText>
             </View>
           ) : null}

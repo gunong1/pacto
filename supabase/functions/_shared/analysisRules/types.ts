@@ -32,6 +32,12 @@ export interface ExtractedDate {
   confidence: Confidence;
   sourceType: ModelSource;
   evidence?: Evidence[];
+  /**
+   * 서버가 정한 쓰임 (assignDateUses) — contract_date 체결일 / start 시작일 / end 종료일 / notice 통보기한 날짜 /
+   * key 주요 날짜(keyKind 종류) / payment 결제 정보(반복 결제일·첫 납입일·결제와 같은 잔금일) / drop 쓰지 않음
+   */
+  use?: 'contract_date' | 'start' | 'end' | 'notice' | 'key' | 'payment' | 'drop';
+  keyKind?: string;
 }
 
 /** 실제로 오가지 않는 금액 — 구성 항목은 상위 결제에 붙이고, 합계·참고 금액은 따로 보여준다 */

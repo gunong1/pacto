@@ -8,9 +8,12 @@
  *   입력: 결제 목록 · 날짜들 / 출력: 문구에 "N일"이 없는데 시작일과 같은 날이면 지급일 null + low
  * 규칙 PD3 lumpSum — 목적: "일시불·일시납"으로 적힌 금액은 이용 기간과 상관없이 1회
  *   예) "1년 회원권 660,000원(일시불)"을 매월로 답함 → one_time
+ * 규칙 PD4 dayFromOwnDate — 목적: 정기 결제에 결제일(N일)이 없지만 그 결제의 문구에 첫 결제 날짜가 직접 적혀 있으면 그 날짜의 일자를 결제일로
+ *   예) "연 보험료 매년 3월 15일 납입 (첫 납입 2026.03.15)" → 15일
+ *   다른 날짜(계약 시작일·다른 결제의 결제일)에서 빌려오지 않는다 — 결제일을 모르면 null로 두고 "결제일 확인 필요" (반복 일정 없음)
  * 테스트: scenario-lease-dates.test.ts, salary-payday.test.ts, extraction.test.ts
  */
-import { DATE_ANCHORS } from './dates.ts';
+import { DATE_ANCHORS, START_MEANINGS } from './dates.ts';
 import { LUMP_SUM, quoteHasDate, quoteHasPayDay } from './keywords.ts';
 import type { ExtractedDate, ExtractedPayment } from './types.ts';
 import { oneOf } from './values.ts';
@@ -52,11 +55,8 @@ export function resolvePaymentDate(
   return { date: modelDate, dateSource: source };
 }
 
-/** 시작일 계열 날짜 의미 (지급일 추론 검사용) */
-const START_MEANINGS = new Set(['hire', 'contract_start', 'service_start', 'coverage_start']);
-
 export function guardIncomePayday(payments: ExtractedPayment[], dates: readonly ExtractedDate[]): void {
-  const startDays = new Set(dates.filter((d) => START_MEANINGS.has(d.meaning)).map((d) => Number(d.date.slice(8, 10))));
+  const startDays = new Set(dates.filter((d) => START_MEANINGS.includes(d.meaning)).map((d) => Number(d.date.slice(8, 10))));
   for (const p of payments) {
     if (p.direction !== 'income' || p.frequency === 'one_time' || p.dayOfMonth == null || !startDays.has(p.dayOfMonth)) continue;
     if ((p.evidence ?? []).some((e) => quoteHasPayDay(e.quote, p.dayOfMonth!))) continue;
@@ -76,5 +76,12 @@ export function lumpSum(payments: ExtractedPayment[]): void {
       p.businessDayRule = 'none';
       p.confidence = 'medium';
     }
+  }
+}
+
+export function dayFromOwnDate(payments: ExtractedPayment[]): void {
+  for (const p of payments) {
+    if (p.frequency === 'one_time' || p.dayOfMonth != null || !p.date || p.dateSource !== 'explicit') continue;
+    p.dayOfMonth = Number(p.date.slice(8, 10));
   }
 }

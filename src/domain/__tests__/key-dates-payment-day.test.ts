@@ -4,7 +4,8 @@
  */
 import { rentalOutput } from '../../../supabase/functions/_shared/ai/mockFixtures';
 import { toAppResult } from '../../../supabase/functions/_shared/extraction.ts';
-import { isRecurringPaymentDay, toReviewModel } from '@/features/registration/extraction';
+import { isRecurringPaymentDay } from '../../../supabase/functions/_shared/analysisRules/dates.ts';
+import { toReviewModel } from '@/features/registration/extraction';
 
 const q = (quote: string) => ({ evidence_quote: quote, evidence_page: 1, evidence_file: 1 });
 const date = (d: string, meaning: string, label: string, quote: string) => ({ date: d, meaning, label, confidence: 'high', source_type: 'explicit', ...q(quote) });

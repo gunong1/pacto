@@ -93,8 +93,9 @@ describe('schedule', () => {
     id: 'p', contractId: base.id, kind: 'recurring_fee', direction: 'expense', label: 'x', amount: 1000, frequency: 'monthly', dayOfMonth: null, monthOfYear: null, startsOn: '2026-01-31', endsOn: null, installmentCount: null, isVariable: false, components: [], businessDayRule: 'none', obligation: 'confirmed', conditionNote: null, ...over,
   });
 
+  // 리팩터링 D: 결제일이 없으면 반복 일정을 만들지 않으므로(시작일의 날짜를 쓰지 않음) 저장 데이터처럼 결제일 31일을 넣는다
   test('31일 결제는 짧은 달에 말일로', () => {
-    const dates = expandPayment(p({}), base, { start: '2026-01-01', end: '2026-04-30' }).map((o) => o.date);
+    const dates = expandPayment(p({ dayOfMonth: 31 }), base, { start: '2026-01-01', end: '2026-04-30' }).map((o) => o.date);
     expect(dates).toEqual(['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30']);
   });
 

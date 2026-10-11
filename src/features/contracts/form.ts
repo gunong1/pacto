@@ -338,7 +338,8 @@ export function draftToQuickForm(d: ContractDraft): ContractFormValues {
       amount: formatAmountInput(p.amount),
       direction: p.direction,
       frequency: p.frequency,
-      day: oneTime ? '' : String(p.dayOfMonth ?? (anchor ? Number(anchor.slice(8, 10)) : '')),
+      // 결제일을 모르면 비워 둔다 (시작일의 날짜를 결제일로 채우지 않음 — 사용자가 입력)
+      day: oneTime || p.dayOfMonth == null ? '' : String(p.dayOfMonth),
       // 정기 결제: 계약 시작일과 다른 첫 결제일을 따로 정해 둔 경우만 (상세 정보의 "첫 결제일 직접 지정")
       // 시작일이 없는 계약은 저장 당시 날짜가 기준일로 들어가 있어 직접 지정한 값으로 보지 않는다
       nextDate: oneTime ? str(p.startsOn) : p.startsOn && d.startDate ? p.startsOn : '',

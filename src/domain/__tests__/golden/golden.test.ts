@@ -173,8 +173,8 @@ describe('5. 대출 — 월 원리금 312,000원 36회 (같은 문장에 "연체
 describe('6. 구독·회원권 — 월 이용료("이용 시 매월 10일") + 락커(선택, 결제일 없음) + 가입비 면제 + 양도 수수료', () => {
   const o = observe(F.membership());
   test('유형·분야', () => expect([o.type, o.category]).toEqual(['recurring', 'membership']));
-  // 리팩터링 전: 락커 이용료가 월 이용료의 결제일(10일)을 빌려옴
-  test.failing('확정 금액: 월 이용료 59,000원 매월 10일 + 락커 이용료(선택, 결제일 없음)', () => {
+  // 리팩터링 전: 락커 이용료가 월 이용료의 결제일(10일)을 빌려옴 → 리팩터링 D에서 고침
+  test('확정 금액: 월 이용료 59,000원 매월 10일 + 락커 이용료(선택, 결제일 없음)', () => {
     expect(o.payments).toEqual([pay('월 이용료', 59000, 'expense', 'monthly', 10), pay('락커 이용료', 5000, 'expense', 'monthly', null, { obligation: 'optional' })]);
   });
   // 리팩터링 전: 양도 수수료가 "발생 가능(potential)" 결제로 저장 → 리팩터링 C에서 고침
@@ -214,4 +214,31 @@ describe('7. 서비스(용역) — 총 계약금액(실제 돈으로 답함) = �
     ]);
   });
   test('홈: 12월 수입 6,000,000원 (총액 9,000,000원 중복 없음)', () => expect(month(o, 2026, 12)).toEqual({ expense: 0, income: 6000000, neutral: 0 }));
+});
+
+describe('8. 결제일·첫 결제일 원칙 (리팩터링 D)', () => {
+  test('결제일이 없는 반복 지출: 다른 결제의 결제일·시작일의 날짜를 쓰지 않음 → 결제일 확인 필요, 반복 일정 없음', () => {
+    const out = F.rental();
+    out.payments[0] = { ...out.payments[0], day_of_month: null, evidence_quote: '월 렌탈료 31,900원' };
+    const o = observe(out);
+    expect(o.payments).toEqual([pay('월 렌탈료', 31900, 'expense', 'monthly', null)]);
+    expect(o.flagged).toContain('payments.0.dayOfMonth');
+    expect(schedule(o, '2026-10-01', '2026-11-30').filter((s) => s.includes('payment'))).toEqual([]);
+    expect(month(o, 2026, 11).expense).toBe(0);
+  });
+  test('계약서의 "첫 납입일" 하나를 모든 정기 결제에 쓰지 않음 (각 결제의 날짜만)', () => {
+    const out = F.lease();
+    (out.dates as unknown[]).push({ date: '2026-03-25', meaning: 'first_payment', label: '첫 납입일', confidence: 'high', source_type: 'explicit', evidence_quote: '첫 납입일 2026년 3월 25일', evidence_page: 1, evidence_file: 1 });
+    const o = observe(out);
+    const monthly = o.record.payments.filter((p) => p.frequency === 'monthly');
+    expect(monthly.map((p) => [p.label, p.dayOfMonth])).toEqual([['월세', 5], ['관리비', 5]]);
+    expect(monthly.every((p) => p.startsOn !== '2026-03-25')).toBe(true);
+    expect(o.keyDates.map((d) => d.label)).not.toContain('첫 납입일');
+  });
+  test('결제 자신의 첫 결제 날짜가 문구에 적혀 있으면 그 날짜의 일자가 결제일 (예: 연 보험료 2026.03.15)', () => {
+    const out = F.carInsurance();
+    out.payments[0] = { ...out.payments[0], frequency: 'yearly', date: '2026-03-15', evidence_quote: '연 보험료 1,200,000원 매년 납입 (첫 납입 2026.03.15)' };
+    const o = observe(out);
+    expect(o.payments[0]).toMatchObject({ label: '보험료', frequency: 'yearly', day: 15 });
+  });
 });

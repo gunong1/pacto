@@ -111,7 +111,10 @@ describe('사용자가 지급일을 직접 입력 (user_confirmed)', () => {
     };
     expect(salaryDates(draft, '2026-10-01', '2026-10-31')).toEqual(['2026-10-25']);
   });
-  test('지출(월 결제)은 기존대로 — 지급일 확인 대상이 아님', () => {
-    expect(isPaymentDayUnknown({ frequency: 'monthly', direction: 'expense', dayOfMonth: null })).toBe(false);
+  // 리팩터링 D: 지출도 결제일을 다른 날짜(시작일·다른 결제)에서 추측하지 않는다 → 결제일이 없으면 "결제일 확인 필요", 반복 일정 없음
+  test('지출(월 결제)도 결제일이 없으면 확인 필요 · 일시불은 해당 없음', () => {
+    expect(isPaymentDayUnknown({ frequency: 'monthly', dayOfMonth: null })).toBe(true);
+    expect(isPaymentDayUnknown({ frequency: 'monthly', dayOfMonth: 5 })).toBe(false);
+    expect(isPaymentDayUnknown({ frequency: 'one_time', dayOfMonth: null })).toBe(false);
   });
 });

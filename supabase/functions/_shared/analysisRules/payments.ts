@@ -1,12 +1,12 @@
 /**
  * 금액 → 결제 목록 + 결제가 아닌 금액(참고 금액) + 총액 — 금액 규칙을 정해진 순서로 적용한다.
- * 순서: 역할(R1) → 날짜(PD1) → 의무 수준(O1) → 지급일 안전장치(PD2) → 선택형(O2) → 일시불(PD3)
+ * 순서: 역할(R1) → 날짜(PD1) → 의무 수준(O1) → 지급일 안전장치(PD2) → 문구의 첫 결제 날짜로 결제일(PD4) → 선택형(O2) → 일시불(PD3)
  *       → 구성항목(R2·R3) → 총액(R4) → 구성 묶기(R5) → 할인 전(R6)
  * 조건부 비용(위약금·연체료 등)은 여기서 결제로 남겨 두고, 계약 체크로 옮기는 일은 checks.ts(C4)가 한다.
  */
 import { BUSINESS_DAY_RULES, DIRECTIONS, PAYMENT_KIND_CODES, PAYMENT_KIND_DEFS } from '../contractRegistry.ts';
 import { obligationOf, weakOptional } from './paymentObligation.ts';
-import { guardIncomePayday, lumpSum, resolvePaymentDate } from './paymentDates.ts';
+import { dayFromOwnDate, guardIncomePayday, lumpSum, resolvePaymentDate } from './paymentDates.ts';
 import { aggregateTotals, attachComponents, foldComponents, namedParentComponents, preDiscountSiblings, roleOf, type PendingComponent, type TotalAmount } from './paymentRoles.ts';
 import type { AppExtractionResult, ExtractedDate, ExtractedPayment } from './types.ts';
 import { confidenceOf, isObj, MAX_AMOUNT, oneOf, quoteOf, sourceOf, text, toInt, validDate } from './values.ts';
@@ -75,6 +75,7 @@ export function buildPayments(raw: unknown, dates: readonly ExtractedDate[]): Bu
     });
   }
   guardIncomePayday(payments, dates);
+  dayFromOwnDate(payments);
   weakOptional(payments);
   lumpSum(payments);
   namedParentComponents(payments, pending);

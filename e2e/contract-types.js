@@ -103,9 +103,10 @@ const CONTRACTS = [
     start: '261201',
     end: '271130',
     details: [['chip', 'detail-renewable-true'], ['text', 'detail-renewalCycleYears', '1']],
-    payments: [{ kind: 'premium', label: '연간 보험료', amount: '1200000', freq: 'yearly' }],
+    // 리팩터링 D: 결제일을 입력해야 반복 일정이 생긴다 (보험 시작일의 날짜를 결제일로 추측하지 않음)
+    payments: [{ kind: 'premium', label: '연간 보험료', amount: '1200000', freq: 'yearly', day: '1' }],
     dates: [{ kind: 'renewal', label: '갱신일', date: '271201' }],
-    core: ['연간 보험료', '1,200,000원 · 매년', '보험 기간', '갱신형 · 1년마다', '갱신일'],
+    core: ['연간 보험료', '1,200,000원 · 매년 1일', '보험 기간', '갱신형 · 1년마다', '갱신일'],
     checks: [
       { date: '2026-12-01', has: ['보험 시작', '연간 보험료'], total: '₩1,200,000' },
       { date: '2027-01-01', none: true, total: '₩0' },

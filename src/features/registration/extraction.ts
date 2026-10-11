@@ -1,5 +1,6 @@
 import type { ExtractedDate, ExtractedPayment, ExtractionResult } from '@/data/ai/provider';
 import { isNoticeKind } from '@/domain/noticeKind';
+import { assignDateUses } from '../../../supabase/functions/_shared/analysisRules/dates';
 import { findAggregateTotals, foldRecurringComponents } from '../../../supabase/functions/_shared/paymentAggregate';
 import type { ReferenceRole } from '../../../supabase/functions/_shared/extraction';
 import { EMPTY_DRAFT } from '@/data/draft';
@@ -26,7 +27,6 @@ import type { AiCheck, Confidence } from '@/domain/types';
  * 추출값은 사실이 아니라 사용자가 확인할 초안이다 — 신뢰도가 높지 않은 값은 "확인 필요"로 표시한다.
  */
 
-type Meaning = ExtractedDate['meaning'];
 
 /** 기준 날짜를 따르는 결제 날짜 안내 (계약서 문구 · 기준 날짜 이름) */
 const DATE_ANCHOR_COPY: Partial<Record<NonNullable<ExtractedPayment['dateSource']>, { phrase: string; label: string }>> = {
@@ -37,67 +37,7 @@ const DATE_ANCHOR_COPY: Partial<Record<NonNullable<ExtractedPayment['dateSource'
   end_date: { phrase: '종료일', label: '종료일' },
 };
 
-/** 유형별 시작일·종료일로 쓸 날짜 의미 (앞쪽 우선). 없는 유형은 기본값 */
-const START_MEANINGS: Partial<Record<ContractType, Meaning[]>> = {
-  recurring: ['service_start', 'contract_start', 'installation', 'activation'],
-  lease: ['contract_start', 'move_in'],
-  installment: ['loan_execution', 'contract_start'],
-  loan: ['loan_execution', 'contract_start'],
-  insurance: ['coverage_start', 'contract_start'],
-  employment: ['contract_start', 'hire'],
-  service: ['contract_start', 'service_start'],
-  sale: ['contract_start'],
-  one_time: ['contract_start', 'service_start'],
-};
-const END_MEANINGS: Partial<Record<ContractType, Meaning[]>> = {
-  installment: ['maturity', 'contract_end'],
-  loan: ['maturity', 'contract_end'],
-  insurance: ['maturity', 'contract_end'],
-  service: ['contract_end', 'completion', 'delivery'],
-  sale: ['completion', 'contract_end'],
-  one_time: ['completion', 'contract_end'],
-};
-const DEFAULT_START: Meaning[] = ['contract_start', 'service_start', 'coverage_start', 'loan_execution'];
-const DEFAULT_END: Meaning[] = ['contract_end', 'maturity', 'completion'];
-
-/** 주요 날짜(contract_dates)로 옮길 의미 */
-const KEY_DATE_KIND: Partial<Record<Meaning, ContractDateKind>> = {
-  installation: 'installation',
-  activation: 'activation',
-  move_in: 'move_in',
-  balance_due: 'balance_due',
-  renewal: 'renewal',
-  hire: 'hire',
-  delivery: 'delivery',
-  inspection: 'inspection',
-  handover: 'handover',
-  ownership_transfer: 'ownership_transfer',
-};
-/** 시작·종료로 쓰이지 않으면 '기타 날짜'로 남길 의미 (계약서의 날짜를 버리지 않는다) */
-const KEEP_AS_OTHER: ReadonlySet<Meaning> = new Set(['service_start', 'contract_start', 'loan_execution', 'coverage_start', 'maturity', 'contract_end', 'completion', 'other']);
-
-/**
- * 반복 결제일(예: "월세 지급일 매월 5일")은 주요 날짜가 아니다 — 금액의 결제일·주기로 캘린더에 반복 표시된다.
- * 하루짜리 날짜(입주일·잔금일·설치일)와 섞이지 않도록 이름·원문으로 걸러낸다.
- */
-const RECURRING_WORD = /매\s?(월|달|년|주|일)|정기|자동\s?이체/;
-const PAY_DAY_WORD = /(지급|결제|납부|납입|이체|입금|출금|청구)\s?일|월세|임대료|관리비|렌탈료|이용료|보험료|급여|월급|임금|상환|할부금|납입금|요금|구독료/;
-const PAY_DAY_LABEL = /(월세|차임|임대료|관리비|렌탈료|이용료|보험료|급여|월급|임금|상환금?|할부금|납입금|요금|구독료|회비)\s?(지급|결제|납부|납입|이체|입금|출금)?\s?일$/;
-export function isRecurringPaymentDay(d: Pick<ExtractedDate, 'label' | 'evidence'>): boolean {
-  const label = d.label.trim();
-  if (PAY_DAY_LABEL.test(label)) return true;
-  const text = `${label} ${(d.evidence ?? []).map((e) => e.quote).join(' ')}`;
-  return RECURRING_WORD.test(text) && PAY_DAY_WORD.test(text);
-}
-
 export const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
-
-/** '월 이용료' → '월 이용료와', '관리비 청구금' → '관리비 청구금과' */
-function withWa(word: string): string {
-  const code = word.charCodeAt(word.length - 1) - 0xac00;
-  const hasFinal = code >= 0 && code <= 11171 && code % 28 !== 0;
-  return `${word}${hasFinal ? '과' : '와'}`;
-}
 
 export interface Suggestion<T extends string> {
   value: T;
@@ -179,31 +119,22 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     quote(key, f.evidence);
   }
 
-  // 3·4) 날짜: 의미별로 체결일·시작일·종료일을 고르고 나머지는 주요 날짜로
-  const used = new Set<ExtractedDate>();
-  const pick = (meanings: Meaning[]) => {
-    for (const m of meanings) {
-      const d = result.dates.find((x) => x.meaning === m && !used.has(x));
-      if (d) return d;
-    }
-    return null;
-  };
-  const assignDate = (field: 'startDate' | 'endDate' | 'contractDate', d: ExtractedDate | null) => {
+  // 3·4) 날짜 — 서버가 정한 쓰임(체결·시작·종료·통보·주요 날짜·결제 정보)대로 옮긴다 (앱이 다시 고르지 않음)
+  // 쓰임이 없는 결과(이전 버전 서버)는 같은 공용 규칙으로 한 번 정한다
+  const dated = result.dates.some((d) => d.use) ? result.dates : withDateUses(result, type);
+  const assignDate = (field: 'startDate' | 'endDate' | 'contractDate', d: ExtractedDate | undefined) => {
     if (!d) return;
-    used.add(d);
     draft[field] = d.date;
     uncertain(field, d.confidence);
     quote(field, d.evidence);
     source(field, d.sourceType);
   };
-  // 체결일은 계약서에 명확히 있을 때만 (다른 날짜로 대신하지 않는다)
-  assignDate('contractDate', pick(['contract_signed']));
-  assignDate('startDate', pick(START_MEANINGS[type] ?? DEFAULT_START));
-  assignDate('endDate', pick(END_MEANINGS[type] ?? DEFAULT_END));
+  assignDate('contractDate', dated.find((d) => d.use === 'contract_date'));
+  assignDate('startDate', dated.find((d) => d.use === 'start'));
+  assignDate('endDate', dated.find((d) => d.use === 'end'));
 
   // 통보기한 날짜만 있고 일수가 없으면 종료일과의 차이로 계산 (확인 필요)
-  const noticeDate = result.dates.find((d) => d.meaning === 'notice_deadline');
-  if (noticeDate) used.add(noticeDate);
+  const noticeDate = dated.find((d) => d.use === 'notice');
   if (noticeDate && draft.terminationNoticeDays == null && draft.endDate && noticeDate.date <= draft.endDate) {
     draft.terminationNoticeDays = diffDays(noticeDate.date, draft.endDate);
     flagged.add('terminationNoticeDays');
@@ -224,17 +155,12 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
 
   // 5·6) 결제 — 계약서에 있는 돈을 모두 결제 목록으로 (의미·주기·방향)
   const blankAmounts: number[] = [];
-  const firstPayment = result.dates.find((d) => d.meaning === 'first_payment');
   // 총액(보증금 등)이 계약금·잔금으로 나눠 함께 왔으면 총액은 합계(참고)로 — 이전 버전 서버 결과도 같은 돈을 두 번 세지 않도록
   const aggregates = findAggregateTotals(result.payments);
   // 정기 금액의 구성항목(기본급·수당)은 총액(급여)의 구성으로 — 이전 버전 서버 결과도 같은 돈을 두 번 세지 않도록
   foldRecurringComponents(result.payments.filter((p) => !aggregates.includes(p))).forEach((p, i) => {
     const path = `payments.${i}`;
-    let startsOn = p.date;
-    if (!startsOn && p.frequency !== 'one_time' && firstPayment) {
-      startsOn = firstPayment.date;
-      used.add(firstPayment);
-    }
+    const startsOn = p.date;
     const confirmed = p.obligation === 'confirmed';
     if (!startsOn && p.frequency === 'one_time' && confirmed) {
       // 날짜가 없는 일회성 금액: 비워 두면 계약 시작일로 계산된다. 확정하지 않고 "확인 필요"로 보여준다
@@ -257,25 +183,14 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
       notes[`${path}.startsOn`] =
         p.dateSource === 'calculated' ? '계약서 문구로 계산한 날짜예요. 계약서와 같은지 확인해주세요.' : '계약서에 이 금액의 날짜가 직접 적혀 있지 않아 AI가 추정한 날짜예요. 확인해주세요.';
     }
-    let dayOfMonth = p.dayOfMonth;
-    const income = p.direction === 'income';
-    if (income && p.frequency !== 'one_time' && dayOfMonth == null) {
-      // 정기 수입(급여 등): 지급일은 계약서에 적혀 있을 때만. 첫 지급일이 명시돼 있으면 그 날짜의 일자를 쓴다.
-      // 근로 시작일·다른 결제의 날짜로 추론하지 않는다 → 비워 두면 급여 반복 일정을 만들지 않고 "지급일 확인 필요"
-      const explicitFirst = (p.date && (p.dateSource == null || p.dateSource === 'explicit')) || (!p.date && startsOn && firstPayment);
-      if (explicitFirst && startsOn) dayOfMonth = Number(startsOn.slice(8, 10));
-      else if (confirmed) {
-        flagged.add(`${path}.dayOfMonth`);
-        notes[`${path}.dayOfMonth`] = '계약서에 지급일이 없어요. 지급일을 입력하면 매월 지급 일정이 캘린더에 생겨요. (근로 시작일을 지급일로 쓰지 않아요)';
-      }
-    } else if (p.frequency !== 'one_time' && dayOfMonth == null && !startsOn && p.obligation !== 'conditional') {
-      // 같은 주기의 다른 결제에 결제일이 있으면 함께 청구되는 것으로 보고 그 날짜를 쓴다 (예: 락커 이용료 → 월 이용료 결제일)
-      const sibling = result.payments.find((x) => x !== p && x.frequency === p.frequency && x.dayOfMonth != null);
-      dayOfMonth = sibling?.dayOfMonth ?? null;
+    // 결제일은 서버가 정한 값 그대로 — 모르면 비워 두고 "확인 필요" (다른 결제의 결제일·시작일의 날짜를 쓰지 않음, 반복 일정도 만들지 않음)
+    const dayOfMonth = p.dayOfMonth;
+    if (p.frequency !== 'one_time' && dayOfMonth == null && p.obligation !== 'conditional') {
       if (confirmed) flagged.add(`${path}.dayOfMonth`);
-      notes[`${path}.dayOfMonth`] = sibling
-        ? `날짜가 따로 없어 ${withWa(sibling.label)} 같은 ${sibling.dayOfMonth}일로 넣었어요. 확인해주세요.`
-        : '계약서에 날짜가 없어요. 시작일 기준으로 계산되니 실제 날짜를 확인해주세요.';
+      notes[`${path}.dayOfMonth`] =
+        p.direction === 'income'
+          ? '계약서에 지급일이 없어요. 지급일을 입력하면 매월 지급 일정이 캘린더에 생겨요. (근로 시작일을 지급일로 쓰지 않아요)'
+          : '계약서에 결제일이 없어요. 결제일을 입력하면 반복 결제 일정이 캘린더에 생겨요. (계약 시작일이나 다른 결제의 날짜를 결제일로 쓰지 않아요)';
     }
     uncertain(`${path}.amount`, p.confidence);
     quote(`${path}.amount`, p.evidence);
@@ -316,20 +231,14 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     draft.payments.push(payment);
   });
 
-  // 주요 날짜 — 체결·시작·종료·첫 결제일로 쓴 날짜, 결제와 겹치는 잔금일, 반복 결제일(월세 지급일 등)은 제외
+  // 주요 날짜 — 서버가 주요 날짜(key)로 정한 날짜만 (반복 결제일·결제와 같은 잔금일·체결일 등은 서버가 이미 뺐다)
   const dates: DateDraft[] = [];
-  for (const d of result.dates) {
-    if (used.has(d) || d.meaning === 'contract_signed') continue;
-    if (isRecurringPaymentDay(d)) continue;
-    const kind = KEY_DATE_KIND[d.meaning] ?? (KEEP_AS_OTHER.has(d.meaning) ? 'other' : null);
-    if (!kind) continue;
-    if (kind === 'balance_due' && draft.payments.some((p) => p.startsOn === d.date && p.frequency === 'one_time')) continue;
-    if ((d.date === draft.startDate || d.date === draft.endDate) && kind === 'other') continue;
-    if (dates.some((x) => x.kind === kind && x.date === d.date)) continue;
+  for (const d of dated) {
+    if (d.use !== 'key' || !d.keyKind) continue;
     uncertain(`dates.${dates.length}`, d.confidence);
     quote(`dates.${dates.length}`, d.evidence);
     source(`dates.${dates.length}`, d.sourceType);
-    dates.push({ kind, label: d.label, date: d.date });
+    dates.push({ kind: d.keyKind as ContractDateKind, label: d.label, date: d.date });
   }
   draft.dates = dates;
   // 결제가 아닌 금액 (참고·면제·할인 전 …) — 서버가 정한 그대로 저장
@@ -394,6 +303,13 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     references: [...(result.references ?? []).map(({ label, amount, role }) => ({ label, amount, role })), ...aggregates.map(({ label, amount }) => ({ label, amount, role: 'total' as const }))],
     blankAmounts,
   };
+}
+
+/** 날짜 쓰임이 없는 분석 결과(이전 버전 서버) — 서버와 같은 공용 규칙(analysisRules/dates.ts)으로 한 번 정한다 */
+function withDateUses(result: ExtractionResult, type: ContractType): ExtractedDate[] {
+  const dates = result.dates.map((d) => ({ ...d }));
+  assignDateUses(dates, type, result.payments);
+  return dates;
 }
 
 /** 해지 통보기한 날짜 (계약 체크 카드에 "언제까지"를 보여주기 위해) */

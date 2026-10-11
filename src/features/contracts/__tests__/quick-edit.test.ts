@@ -82,10 +82,11 @@ test('첫 결제일 없이 계약 시작일을 따르던 결제 → 수정해도
   const moved = save(d, (v) => (v.startDate = '2026-10-15'));
   expect(moved.startDate).toBe('2026-10-15');
   expect(moved.payments[0]).toMatchObject({ startsOn: null, dayOfMonth: 12 });
-  // 결제일(일)이 비어 있던 결제 → 시작일의 날짜(12일)로 채워 보여주고 그대로 저장 (일정은 같음)
+  // 리팩터링 D: 결제일(일)이 비어 있던 결제 → 시작일의 날짜로 채우지 않고 빈칸 (결제일을 입력해야 저장 · 입력한 날이 결제일)
   const noDay: ContractDraft = { ...d, payments: [pay({ startsOn: null, dayOfMonth: null })] };
-  expect(draftToQuickForm(noDay).quick?.day).toBe('12');
-  expect(save(noDay).payments[0]).toMatchObject({ startsOn: null, dayOfMonth: 12 });
+  expect(draftToQuickForm(noDay).quick?.day).toBe('');
+  expect(contractFormSchema.safeParse(draftToQuickForm(noDay)).success).toBe(false);
+  expect(save(noDay, (v) => (v.quick!.day = '20')).payments[0]).toMatchObject({ startsOn: null, dayOfMonth: 20 });
   // 일시불도 같음
   const once: ContractDraft = { ...d, contractType: 'one_time', payments: [pay({ frequency: 'one_time', startsOn: null, dayOfMonth: null })] };
   expect(save(once).payments).toEqual(once.payments);
