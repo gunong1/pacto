@@ -9,13 +9,13 @@ import { AppText } from '@/components/ui/AppText';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { dayMarkers, groupCalendarItems } from '@/domain/calendarGroups';
 import { formatDateKo, isValidISODate, monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from '@/domain/dates';
-import { formatKRW, formatWonCompact } from '@/domain/money';
+import { formatKRW } from '@/domain/money';
 import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
 import type { ISODate } from '@/domain/types';
 import { CalendarGroupCard } from '@/features/calendar/CalendarGroupCard';
 import { useContracts, useToday } from '@/features/contracts/queries';
-import { colors, radius, spacing } from '@/theme';
+import { spacing } from '@/theme';
 
 /** 계약 전용 캘린더: 결제일, 시작/종료, 자동갱신, 해지 통보기한, 내 일정 + 월 계약 지출 예정 */
 export default function CalendarScreen() {
@@ -44,11 +44,11 @@ export default function CalendarScreen() {
 
   // 일정 원본(결제·시작·주요 날짜 …)은 그대로 계산하고, 화면에서만 같은 계약·같은 날짜를 카드 하나로 묶는다.
   // 월 지출 합계는 이 묶음과 별개로 결제 규칙에서 직접 계산한다 (spending.ts)
-  const { groups, markers, spending, payingContracts } = useMemo(() => {
+  const { groups, markers, spending } = useMemo(() => {
     const list = records ?? [];
     const groups = groupCalendarItems(scheduleForRange(list, monthRange(ym), today));
     const spending = monthSpending(list, ym);
-    return { groups, markers: dayMarkers(groups), spending, payingContracts: new Set(spending.items.map((i) => i.contractId)).size };
+    return { groups, markers: dayMarkers(groups), spending };
   }, [records, ym, today]);
 
   const dayGroups = selected ? groups.filter((g) => g.date === selected) : [];
@@ -59,35 +59,6 @@ export default function CalendarScreen() {
     <Screen>
       <View style={styles.header}>
         <AppText variant="title1">캘린더</AppText>
-      </View>
-
-      {/* 월 계약 지출 예정 — 달을 넘기면 함께 바뀐다 */}
-      <View style={styles.spending} testID="calendar-month-total">
-        <AppText variant="body2" color="textSecondary">
-          {ym.month}월 계약 지출 예정
-        </AppText>
-        <AppText variant="title1" tabular style={{ marginTop: 2 }}>
-          {formatKRW(spending.total)}
-        </AppText>
-        <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
-          {payingContracts > 0 ? `${payingContracts}개 계약에서 결제 예정` : '결제 예정인 계약이 없어요'}
-          {spending.hasEstimated ? ' · 변동 금액은 예상치' : ''}
-        </AppText>
-        {spending.incomeTotal > 0 ? (
-          <View style={{ marginTop: 6 }} testID="calendar-income">
-            <AppText variant="body2Strong" color="textSecondary" tabular>
-              계약 수입 +{formatKRW(spending.incomeTotal)}
-            </AppText>
-            <AppText variant="caption" color="textTertiary">
-              급여·대금 등 · 지출과 별도
-            </AppText>
-          </View>
-        ) : null}
-        {spending.depositTotal > 0 ? (
-          <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }} testID="calendar-deposit-note">
-            보증금 {formatWonCompact(spending.depositTotal)}은 돌려받는 돈이라 지출 합계에서 제외했어요
-          </AppText>
-        ) : null}
       </View>
 
       <View style={styles.calendar}>
@@ -103,6 +74,14 @@ export default function CalendarScreen() {
           }}
           onPressTitle={() => setPicker(true)}
           onToday={isThisMonth ? undefined : () => goTo(yearMonthOf(today))}
+          subtitle={
+            // 월 금액은 홈(이번 달 계약 재무 요약)이 주인공 — 캘린더는 작은 한 줄만. 홈과 같은 monthSpending 기준
+            <AppText variant="caption" color="textSecondary" tabular align="center" testID="calendar-month-total">
+              지출 {formatKRW(spending.total)}
+              {spending.incomeTotal > 0 ? ` · 수입 +${formatKRW(spending.incomeTotal)}` : ''}
+              {spending.depositTotal > 0 ? ' · 보증금 제외' : ''}
+            </AppText>
+          }
         />
         <MonthPickerSheet visible={picker} value={ym} current={yearMonthOf(today)} onSelect={goTo} onClose={() => setPicker(false)} />
         <View style={styles.legend} testID="calendar-legend">
@@ -147,7 +126,6 @@ export default function CalendarScreen() {
 
 const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.md },
-  spending: { marginHorizontal: spacing.gutter, marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.bgSubtle },
   calendar: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.lg },
   legend: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', columnGap: spacing.lg, rowGap: 4, marginTop: spacing.sm },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },

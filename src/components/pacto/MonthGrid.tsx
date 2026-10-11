@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
@@ -33,10 +34,12 @@ export interface MonthGridProps {
   onPressTitle?: () => void;
   /** 이번 달이 아닐 때 "오늘" 버튼 — 이번 달로 바로 돌아가기 */
   onToday?: () => void;
+  /** 월 제목 아래 작은 한 줄 (예: 월 지출·수입 요약) */
+  subtitle?: ReactNode;
 }
 
 /** 계약 전용 월 캘린더. 날짜 아래 점 색 = 일정 유형. */
-export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onChangeMonth, onPressTitle, onToday }: MonthGridProps) {
+export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onChangeMonth, onPressTitle, onToday, subtitle }: MonthGridProps) {
   const { year, month } = yearMonth;
   const first = toISODate(year, month, 1);
   const lead = weekdayOf(first);
@@ -79,6 +82,7 @@ export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onCha
           <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
         </Pressable>
       </View>
+      {subtitle ? <View style={styles.subtitle}>{subtitle}</View> : null}
       <View style={styles.week}>
         {WEEKDAYS.map((w, i) => (
           <AppText key={w} variant="small" color={i === 0 ? 'caution' : 'textTertiary'} align="center" style={styles.cellText}>
@@ -125,6 +129,7 @@ const styles = StyleSheet.create({
   title: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.xs, paddingVertical: 2, borderRadius: radius.md },
   titlePressed: { backgroundColor: colors.bgSubtle },
   todayChip: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary },
+  subtitle: { alignItems: 'center', marginTop: -spacing.sm, marginBottom: spacing.md },
   week: { flexDirection: 'row', marginBottom: spacing.xs },
   cellText: { flex: 1 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },

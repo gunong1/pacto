@@ -16,7 +16,7 @@ import {
 import { statusSummary, upcomingEnds } from "@/domain/actions";
 import { formatDateKo, yearMonthOf } from "@/domain/dates";
 import { categoryLabel } from "@/domain/labels";
-import { formatKRW } from "@/domain/money";
+import { formatKRW, formatWonCompact } from "@/domain/money";
 import { attentionItems } from "@/domain/nextAction";
 import { monthSpending } from "@/domain/spending";
 import { useContracts, useToday } from "@/features/contracts/queries";
@@ -173,6 +173,17 @@ export default function HomeScreen() {
             통신비 등 변동 금액은 예상치예요
           </AppText>
         ) : null}
+        {view.spending.depositTotal > 0 ? (
+          <AppText
+            variant="caption"
+            color="textTertiary"
+            style={{ marginTop: 2 }}
+            testID="home-deposit-note"
+          >
+            보증금 {formatWonCompact(view.spending.depositTotal)}은 돌려받는 돈이라
+            지출에서 제외했어요
+          </AppText>
+        ) : null}
 
         {view.spending.byCategory.length > 0 ? (
           <View style={styles.breakdown}>
@@ -184,6 +195,26 @@ export default function HomeScreen() {
                 <Amount value={c.amount} variant="body2" />
               </View>
             ))}
+          </View>
+        ) : null}
+
+        {/* 이번 달 계약 수입 — 지출과 같은 monthSpending(실제 입금 예정월 기준) */}
+        {view.spending.incomeTotal > 0 ? (
+          <View style={styles.income} testID="home-income">
+            <AppText variant="body2" color="textSecondary">
+              {view.ym.month}월 계약 수입
+            </AppText>
+            <AppText
+              variant="title2"
+              tabular
+              style={{ marginTop: 2 }}
+              testID="home-income-total"
+            >
+              +{formatKRW(view.spending.incomeTotal)}
+            </AppText>
+            <AppText variant="caption" color="textTertiary">
+              급여·대금 등 · 지출과 별도
+            </AppText>
           </View>
         ) : null}
       </View>
@@ -431,6 +462,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.gutter,
     paddingTop: spacing.xxl,
     paddingBottom: spacing.xxl,
+  },
+  income: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   breakdown: { marginTop: spacing.xl, gap: 6 },
   breakdownRow: { flexDirection: "row", justifyContent: "space-between" },

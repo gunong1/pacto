@@ -89,7 +89,7 @@ export const EVENT_COLOR: Record<ScheduleItemType, string> = {
 };
 
 export const EVENT_LEGEND: { label: string; color: string }[] = [
-  { label: '결제', color: EVENT_COLOR.payment },
+  { label: '결제·입금', color: EVENT_COLOR.payment },
   { label: '시작·주요 날짜', color: EVENT_COLOR.contract_start },
   { label: '통보기한', color: EVENT_COLOR.termination_notice },
   { label: '종료·만기·갱신', color: EVENT_COLOR.contract_end },
