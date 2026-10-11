@@ -8,7 +8,7 @@ import { attentionItems, nextAction } from '../nextAction';
 import { formatKRW, formatWon, formatWonCompact, parseAmount } from '../money';
 import { upcomingReminders } from '../reminders';
 import { contractSchedule, expandPayment, nextPayment } from '../schedule';
-import { contractMonthlyEquivalent, monthSpending, recurringMonthlyCost } from '../spending';
+import { contractMonthlyEquivalent, monthSpending } from '../spending';
 import { currentTerm, deriveStatus, terminationNoticeDeadline } from '../status';
 import type { Contract, ContractPayment, ContractRecord } from '../types';
 
@@ -148,10 +148,6 @@ describe('spending', () => {
 
     const jan = monthSpending(records, { year: 2026, month: 1 });
     expect(jan.items.some((i) => i.contractId === 'c-car-insurance' && i.amount === 1_368_000)).toBe(true);
-  });
-
-  test('매달 나가는 정기 계약비 — 앞으로 결제가 남은 정기 결제의 월 환산 (연납 보험은 12/31 종료로 다음 결제가 없어 제외)', () => {
-    expect(recurringMonthlyCost(records, TODAY)).toBe(39_900 + 38_500 + 55_000 + 683_000 + 79_000 + 17_000);
   });
 });
 

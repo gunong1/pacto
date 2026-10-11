@@ -98,15 +98,14 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   check('4b', '회원권 660,000원은 결제일(10/6)에 1회', d1006.includes('1년 회원권') && d1006.includes('660,000'), '');
   check(5, '1년 이용기간을 월납 12회로 만들지 않음', later.every(([, t]) => amountOf(t) === '₩0'), '');
 
-  // 홈: 이번 달 지출 660,000 / 매달 나가는 정기 계약비 0 (1년권 일시불은 매달 나가는 돈이 아님, 연간 예상·월평균 없음)
+  // 홈: 이번 달 계약 지출 660,000 (핵심 지표) · 매달 나가는 정기 계약비 카드·월평균·연간 예상 없음
   await page.goto(BASE + '/', { waitUntil: 'networkidle' });
-  await page.waitForSelector(tid('home-recurring-amount'), { timeout: 15000 });
+  await page.waitForSelector(tid('home-spending-total'), { timeout: 15000 });
   const homeTotal = await text(tid('home-spending-total'));
-  const homeRecurring = await text(tid('home-recurring-amount'));
   const homeBody = await page.locator('body').innerText();
   await page.screenshot({ path: path.join(SHOTS, 'gym-05-home.png') });
-  check('H', '홈: 10월 지출 ₩660,000 · 매달 나가는 정기 계약비 ₩0 · 월평균/연간 예상 없음',
-    homeTotal.includes('660,000') && homeRecurring.startsWith('₩0') && !homeBody.includes('연간 예상') && !homeBody.includes('월평균'), `${homeTotal} / ${homeRecurring}`);
+  check('H', '홈: 10월 지출 ₩660,000 · 매달 나가는 정기 계약비 카드 없음 · 월평균/연간 예상 없음',
+    homeTotal.includes('660,000') && (await page.locator(tid('home-recurring')).count()) === 0 && !homeBody.includes('매달 나가는') && !homeBody.includes('연간 예상') && !homeBody.includes('월평균'), homeTotal);
 
   // 락커 이용 시작 → 결제로 전환
   await page.click(tid('tab-contracts'));
@@ -123,10 +122,6 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   const nov = await month('2026-11');
   const d1101 = await day('2026-11-01');
   await page.screenshot({ path: path.join(SHOTS, 'gym-04-locker-activated.png') });
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
-  await page.waitForSelector(tid('home-recurring-amount'), { timeout: 15000 });
-  const homeRecurring2 = await text(tid('home-recurring-amount'));
-  check('H2', '락커 이용 시작 후 매달 나가는 정기 계약비 ₩5,000', homeRecurring2.startsWith('₩5,000'), homeRecurring2);
   check('A', '락커 "이용 시작"(11/1) 등록 → 그때부터 월 5,000원 결제·지출', core2.includes('락커 이용료') && amountOf(nov) === '₩5,000' && d1101.includes('락커 이용료'), `11월 ${amountOf(nov)} / ${d1101}`);
 
   console.log('\npage errors:', errors.length ? errors : 'none');

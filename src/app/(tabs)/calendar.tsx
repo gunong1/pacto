@@ -74,9 +74,14 @@ export default function CalendarScreen() {
           {spending.hasEstimated ? ' · 변동 금액은 예상치' : ''}
         </AppText>
         {spending.incomeTotal > 0 ? (
-          <AppText variant="caption" color="textSecondary" style={{ marginTop: 2 }} testID="calendar-income">
-            들어올 돈 +{formatKRW(spending.incomeTotal)} (급여·대금 등, 지출과 별도)
-          </AppText>
+          <View style={{ marginTop: 6 }} testID="calendar-income">
+            <AppText variant="body2Strong" color="textSecondary" tabular>
+              계약 수입 +{formatKRW(spending.incomeTotal)}
+            </AppText>
+            <AppText variant="caption" color="textTertiary">
+              급여·대금 등 · 지출과 별도
+            </AppText>
+          </View>
         ) : null}
         {spending.depositTotal > 0 ? (
           <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }} testID="calendar-deposit-note">

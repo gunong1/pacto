@@ -18,7 +18,7 @@ import { formatDateKo, yearMonthOf } from "@/domain/dates";
 import { categoryLabel } from "@/domain/labels";
 import { formatKRW } from "@/domain/money";
 import { attentionItems } from "@/domain/nextAction";
-import { monthSpending, recurringMonthlyCost } from "@/domain/spending";
+import { monthSpending } from "@/domain/spending";
 import { useContracts, useToday } from "@/features/contracts/queries";
 import { colors, hitSlop, radius, spacing } from "@/theme";
 
@@ -52,7 +52,6 @@ export default function HomeScreen() {
     return {
       ym,
       spending,
-      recurring: recurringMonthlyCost(records, today),
       attention,
       ends,
       summary: statusSummary(records, today),
@@ -187,25 +186,6 @@ export default function HomeScreen() {
             ))}
           </View>
         ) : null}
-
-        {/* 매월 결제만 — 연납·분기납·일시불은 나누지 않고 결제하는 달 지출에 전액 (캘린더와 같은 결제 일정 기준) */}
-        <View style={styles.subMetrics} testID="home-recurring">
-          <View style={styles.metric}>
-            <AppText variant="caption" color="textTertiary">
-              매달 나가는 정기 계약비
-            </AppText>
-            <AppText
-              variant="body2Strong"
-              tabular
-              testID="home-recurring-amount"
-            >
-              {formatKRW(view.recurring)} / 월
-            </AppText>
-            <AppText variant="small" color="textTertiary" align="center">
-              매월 결제되는 계약만 · 연납·분기납·일시불은 결제하는 달 지출에 포함
-            </AppText>
-          </View>
-        </View>
       </View>
 
       {/* 3. 곧 종료/갱신되는 계약 — 없으면 섹션과 위 구분선까지 그리지 않는다 */}
@@ -454,14 +434,6 @@ const styles = StyleSheet.create({
   },
   breakdown: { marginTop: spacing.xl, gap: 6 },
   breakdownRow: { flexDirection: "row", justifyContent: "space-between" },
-  subMetrics: {
-    flexDirection: "row",
-    marginTop: spacing.xl,
-    backgroundColor: colors.bgSubtle,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.md,
-  },
-  metric: { flex: 1, alignItems: "center", gap: 2 },
   summary: { flexDirection: "row" },
   summaryItem: {
     flex: 1,

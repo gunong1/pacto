@@ -8,7 +8,7 @@ import { contractFormSchema, draftToForm, formToDraft } from '@/features/contrac
 import { normalizeDateInput } from '../dates';
 import { nextAction } from '../nextAction';
 import { contractSchedule, expandPayment, scheduleForRange } from '../schedule';
-import { monthSpending, recurringMonthlyCost } from '../spending';
+import { monthSpending } from '../spending';
 import type { ContractPayment, ContractRecord } from '../types';
 
 const TODAY = '2026-10-06';
@@ -143,11 +143,9 @@ describe('결제 주기별 실제 지출 (월평균과 분리)', () => {
   test('연납: 납부 월에 연간 금액 전체, 월평균은 별도 지표', () => {
     const r = pay({ frequency: 'yearly', amount: 1_368_000 });
     expect(months(r)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 1_368_000, 0, 0]);
-    // 매달 나가는 정기 계약비에는 넣지 않음 (연 금액을 12로 나누지 않는다)
-    expect(recurringMonthlyCost([r], '2027-01-01')).toBe(0);
   });
 
-  test('매달 나가는 정기 계약비 = 매월 결제만 (연납 자동차보험 1,084,630원은 나누지 않고 결제 달에 전액)', () => {
+  test('월 지출 = 실제 결제 달 기준 (연납 자동차보험 1,084,630원은 나누지 않고 결제 달에 전액)', () => {
     const r: ContractRecord = {
       ...base,
       payments: [
@@ -159,7 +157,6 @@ describe('결제 주기별 실제 지출 (월평균과 분리)', () => {
         { ...base.payments[0], id: 'o1', frequency: 'one_time', amount: 50_000 },
       ],
     };
-    expect(recurringMonthlyCost([r], '2027-01-01')).toBe(673_306);
     const m = months(r);
     // 10월: 매월 + 연납 전액 + 분기 + 반기 / 1월: 매월 + 분기 / 2월: 매월만
     expect(m[9]).toBe(673_306 + 1_084_630 + 90_000 + 180_000);
