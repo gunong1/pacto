@@ -98,7 +98,9 @@ describe('보증금 총액과 계약금·잔금이 함께 오면 총액은 합�
     (out.payments as unknown[]).push(pay({ label: '보증금', amount: 20000000, frequency: 'one_time', date: '2026-10-20', ...ev('보증금 20,000,000원 (금 이천만원)') }));
     const m = toReviewModel(toAppResult(out, 'openai'), ['doc-1']);
     expect(m.draft.payments.map((p) => p.label)).toEqual(['계약금', '잔금', '월세', '관리비']);
-    expect(m.references).toContainEqual({ label: '보증금', amount: 20000000, role: 'total' });
+    // 리팩터링 C: 총액은 계약 요약 칸(보증금) 한 곳에만 (참고 금액 목록에 중복하지 않음)
+    expect(m.draft.depositAmount).toBe(20000000);
+    expect(m.references.filter((x) => x.role === 'total')).toEqual([]);
     const record = draftToRecord(m.draft, 'lease', TODAY);
     const oct20 = record.payments.filter((p) => p.frequency === 'one_time' && p.startsOn === '2026-10-20').reduce((s, p) => s + p.amount, 0);
     expect(oct20).toBe(18000000);

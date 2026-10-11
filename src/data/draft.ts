@@ -25,6 +25,7 @@ export const EMPTY_DRAFT: ContractDraft = {
   payments: [],
   dates: [],
   valueSources: {},
+  referenceAmounts: [],
 };
 
 /** 새 계약의 기본값 (draft 적용 전). */
@@ -36,6 +37,7 @@ export function blankContract(id: string, source: Contract['source'], now: strin
     contractType: 'other',
     details: {},
     valueSources: {},
+    referenceAmounts: [],
     counterparty: null,
     lifecycle: 'active',
     lifecycleChangedOn: null,
@@ -68,6 +70,7 @@ export function applyDraftToContract(contract: Contract, draft: ContractDraft): 
     contractType: draft.contractType,
     details: draft.details,
     valueSources: draft.valueSources,
+    referenceAmounts: draft.referenceAmounts.map((r) => ({ ...r })),
     counterparty: draft.counterparty,
     contractDate: draft.contractDate,
     startDate: draft.startDate,
@@ -180,7 +183,36 @@ export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payment
     ),
     dates: record.dates.map((d): DateDraft => ({ kind: d.kind, label: d.label, date: d.date })),
     valueSources: contract.valueSources,
+    referenceAmounts: contract.referenceAmounts.map((r) => ({ ...r })),
   };
+}
+
+/**
+ * 계약 체크의 조건부 비용(위약금·양도 수수료 등)이 실제로 생김 → 그날 1회 확정 결제를 만든다 (사용자가 "발생했어요"를 눌렀을 때만).
+ * 체크는 그대로 두어 근거·조건을 계속 볼 수 있다.
+ */
+export function activateCheckCost(record: ContractRecord, checkId: string, date: string): ContractDraft {
+  const check = record.aiChecks.find((c) => c.id === checkId);
+  if (!check || check.amount == null) throw new Error('비용 항목을 찾을 수 없어요.');
+  const draft = recordToDraft(record);
+  draft.payments.push({
+    kind: 'other',
+    direction: 'expense',
+    label: check.title,
+    amount: check.amount,
+    frequency: 'one_time',
+    dayOfMonth: null,
+    monthOfYear: null,
+    startsOn: date,
+    endsOn: null,
+    installmentCount: null,
+    isVariable: false,
+    components: [],
+    businessDayRule: 'none',
+    obligation: 'confirmed',
+    conditionNote: check.rule?.condition ?? null,
+  });
+  return draft;
 }
 
 /**

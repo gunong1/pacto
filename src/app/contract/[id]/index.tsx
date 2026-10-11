@@ -342,7 +342,7 @@ export default function ContractDetailScreen() {
               {view.extra.map((x, i) => (
                 <View key={x.key}>
                   {i > 0 ? <Divider /> : null}
-                  <ExtraCost row={x} onActivate={(date) => actions.activateCost.mutate([x.paymentId, date])} />
+                  <ExtraCost row={x} onActivate={(date) => (x.source.kind === 'payment' ? actions.activateCost.mutate([x.source.paymentId, date]) : actions.activateCheckCost.mutate([x.source.checkId, date]))} />
                 </View>
               ))}
             </Section>
@@ -583,8 +583,9 @@ function ExtraCost({ row, onActivate }: { row: ExtraCostRow; onActivate: (date: 
   const [input, setInput] = useState('');
   const date = normalizeDateInput(input);
   const verb = row.obligation === 'optional' ? '이용 시작' : '발생했어요';
+  const tid = row.source.kind === 'payment' ? row.source.paymentId : row.source.checkId;
   return (
-    <View style={styles.extra} testID={`extra-${row.paymentId}`}>
+    <View style={styles.extra} testID={`extra-${tid}`}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }}>
         <View style={{ flex: 1, gap: 4 }}>
           <AppText variant="body2Strong">{row.label}</AppText>
@@ -602,13 +603,13 @@ function ExtraCost({ row, onActivate }: { row: ExtraCostRow; onActivate: (date: 
             label={row.obligation === 'optional' ? '이용 시작일 (이날부터 결제)' : '실제 지급 예정일'}
             value={input}
             onChangeText={setInput}
-            testID={`extra-${row.paymentId}-date`}
+            testID={`extra-${tid}-date`}
           />
-          <Button label="결제로 등록 (캘린더·지출에 반영)" size="sm" disabled={!date} onPress={() => date && onActivate(date)} testID={`extra-${row.paymentId}-save`} />
+          <Button label="결제로 등록 (캘린더·지출에 반영)" size="sm" disabled={!date} onPress={() => date && onActivate(date)} testID={`extra-${tid}-save`} />
         </View>
       ) : (
         <View style={{ alignSelf: 'flex-start', marginTop: spacing.sm }}>
-          <Button label={verb} size="sm" variant="secondary" onPress={() => setOpen(true)} testID={`extra-${row.paymentId}-open`} />
+          <Button label={verb} size="sm" variant="secondary" onPress={() => setOpen(true)} testID={`extra-${tid}-open`} />
         </View>
       )}
     </View>

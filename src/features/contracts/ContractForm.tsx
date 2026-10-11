@@ -387,7 +387,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
               <Controller
                 control={control}
                 name={`payments.${i}.obligation`}
-                render={({ field: f }) => <ChipGroup options={OBLIGATION_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-obligation`} />}
+                render={({ field: f }) => <ChipGroup options={obligationOptions(f.value)} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-obligation`} />}
               />
               {hint(`${path}.obligation`) ? (
                 <AppText variant="caption" color={flagged?.has(`${path}.obligation`) ? 'check' : 'textTertiary'} style={{ marginTop: 6 }}>
@@ -1085,14 +1085,20 @@ function FormDate({ control, name, label, flagged, hint, testID }: { control: Co
   );
 }
 
-/** 확정 결제만 캘린더·지출에 반영된다 (잠재·참고 금액은 AI가 고른 경우에만 보이도록 뒤에) */
+/**
+ * 확정 결제만 캘린더·지출에 반영된다. 참고 금액은 결제가 아니라 참고 금액 목록에 따로 저장된다 (선택지 없음).
+ * 이전 버전에서 저장된 "발생 가능·참고 금액" 결제는 그 값을 그대로 보여준다 (읽기 호환).
+ */
 const OBLIGATION_OPTIONS = [
   { value: 'confirmed' as const, label: '확정 결제' },
   { value: 'optional' as const, label: '선택형 (이용 시)' },
   { value: 'conditional' as const, label: '조건부 (상황 발생 시)' },
+];
+const LEGACY_OBLIGATION_OPTIONS = [
   { value: 'potential' as const, label: '발생 가능' },
   { value: 'informational' as const, label: '참고 금액' },
 ];
+const obligationOptions = (current: string) => [...OBLIGATION_OPTIONS, ...LEGACY_OBLIGATION_OPTIONS.filter((o) => o.value === current)];
 
 const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
 

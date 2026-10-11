@@ -13,6 +13,7 @@ function contract(partial: Partial<Contract> & Pick<Contract, 'id' | 'title' | '
     contractType: defaultTypeForCategory(partial.category),
     details: {},
     valueSources: {},
+    referenceAmounts: [],
     counterparty: null,
     lifecycle: 'active',
     lifecycleChangedOn: null,

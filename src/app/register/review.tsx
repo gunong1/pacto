@@ -309,7 +309,7 @@ function withNotice(draft: ContractDraft, needsPick: boolean, picked: NoticeOffe
 }
 
 /** 결제에 넣지 않은 금액의 종류 표시 */
-const REFERENCE_TAG: Record<ReferenceRole, string> = { total: ' (합계)', reference: ' (참고)', waived: ' (면제)', discount: ' (할인)' };
+const REFERENCE_TAG: Record<ReferenceRole, string> = { total: ' (합계)', reference: ' (참고)', waived: ' (면제)', discount: ' (할인)', before_discount: ' (할인 전)' };
 
 const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.lg, paddingBottom: spacing.md },

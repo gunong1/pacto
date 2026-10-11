@@ -1,19 +1,31 @@
 /**
- * 금액의 역할 — 실제로 오가는 돈(결제)인지, 구성항목·합계·참고·면제·할인 금액인지
+ * 금액의 역할 — 실제로 오가는 돈(결제)인지, 구성항목·총액·참고·면제·할인·할인 전 금액인지
  *
- * 규칙 R1 roleOf — 목적: 결제로 만들지 않을 금액을 먼저 가른다 (모델의 role + 이름·문구)
- *   입력: 모델 금액 객체 · 이름 · 문구 / 출력: component | total | reference | waived | discount | payment(+할인 전 여부)
- *   예) role=total → 합계 / 일회성 "설치비 면제" → waived / 이름 "E규정 할인" → discount / "45,900원(할인전)" → 결제(할인 전 확인 필요)
- * 규칙 R2 componentsFromHint — 목적: role 없이 "…에 포함·…으로 구성"이라고 적힌 정기 금액을 더 큰 정기 금액의 구성으로
- * 규칙 R3 attachComponents — 목적: 구성항목을 상위 결제에 붙인다 (part_of 이름 → 같은 방향·주기 → 더 큰 금액). 상위가 없으면 참고 금액
- * 규칙 R4 aggregateTotals — 목적: 총액(보증금 등)과 그 몫(계약금·잔금)이 함께 결제로 오면 총액은 합계로 (paymentAggregate.ts)
- * 규칙 R5 foldComponents — 목적: 정기 금액의 구성항목(기본급·수당)이 총액(급여)과 함께 결제로 오면 구성으로 (paymentAggregate.ts)
- * 테스트: aggregate-payments.test.ts, discount-price.test.ts, extraction.test.ts, golden
+ * 원칙: 금액을 발견했다고 결제로 만들지 않는다. 결제가 아닌 금액은 참고 금액(references)으로만 보관하고
+ *       홈·캘린더·알림 계산에는 넣지 않는다. 판단은 서버 한 곳(이 파일)에서만 한다.
+ *
+ * 규칙 R1 roleOf — 입력: 모델 금액 객체 · 이름 · 금액 · 근거 / 출력: component | total | reference(종류) | payment(할인 전 여부)
+ *   예) role=waived · 0원 · (일회성·참고 금액인데 "면제·무료·무상") → 면제
+ *       role=reference + price_basis=before_discount 또는 "45,900원(할인전)" → 할인 전
+ *       AI가 informational(참고)로 답함 → 참고 금액 (결제로 저장하지 않음)
+ *       이름 "E규정 할인" → 할인액 / role=total → 총액
+ *       "31,900원(할인전 45,900원)"의 31,900 → 결제 (할인전은 45,900에 붙은 말)
+ * 규칙 R2 namedParentComponents — 결제의 근거 문장이 더 큰 다른 결제를 "이름으로" 가리키며 포함·구성을 말할 때만 그 결제의 구성항목
+ *   예) "고정연장근로수당 320,000원은 월 임금에 포함된다" + 월 임금 3,600,000 → 월 임금의 구성항목
+ *       "관리비 월 70,000원 ※ 수도·공용전기 등 포함" + 월세 700,000 → 별개 결제 (월세를 가리키지 않음)
+ * 규칙 R3 attachComponents — 구성항목(role=component)을 상위 결제에 붙인다 (part_of 이름 → 같은 방향·주기 → 더 큰 금액). 상위가 없으면 참고 금액
+ *   ("…에 포함", "…으로 구성" 같은 단어만으로 다른 금액을 구성항목으로 합치지 않는다: 관리비(수도 포함)는 월세와 별개 결제)
+ * 규칙 R4 totals — 총액은 계약 요약 칸(보증금·계약 총액) 하나에 담는다. 이미 다른 값이 있으면 참고 금액(총액)으로
+ *   총액 판정: role=total, 또는 총액과 그 몫(계약금·중도금·잔금)이 함께 결제로 오면 (paymentAggregate.ts, 금액이 정확히 맞을 때만)
+ * 규칙 R5 foldComponents — 정기 금액의 구성항목(기본급·수당)이 총액(급여)과 함께 결제로 오면 구성으로 (합이 정확히 맞을 때만)
+ * 규칙 R6 preDiscountSiblings — 할인 전 금액과 실제(할인 적용) 금액이 함께 결제로 오면 할인 전 금액은 참고 금액(할인 전).
+ *   실제 금액이 없으면 결제로 두되 금액을 비워 사용자가 실제 결제액을 입력하게 한다 (자동으로 빼서 계산하지 않음)
+ * 테스트: payment-roles.test.ts, aggregate-payments.test.ts, discount-price.test.ts, golden
  */
 import { findAggregateTotals, foldRecurringComponents } from '../paymentAggregate.ts';
-import { AMOUNT_ROLES, DIRECTIONS } from '../contractRegistry.ts';
-import { COMPONENT_HINT, DISCOUNT_APPLIED, DISCOUNT_ITEM, PRE_DISCOUNT, WAIVED } from './keywords.ts';
-import type { AppExtractionResult, ExtractedPayment } from './types.ts';
+import { AMOUNT_ROLES, DIRECTIONS, PAYMENT_OBLIGATIONS } from '../contractRegistry.ts';
+import { DISCOUNT_APPLIED, DISCOUNT_ITEM, isPreDiscountAmount, PRE_DISCOUNT, WAIVED } from './keywords.ts';
+import type { AppExtractionResult, Extracted, ExtractedPayment, ReferenceRole } from './types.ts';
 import { oneOf, text } from './values.ts';
 import { FREQUENCIES } from './vocabulary.ts';
 
@@ -25,28 +37,48 @@ export interface PendingComponent {
   frequency: string | null;
 }
 
+export interface TotalAmount {
+  label: string;
+  amount: number;
+  deposit: boolean;
+  evidence?: Extracted['evidence'];
+}
+
 export type Role =
   | { kind: 'component'; component: PendingComponent }
-  | { kind: 'reference'; role: 'total' | 'reference' | 'waived' | 'discount' }
+  | { kind: 'total'; deposit: boolean }
+  | { kind: 'reference'; role: Exclude<ReferenceRole, 'total'> }
   | { kind: 'payment'; beforeDiscount: boolean };
 
-export function roleOf(p: Record<string, unknown>, label: string, amount: number, said: string): Role {
+const isDeposit = (kind: unknown, label: string) => kind === 'deposit' || /보증금|전세금/.test(label);
+
+export function roleOf(p: Record<string, unknown>, label: string, amount: number, quote: string, said: string): Role {
   const role = oneOf(AMOUNT_ROLES, p.role);
   if (role === 'component') {
     return { kind: 'component', component: { label, amount, partOf: text(p.part_of, 40), direction: oneOf(DIRECTIONS, p.direction), frequency: oneOf(FREQUENCIES, p.frequency) } };
   }
-  if (role === 'total' || role === 'reference') return { kind: 'reference', role };
-  // 금액 문구(이름 + 원문)로 할인 전·할인액·면제를 가린다 — 모델이 결제로 보냈어도 결제로 만들지 않는다
-  const beforeDiscount = p.price_basis === 'before_discount' || PRE_DISCOUNT.test(said);
-  if (!beforeDiscount && p.frequency === 'one_time' && WAIVED.test(said)) return { kind: 'reference', role: 'waived' };
+  if (role === 'total') return { kind: 'total', deposit: isDeposit(p.kind, label) };
+  const beforeDiscount = p.price_basis === 'before_discount' || PRE_DISCOUNT.test(label) || isPreDiscountAmount(quote, amount);
+  const oneTime = p.frequency === 'one_time';
+  // 면제: AI가 waived로 답함 · 0원 · 참고 금액/일회성 금액인데 문구가 "면제·무료·무상"
+  if (role === 'waived' || amount === 0) return { kind: 'reference', role: 'waived' };
+  const informational = role === 'reference' || oneOf(PAYMENT_OBLIGATIONS, p.payment_obligation) === 'informational';
+  if (!beforeDiscount && (informational || oneTime) && WAIVED.test(said)) return { kind: 'reference', role: 'waived' };
+  if (informational) return { kind: 'reference', role: beforeDiscount ? 'before_discount' : 'reference' };
   if (!beforeDiscount && DISCOUNT_ITEM.test(label) && !DISCOUNT_APPLIED.test(label)) return { kind: 'reference', role: 'discount' };
   return { kind: 'payment', beforeDiscount };
 }
 
-export function componentsFromHint(payments: ExtractedPayment[], pending: PendingComponent[]): void {
+const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export function namedParentComponents(payments: ExtractedPayment[], pending: PendingComponent[]): void {
   for (const p of [...payments]) {
-    if (p.frequency === 'one_time' || !p.evidence?.some((e) => COMPONENT_HINT.test(e.quote))) continue;
-    const parent = payments.find((x) => x !== p && x.direction === p.direction && x.frequency === p.frequency && x.amount > p.amount);
+    if (p.frequency === 'one_time') continue;
+    const quote = (p.evidence ?? []).map((e) => e.quote).join(' ');
+    const parent = payments.find(
+      (x) => x !== p && x.direction === p.direction && x.frequency === p.frequency && x.amount > p.amount &&
+        new RegExp(`${escapeRe(x.label)}\\s*(?:에|에는|에\\s*이미)\\s*포함|${escapeRe(x.label)}[은는이가]?\\s*[^.]{0,30}(?:으로|로)\\s*구성`).test(quote),
+    );
     if (!parent) continue;
     payments.splice(payments.indexOf(p), 1);
     pending.push({ label: p.label, amount: p.amount, partOf: parent.label, direction: p.direction, frequency: p.frequency });
@@ -65,11 +97,21 @@ export function attachComponents(payments: ExtractedPayment[], pending: readonly
   }
 }
 
-/** 총액(보증금·전세금·매매대금)과 그 몫이 함께 결제로 오면 총액은 합계(참고)로 — 같은 돈을 두 번 세지 않는다 (방향은 보지 않음) */
-export function aggregateTotals(payments: ExtractedPayment[], references: AppExtractionResult['references']): void {
+/** 총액과 그 몫(계약금·잔금)이 함께 결제로 오면 총액을 결제에서 뺀다 (방향은 보지 않음 — 모델이 보증금은 neutral, 계약금은 expense처럼 달리 답해도 같은 돈) */
+export function aggregateTotals(payments: ExtractedPayment[], totals: TotalAmount[]): void {
   for (const total of findAggregateTotals(payments)) {
     payments.splice(payments.indexOf(total), 1);
-    references.push({ label: total.label, amount: total.amount, role: 'total' });
+    totals.push({ label: total.label, amount: total.amount, deposit: isDeposit(total.kind, total.label), evidence: total.evidence });
+  }
+}
+
+/** 총액 → 계약 요약 칸 (보증금 · 계약 총액). 칸에 다른 값이 이미 있으면 참고 금액(총액)으로 */
+export function totalsToFields(totals: readonly TotalAmount[], fields: Record<string, Extracted>, references: AppExtractionResult['references']): void {
+  for (const t of totals) {
+    const key = t.deposit ? 'depositAmount' : 'totalAmount';
+    const cur = fields[key]?.value;
+    if (cur == null) fields[key] = { value: t.amount, confidence: 'high', ...(t.evidence ? { evidence: t.evidence } : {}) };
+    else if (cur !== t.amount) references.push({ label: t.label, amount: t.amount, role: 'total' });
   }
 }
 
@@ -77,4 +119,14 @@ export function aggregateTotals(payments: ExtractedPayment[], references: AppExt
 export function foldComponents(payments: ExtractedPayment[]): void {
   const folded = foldRecurringComponents(payments);
   payments.splice(0, payments.length, ...folded);
+}
+
+export function preDiscountSiblings(payments: ExtractedPayment[], references: AppExtractionResult['references']): void {
+  for (const p of [...payments]) {
+    if (p.amountCheck !== 'discount_unconfirmed') continue;
+    const actual = payments.some((x) => x !== p && x.amountCheck !== 'discount_unconfirmed' && x.frequency === p.frequency && x.direction === p.direction && x.amount < p.amount);
+    if (!actual) continue;
+    payments.splice(payments.indexOf(p), 1);
+    references.push({ label: p.label, amount: p.amount, role: 'before_discount' });
+  }
 }

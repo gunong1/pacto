@@ -24,8 +24,13 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
 /**
  * v7: document_check(문서 역할·쪽별 판정·계약 신호) + 모든 추출값에 근거 파일·쪽
  * v8: 결제 날짜의 출처(date_source) — "계약 당일 지급"처럼 다른 날짜를 기준으로 하는 금액은 그 기준 날짜를 쓰고, 옆 줄 날짜를 옮기지 않는다
+ * v12: 면제는 role=waived · 조건부 비용(위약금·연체료 …)은 결제가 아니라 checks에 금액·계산식과 함께 · 참고 금액은 role=reference 하나로
+ *      (payment_obligation은 confirmed·optional·conditional만) · 중도해지·위약금 글 필드 없음 (v11은 배포 전에 되돌림)
  */
-export const PROMPT_VERSION = 'extract-v10';
+export const PROMPT_VERSION = 'extract-v12';
+
+/** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
+const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
 
 const evidenceQuote = {
   evidence_quote: { type: ['string', 'null'], description: '계약서 원문에서 그대로 옮긴 근거 문장 (120자 이내)' },
@@ -89,7 +94,7 @@ export function extractionJsonSchema() {
         role: {
           type: 'string',
           enum: [...AMOUNT_ROLES],
-          description: '실제로 오가는 돈(recurring_cashflow·one_time_cashflow·deposit)인지, 다른 금액의 구성 항목(component)·합계(total)·참고 금액(reference)인지',
+          description: '실제로 오가는 돈(recurring_cashflow·one_time_cashflow·deposit)인지, 다른 금액의 구성 항목(component)·합계(total)·참고 금액(reference: 차량가·대출금액·할인 전 금액·예상·최대 금액)·면제(waived: 면제·무료·무상·0원)인지',
         },
         part_of: { type: ['string', 'null'], description: 'component일 때 이 금액이 속한 금액의 label (예: 월 임금)' },
         kind: { type: 'string', enum: [...PAYMENT_KIND_CODES] },
@@ -115,9 +120,9 @@ export function extractionJsonSchema() {
         is_variable: { type: 'boolean', description: '사용량 등으로 매번 금액이 달라지는지' },
         payment_obligation: {
           type: 'string',
-          enum: [...PAYMENT_OBLIGATIONS],
+          enum: [...MODEL_OBLIGATIONS],
           description:
-            'confirmed: 지금 계약으로 지급 의무와 시점이 확정 / optional: 사용자가 선택(신청·이용)했을 때만 / conditional: 특정 상황(양도·해지·연체·파손·분실 등)이 생겼을 때만 / potential: 생길 수 있으나 미확정 / informational: 금액 정보일 뿐 현금흐름 아님',
+            'confirmed: 계약을 정상적으로 유지하는 동안 내거나 받는 돈 (월 렌탈료·월세·보험료·상환금·급여 …) / optional: 사용자가 선택(신청·이용)했을 때만 / conditional: 특정 상황(양도·해지·연체·파손·분실 등)이 생겼을 때만',
         },
         condition: { type: ['string', 'null'], description: 'confirmed가 아니면 언제 내는 돈인지 짧게 (예: 회원권을 양도하는 경우, 락커를 이용하는 경우)' },
         business_day_rule: { type: 'string', enum: [...BUSINESS_DAY_RULES], description: '지급일이 휴일이면: previous 직전 영업일 / next 다음 영업일 / none 언급 없음' },
@@ -157,6 +162,8 @@ export function extractionJsonSchema() {
         action: { type: ['string', 'null'], description: 'conditional_rule에서 해야 할 일 (예: 희망 퇴직일 30일 전에 회사에 통보)' },
         offset_days: { type: ['integer', 'null'], description: 'conditional_rule에서 기준일 며칠 전인지 (예: 30)' },
         related_date: { type: ['string', 'null'], description: 'fixed_event이고 챙길 날짜가 계약서에 명시돼 있으면 YYYY-MM-DD. conditional_rule은 null' },
+        amount: { type: ['integer', 'null'], description: '이 조항의 금액(원)이 계약서에 적혀 있으면 (예: 위약금 200,000원). 없거나 비율로만 적혀 있으면 null' },
+        amount_basis: { type: ['string', 'null'], description: '금액 계산식·기준 (예: 잔여 렌탈료의 10%, 상환금액의 1.2%). 없으면 null' },
         ...evidence,
       }),
     },
@@ -217,10 +224,13 @@ export function extractionInstructions(today: string): string {
     '   할인 (중요): "할인전·할인 전·정상가·프로모션 적용 전"이 붙은 금액은 실제 결제액이 아닙니다 → price_basis=before_discount (실제 결제액을 계산해 넣지 않음).',
     '   그 외에는 price_basis=actual. 할인액 자체(예: "전체회차 14,000원 할인")는 결제로 넣지 않고 checks(topic=discount_terms)에 원문 그대로 넣습니다.',
     '   특정 회차 면제·무료(예: "1, 13, 25회차 면제")도 결제를 나누지 말고 checks(topic=discount_terms)에 넣습니다.',
-    '   면제된 비용(예: "등록비 100,000원 면제", "설치비 무료")은 role=reference로 넣습니다 (결제 일정 아님).',
+    '   면제된 비용(예: "등록비 100,000원 면제", "설치비 무료", "0원")은 role=waived로 넣습니다 (결제 일정 아님).',
+    '   조건부 비용(위약금·연체료·지연배상금·파손/분실 배상금·초과 사용료·양도 수수료·중도상환수수료)은 payments에 넣지 않고 checks에 넣습니다:',
+    '   금액이 적혀 있으면 checks.amount, 계산식이면 checks.amount_basis (예: 잔여 렌탈료의 10%). behavior=conditional_rule, condition=언제 내는지.',
+    '   같은 문장에 실제 납입금과 조건부 비용이 함께 있어도(예: "월 렌탈료 31,900원, 연체 시 연체료 부과") 월 렌탈료는 confirmed 결제입니다.',
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
-    '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·해지·만기 조건(자동갱신, 연장 기간, 통보기한 일수, 중도해지·위약금). 계약서에 있는 key만 목록으로.',
+    '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·만기 조건(자동갱신, 연장 기간, 통보기한 일수). 계약서에 있는 key만 목록으로. 중도해지·위약금 조건은 checks에만.',
     '9) checks — PACTO 계약 체크: 사용자가 놓치기 쉬운, 확인이 필요한 조항을 찾습니다. 주제(topic):',
     topicGuide(),
     '   severity와 behavior는 아래 의미 해석 원칙을 따릅니다. 확신이 낮으면 confidence를 low로.',
@@ -232,9 +242,10 @@ export function extractionInstructions(today: string): string {
     '  예) "월 임금 3,600,000원은 기본급 3,280,000원과 고정연장근로수당 320,000원으로 구성" → 월 임금 recurring_cashflow 1건 + 기본급·고정연장근로수당 component 2건 (별도 수입 아님).',
     '  차량가·총 대출한도처럼 오가는 돈이 아닌 금액은 reference.',
     '- 금액의 의무 수준(payment_obligation): 금액이 적혀 있다는 이유만으로 결제가 아닙니다. 금액 발견 → 의미 → 실제 의무인지 → 조건이 있는지 순서로 판단합니다.',
-    '  confirmed만 캘린더·지출에 들어갑니다. "…하는 경우/…시/…할 때" 내는 돈은 조건부(conditional)이고, "(선택)·신청 시·이용 시" 비용은 사용자가 실제로 신청했다는 기재가 없으면 optional.',
-    '  예) 회원권 양도 시 수수료 30,000원 → conditional(condition=회원권을 양도하는 경우). 락커 이용 시 월 5,000원 → optional(condition=락커를 이용하는 경우).',
-    '  예) 초과주행료·차량 손상 비용·반납 지연 비용·중도해지수수료·중도상환수수료·연체이자·분실/파손비·미반환 비용·원상복구비·손해배상금·조건부 수당 → conditional.',
+    '  confirmed만 캘린더·지출에 들어갑니다. "월 렌탈료·월 이용료·월 납입금·월 보험료·월 통신요금·월 구독료·월세·대출 상환금·급여"처럼 정상적으로 계약을 유지하는 동안 내거나 받는 돈은 confirmed.',
+    '  "…하는 경우/…시/…할 때" 내는 돈은 조건부이고 checks로 갑니다. "(선택)·신청 시·가입 시" 부가 비용은 사용자가 실제로 신청했다는 기재가 없으면 optional ("특약 포함" 보험료처럼 실제 납입액은 confirmed).',
+    '  예) 회원권 양도 시 수수료 30,000원 → checks(amount=30000, condition=회원권을 양도하는 경우). 락커 이용 시 월 5,000원 → payments optional(condition=락커를 이용하는 경우).',
+    '  예) 초과주행료·차량 손상 비용·반납 지연 비용·중도해지수수료·중도상환수수료·연체이자·분실/파손비·미반환 비용·원상복구비·손해배상금 → checks (조건부).',
     '  보험 특약의 선택 보험료는 가입했다는 기재가 없으면 optional.',
     '- 이용 기간과 결제 주기는 다릅니다: "1년 회원권 660,000원(일시불)"은 one_time 1건이며 월 12회로 나누지 않습니다. 매월 낸다고 적혀 있을 때만 monthly.',
     '- 계약서에 없는 값을 계산해 만들지 않습니다: 월 임금만 있으면 연봉(annual_salary)을 넣지 않고, 기간만 있으면 다른 금액을 만들지 않습니다. 숫자 속성은 계약서에 적힌 경우만 explicit로.',

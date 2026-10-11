@@ -1,6 +1,7 @@
 import type { ExtractedDate, ExtractedPayment, ExtractionResult } from '@/data/ai/provider';
 import { isNoticeKind } from '@/domain/noticeKind';
 import { findAggregateTotals, foldRecurringComponents } from '../../../supabase/functions/_shared/paymentAggregate';
+import type { ReferenceRole } from '../../../supabase/functions/_shared/extraction';
 import { EMPTY_DRAFT } from '@/data/draft';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
@@ -131,7 +132,7 @@ export interface ReviewModel {
   blankAmounts: number[];
 }
 
-export type ReferenceRole = 'total' | 'reference' | 'waived' | 'discount';
+export type { ReferenceRole };
 
 /** 할인 전 금액 안내 */
 export const DISCOUNT_CHECK_LABEL = '할인 적용 금액 확인 필요';
@@ -331,6 +332,8 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     dates.push({ kind, label: d.label, date: d.date });
   }
   draft.dates = dates;
+  // 결제가 아닌 금액 (참고·면제·할인 전 …) — 서버가 정한 그대로 저장
+  draft.referenceAmounts = (result.references ?? []).map(({ label, amount, role }) => ({ label, amount, role }));
 
   // 7) 유형별 속성 — 모든 유형 값을 보관하고, 현재 유형에 맞는 값만 초안에
   const allDetails: Record<string, DetailValue> = {};
@@ -374,6 +377,8 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     relatedDate: c.relatedDate,
     behavior: c.behavior,
     rule: c.rule,
+    amount: c.amount ?? null,
+    amountNote: c.amountNote ?? null,
     suggestion: c.suggestion,
   }));
 

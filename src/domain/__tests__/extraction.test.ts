@@ -9,7 +9,7 @@ import {
 } from '../../../supabase/functions/_shared/extraction.ts';
 import { buildOpenAIRequest, readOutputText } from '../../../supabase/functions/_shared/ai/openai.ts';
 import { MockExtractionProvider } from '../../../supabase/functions/_shared/ai/mock.ts';
-import { activateCost, draftToRecord } from '@/data/draft';
+import { activateCheckCost, activateCost, draftToRecord } from '@/data/draft';
 import { coreInfo, extraCosts } from '@/domain/coreInfo';
 import { BANNED_AI_PHRASES, findBannedPhrases } from '@/domain/aiCopy';
 import { detailSchema } from '@/domain/contractTypes';
@@ -66,7 +66,7 @@ const rental = () => ({
 
 describe('분석 v4 — 서버 스키마·프롬프트', () => {
   test('프롬프트 버전 · 분석 순서 · 표현 규칙', () => {
-    expect(PROMPT_VERSION).toBe('extract-v10');
+    expect(PROMPT_VERSION).toBe('extract-v12');
     const ins = extractionInstructions(TODAY);
     for (const s of ['1) category', '2) contract_type', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다']) expect(ins).toContain(s);
   });
@@ -429,9 +429,14 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
     const out = await new MockExtractionProvider().extract([{ mimeType: 'application/pdf', fileName: '헬스장_1년권_계약서.pdf', base64: '' }]);
     return toReviewModel(toAppResult(out.json, 'mock'), ['doc-1']);
   };
+  /** 저장된 계약 (계약 체크 포함 — 조건부 비용은 체크에 금액과 함께 보관) */
+  const saved = (m: ReturnType<typeof review>) => ({
+    ...draftToRecord(m.draft, 'gym', TODAY),
+    aiChecks: m.checks.map((c, i) => ({ ...c, id: `chk-${i}`, contractId: 'gym', status: 'new' as const })),
+  });
   /** 회귀 5항목 — 캘린더(1년치)·지출 */
   const verify = (m: ReturnType<typeof review>) => {
-    const r = draftToRecord(m.draft, 'gym', TODAY);
+    const r = saved(m);
     const year = scheduleForRange([r], { start: '2026-10-01', end: '2027-10-31' }, TODAY).filter((i) => i.type === 'payment');
     // 1·3) 양도 수수료·락커비는 캘린더에 없음
     expect(year.map((i) => i.title)).toEqual(['1년 회원권']);
@@ -442,9 +447,10 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
     for (let mo = 11; mo <= 12; mo++) expect(monthSpending([r], { year: 2026, month: mo }).total).toBe(0);
     expect(monthSpending([r], { year: 2027, month: 6 }).total).toBe(0);
     // 상세: 결제와 "추가로 발생할 수 있는 비용"을 나눠 보여줌
+    // 리팩터링 C: 양도 수수료(조건부)는 결제가 아니라 계약 체크(금액 30,000원)에서 나옴 → 선택형 결제 다음 순서
     expect(extraCosts(r).map((x) => [x.label, x.value, x.obligation])).toEqual([
-      ['양도 수수료', '30,000원', 'conditional'],
       ['락커 이용료', '월 5,000원', 'optional'],
+      ['양도 수수료', '30,000원', 'conditional'],
     ]);
     return r;
   };
@@ -452,7 +458,7 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
   test('mock 공급자(의미를 해석한 출력): 회원권 확정 1회 · 양도 수수료 조건부 · 락커 선택형', async () => {
     const m = await gymReview();
     const r = verify(m);
-    expect(extraCosts(r).map((x) => x.condition)).toEqual(['회원권을 양도하는 경우', '락커를 이용하는 경우']);
+    expect(extraCosts(r).map((x) => x.condition)).toEqual(['락커를 이용하는 경우', '회원권을 양도하는 경우']);
     expect(coreInfo(r, TODAY).filter((x) => x.key.startsWith('pay:')).map((x) => x.label)).toEqual(['1년 회원권']);
   });
 
@@ -471,15 +477,17 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
       }),
       'openai',
     );
+    // 리팩터링 C: 조건부 비용(양도 수수료)은 결제가 아니라 계약 체크 하나에 금액과 함께
     expect(r.payments.map((p) => [p.label, p.frequency, p.obligation])).toEqual([
       ['1년 회원권', 'one_time', 'confirmed'],
-      ['양도 수수료', 'one_time', 'conditional'],
       ['락커 이용료', 'monthly', 'optional'],
     ]);
+    expect(r.checks.map((c) => [c.title, c.amount, c.behavior])).toEqual([['양도 수수료', 30000, 'conditional_rule']]);
     verify(toReviewModel(r, ['doc-1']));
   });
 
-  test('다른 계약도 같은 원칙: 초과주행료·연체이자·파손비·원상복구비·중도상환수수료는 조건부, 특약 보험료는 선택형', () => {
+  // 리팩터링 C: 조건부 비용은 결제가 아니라 계약 체크(금액·주제)로. "특약"이라는 단어만으로 보험료를 선택형으로 바꾸지 않음
+  test('다른 계약도 같은 원칙: 초과주행료·연체이자·파손비·원상복구비·중도상환수수료는 계약 체크(조건부), 특약 보험료는 확정 유지', () => {
     const r = toAppResult(
       output({
         payments: [
@@ -494,21 +502,31 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
       }),
       'openai',
     );
-    expect(r.payments.map((p) => p.obligation)).toEqual(['confirmed', 'conditional', 'conditional', 'conditional', 'conditional', 'conditional', 'optional']);
+    expect(r.payments.map((p) => [p.label, p.obligation])).toEqual([['월 리스료', 'confirmed'], ['운전자 특약 보험료', 'confirmed']]);
+    expect(r.checks.map((c) => [c.title, c.topic, c.amount])).toEqual([
+      ['초과주행료', 'other', 150],
+      ['연체이자', 'overdue', 12000],
+      ['제품 파손비', 'damages', 300000],
+      ['원상복구비', 'restoration', 500000],
+      ['중도상환수수료', 'prepayment', 200000],
+    ]);
   });
 
   test('조건이 실제로 생기면 결제로 전환: 양도 결정(2027-03-15) → 그날 30,000원 지출, 락커 이용(2026-11-01부터) → 월 5,000원', async () => {
     const m = await gymReview();
-    const r = draftToRecord(m.draft, 'gym', TODAY);
-    const fee = r.payments.find((p) => p.label === '양도 수수료')!;
+    const r = saved(m);
+    // 리팩터링 C: 양도 수수료는 계약 체크 → "발생했어요"는 체크에서 그날 1회 결제를 만든다
+    const fee = r.aiChecks.find((c) => c.title === '양도 수수료')!;
     const locker = r.payments.find((p) => p.label === '락커 이용료')!;
-    const afterFee = draftToRecord(activateCost(r, fee.id, '2027-03-15'), 'gym', TODAY);
+    const afterFee = { ...draftToRecord(activateCheckCost(r, fee.id, '2027-03-15'), 'gym', TODAY), aiChecks: r.aiChecks };
     expect(monthSpending([afterFee], { year: 2027, month: 3 }).total).toBe(30_000);
     expect(scheduleForRange([afterFee], { start: '2027-03-15', end: '2027-03-15' }, TODAY).map((i) => i.title)).toEqual(['양도 수수료']);
-    const afterLocker = draftToRecord(activateCost(r, locker.id, '2026-11-01'), 'gym', TODAY);
+    const afterLocker = { ...draftToRecord(activateCost(r, locker.id, '2026-11-01'), 'gym', TODAY), aiChecks: r.aiChecks };
     expect(monthSpending([afterLocker], { year: 2026, month: 11 }).total).toBe(5_000);
     expect(monthSpending([afterLocker], { year: 2026, month: 10 }).total).toBe(660_000);
     expect(extraCosts(afterLocker).map((x) => x.label)).toEqual(['양도 수수료']);
+    // 발생한 비용은 추가 비용 목록에서 빠짐 (결제가 됨)
+    expect(extraCosts(afterFee).map((x) => x.label)).toEqual(['락커 이용료']);
   });
 });
 

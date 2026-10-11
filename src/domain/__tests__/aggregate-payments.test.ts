@@ -66,10 +66,12 @@ describe('서버 분석 결과', () => {
     ['총액과 몫의 방향이 같음', TOTAL],
     // 이전 안전장치는 방향이 같을 때만 합계로 봤다 — 모델이 보증금 neutral·계약금/잔금 expense처럼 다르게 답하면 그대로 결제로 남았다
     ['총액 방향이 다름 (보증금 expense)', { ...TOTAL, direction: 'expense' }],
-  ])('%s → 보증금 20,000,000은 합계(참고), 결제는 계약금·잔금만', (_n, total) => {
+  ])('%s → 보증금 20,000,000은 계약 요약 칸(보증금), 결제는 계약금·잔금만', (_n, total) => {
     const result = toAppResult(leaseRaw([total]), 'openai');
     expect(result.payments.map((p) => p.label)).toEqual(['계약금', '잔금', '월세', '관리비']);
-    expect(result.references).toContainEqual({ label: '보증금', amount: 20000000, role: 'total' });
+    // 리팩터링 C: 총액은 참고 금액 목록이 아니라 계약 요약 칸(보증금) 한 곳에만 (총액 저장 방식 통일)
+    expect(result.fields.depositAmount.value).toBe(20000000);
+    expect(result.references.filter((x) => x.role === 'total')).toEqual([]);
     const r = draftToRecord(toReviewModel(result, ['doc-1']).draft, 'lease', TODAY);
     expectFixed(r);
   });

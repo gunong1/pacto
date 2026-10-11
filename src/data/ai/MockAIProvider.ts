@@ -101,6 +101,8 @@ export class MockAIProvider implements AIProvider {
           behavior: 'fixed_event',
           rule: null,
           relatedDate: null,
+          amount: null,
+          amountNote: null,
           suggestion: { kind: 'set_termination_notice', terminationNoticeDays: 30, autoRenewal: true, renewalPeriodMonths: 12 },
         },
         {
@@ -115,6 +117,8 @@ export class MockAIProvider implements AIProvider {
           behavior: 'conditional_rule',
           rule: { condition: '의무사용기간 내 해지하는 경우', action: '잔여 렌탈료의 10% 위약금', offsetDays: null },
           relatedDate: null,
+          amount: null,
+          amountNote: null,
           suggestion: null,
         },
         {
@@ -129,6 +133,8 @@ export class MockAIProvider implements AIProvider {
           behavior: 'info',
           rule: null,
           relatedDate: null,
+          amount: null,
+          amountNote: null,
           suggestion: null,
         },
       ],

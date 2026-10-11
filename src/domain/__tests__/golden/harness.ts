@@ -26,6 +26,8 @@ export interface Observed {
   keyDates: { kind: string; label: string; date: string }[];
   checks: { topic: string; title: string; amount: number | null }[];
   references: { label: string; amount: number; role: string }[];
+  /** 계약 요약 칸 — 총액은 여기 한 곳에 (보증금 · 계약 총액) */
+  summary: { deposit: number | null; total: number | null };
   autoRenewal: boolean;
   terminationNoticeDays: number | null;
   /** 자동으로 채워진 중도해지·위약금 글 (최종 목표: 없음 — 계약 체크에만) */
@@ -66,6 +68,7 @@ export function observe(output: unknown): Observed {
     keyDates: d.dates.map((x) => ({ kind: x.kind, label: x.label, date: x.date })),
     checks: m.checks.map((c) => ({ topic: c.topic, title: c.title, amount: (c as { amount?: number | null }).amount ?? null })),
     references: m.references.map((r) => ({ label: r.label, amount: r.amount, role: r.role })),
+    summary: { deposit: d.depositAmount, total: d.totalAmount },
     autoRenewal: d.autoRenewal,
     terminationNoticeDays: d.terminationNoticeDays,
     terms: { early: d.earlyTerminationTerms ?? null, penalty: d.penaltyTerms ?? null },

@@ -16,6 +16,8 @@ import type {
   DocumentProtection,
   PaymentAmountChange,
   ProtectionPage,
+  ReferenceAmount,
+  ReferenceAmountRole,
   ProtectionStatus,
   SensitiveRegion,
 } from '@/domain/types';
@@ -171,6 +173,7 @@ function toContract(r: Row<'contracts'>): Contract {
     category: r.category as Contract['category'],
     contractType: r.contract_type as Contract['contractType'],
     details: detailsFromDb(r.contract_type, r.contract_details),
+    referenceAmounts: toReferenceAmounts(r.reference_amounts),
     valueSources: (r.value_sources && typeof r.value_sources === 'object' && !Array.isArray(r.value_sources) ? r.value_sources : {}) as Contract['valueSources'],
     counterparty: r.counterparty,
     lifecycle: r.lifecycle,
@@ -208,3 +211,15 @@ export function toRecord(r: ContractRow): ContractRecord {
   };
 }
 
+
+const REFERENCE_ROLES: readonly ReferenceAmountRole[] = ['total', 'reference', 'waived', 'discount', 'before_discount'];
+
+/** 저장된 참고 금액 목록 — 형식이 맞는 항목만 (의미를 다시 판단하지 않는다) */
+function toReferenceAmounts(v: unknown): ReferenceAmount[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x) => {
+    const o = x as Record<string, unknown>;
+    if (!o || typeof o.label !== 'string' || typeof o.amount !== 'number' || !REFERENCE_ROLES.includes(o.role as ReferenceAmountRole)) return [];
+    return [{ label: o.label, amount: o.amount, role: o.role as ReferenceAmountRole }];
+  });
+}

@@ -2,6 +2,7 @@ import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { NoticeKind } from '@/domain/noticeKind';
 import type {
   AiCheck,
+  ReferenceAmount,
   BusinessDayRule, PaymentObligation,
   PaymentComponent,
   SourceType,
@@ -81,6 +82,8 @@ export interface ContractDraft {
   dates: DateDraft[];
   /** 값별 출처 (AI 추정·PACTO 계산 구분, 사용자가 고치면 user_confirmed) */
   valueSources: Record<string, SourceType>;
+  /** 결제가 아닌 금액 (분석이 찾은 참고·면제·할인 전 금액) — 그대로 보관 */
+  referenceAmounts: ReferenceAmount[];
 }
 
 /** 계약에 연결할 원본 문서. id가 있으면 이미 업로드된 문서(contract_documents)를 연결한다. */

@@ -51,9 +51,11 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   await shot('01-review');
   await page.locator(tid('section-payments')).screenshot({ path: path.join(SHOTS, 'gym-01b-review-payments.png') });
   const cards = await Promise.all([0, 1, 2].map((i) => text(tid(`payment-${i}`)).catch(() => '')));
-  check('R', '확인 화면: 회원권 확정 · 양도 수수료 조건부 · 락커 선택형 (캘린더·지출 제외 표시)',
-    !cards[0].includes('캘린더·지출 제외') && cards[1].includes('조건부 · 캘린더·지출 제외') && cards[2].includes('선택형 · 캘린더·지출 제외'),
-    cards.map((c) => c.split('\n').slice(0, 2).join(' ')).join(' | '));
+  const reviewChecks = await text(tid('review-checks')).catch(() => '');
+  // 리팩터링 C: 조건부 비용(양도 수수료)은 금액 섹션이 아니라 계약 체크(금액 30,000원)에
+  check('R', '확인 화면: 금액 = 회원권 확정 · 락커 선택형 / 양도 수수료 30,000원은 계약 체크',
+    !cards[0].includes('캘린더·지출 제외') && cards[1].includes('선택형 · 캘린더·지출 제외') && cards[2] === '' && reviewChecks.includes('양도 수수료') && reviewChecks.includes('30,000원'),
+    cards.map((c) => c.split('\n').slice(0, 2).join(' ')).join(' | ') + ' / ' + reviewChecks.replace(/\n/g, ' ').slice(0, 200));
 
   // 저장 → 상세
   await page.click(tid('submit-contract'));
@@ -123,6 +125,22 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   const d1101 = await day('2026-11-01');
   await page.screenshot({ path: path.join(SHOTS, 'gym-04-locker-activated.png') });
   check('A', '락커 "이용 시작"(11/1) 등록 → 그때부터 월 5,000원 결제·지출', core2.includes('락커 이용료') && amountOf(nov) === '₩5,000' && d1101.includes('락커 이용료'), `11월 ${amountOf(nov)} / ${d1101}`);
+
+  // 양도 수수료 "발생했어요"(2027-03-15) → 계약 체크의 금액으로 그날 1회 결제
+  await page.click(tid('tab-contracts'));
+  await page.locator(`${tid('contracts-list')} >> text=헬스장_1년권_계약서`).first().click();
+  await page.waitForSelector(tid('detail-extra-costs'), { timeout: 15000 });
+  const feeBox = page.locator('[data-testid^="extra-"]').filter({ hasText: '양도 수수료' }).first();
+  const feeId = (await feeBox.getAttribute('data-testid')).replace('extra-', '');
+  await page.click(tid(`extra-${feeId}-open`));
+  await page.fill(`input${tid(`extra-${feeId}-date`)}`, '270315');
+  await page.locator(`input${tid(`extra-${feeId}-date`)}`).blur();
+  await page.click(tid(`extra-${feeId}-save`));
+  await page.waitForFunction((sel) => !document.querySelector(sel), `[data-testid="extra-${feeId}"]`, { timeout: 15000 });
+  const mar = await month('2027-03');
+  const d0315 = await day('2027-03-15');
+  // 3월 지출 = 양도 수수료 30,000 + 앞에서 이용 시작한 락커 5,000
+  check('B', '양도 수수료 "발생했어요"(2027-03-15) → 그날 30,000원 1회 결제 (3월 지출 = 30,000 + 락커 5,000)', amountOf(mar) === '₩35,000' && d0315.includes('양도 수수료') && d0315.includes('30,000원'), `3월 ${amountOf(mar)} / ${d0315}`);
 
   console.log('\npage errors:', errors.length ? errors : 'none');
   require('fs').writeFileSync(path.join(SHOTS, 'gym-results.json'), JSON.stringify(results, null, 2));

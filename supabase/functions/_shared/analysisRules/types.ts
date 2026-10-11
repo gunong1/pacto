@@ -93,14 +93,22 @@ export interface ExtractedCheck {
   /** conditional_rule — 사용자가 기준일(예: 퇴직 예정일)을 입력하면 기준일 − offsetDays 일정을 만든다 */
   rule: { condition: string; action: string; offsetDays: number | null } | null;
   relatedDate: string | null;
+  /** 조건부 비용의 금액 (위약금 200,000원 등) — 계약서에 금액이 적혀 있을 때만. 홈·캘린더에 넣지 않는다 */
+  amount: number | null;
+  /** 금액 계산식·기준 (예: 잔여 렌탈료의 10%) */
+  amountNote: string | null;
   suggestion:
     | null
     | { kind: 'set_termination_notice'; terminationNoticeDays: number; autoRenewal: boolean; renewalPeriodMonths: number | null }
     | { kind: 'add_event'; eventType: 'custom'; title: string; eventDate: string };
 }
 
-/** 결제에 넣지 않는 금액의 종류 */
-export type ReferenceRole = 'total' | 'reference' | 'waived' | 'discount';
+/**
+ * 결제에 넣지 않는 금액의 종류 — 홈·캘린더·알림 계산에 절대 포함하지 않는다
+ * total: 계약 요약 칸(보증금·계약 총액)에 담지 못한 총액 / reference: 차량가·대출금액 같은 참고 금액 /
+ * waived: 면제(등록비 면제 등) / discount: 할인액 / before_discount: 할인 전(정상가) 금액
+ */
+export type ReferenceRole = 'total' | 'reference' | 'waived' | 'discount' | 'before_discount';
 
 export interface AppExtractionResult {
   category: Classification<(typeof CATEGORY_CODES)[number]>;
@@ -108,7 +116,7 @@ export interface AppExtractionResult {
   fields: Record<string, Extracted>;
   dates: ExtractedDate[];
   payments: ExtractedPayment[];
-  /** 합계·참고·면제·할인 금액 (결제·지출에 넣지 않음) — waived: 면제된 금액(등록비 면제 등), discount: 할인액 */
+  /** 결제가 아닌 금액 (합계·참고·면제·할인·할인 전) — 결제·지출·일정에 넣지 않는다 */
   references: (ExtractedComponent & { role: ReferenceRole })[];
   /** 유형별 속성 (DB 키 snake_case) — 앱이 선택된 유형의 스키마로 다시 검증한다 */
   details: Record<string, ExtractedDetail>;

@@ -135,8 +135,11 @@ export const DETAIL_FIELD_DEFS: readonly {
 export const SOURCE_TYPES = ['explicit', 'inferred', 'calculated', 'user_confirmed'] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
-/** 계약서 금액의 역할 — 실제 현금 흐름(결제)이 되는 것은 recurring·one_time·deposit 뿐 */
-export const AMOUNT_ROLES = ['recurring_cashflow', 'one_time_cashflow', 'deposit', 'component', 'total', 'reference'] as const;
+/**
+ * 계약서 금액의 역할 — 실제 현금 흐름(결제)이 되는 것은 recurring·one_time·deposit 뿐
+ * waived: 면제·무료·0원 (등록비 면제 등) — 결제가 아니라 참고 금액(면제)
+ */
+export const AMOUNT_ROLES = ['recurring_cashflow', 'one_time_cashflow', 'deposit', 'component', 'total', 'reference', 'waived'] as const;
 
 /**
  * 금액의 의무 수준 — 계약서에 금액이 있다고 모두 결제가 되지 않는다. 캘린더·지출·알림에는 confirmed만.

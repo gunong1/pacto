@@ -9,7 +9,7 @@ import { amountPeriods, probationPeriod } from './paymentRules';
 import { expandPayment, isPaymentDayUnknown } from './schedule';
 import { noticeLabelOf } from './noticeKind';
 import { terminationNoticeDeadline } from './status';
-import type { ContractPayment, ContractRecord, ISODate } from './types';
+import type { ContractPayment, ContractRecord, ISODate, ReferenceAmountRole } from './types';
 
 /**
  * 계약 상세의 "핵심 정보" — 공통 틀은 같고, 계약 유형별로 보여줄 항목이 다르다.
@@ -224,7 +224,9 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   }
   if (c.depositAmount != null) add('deposit', '보증금', formatWonCompact(c.depositAmount));
   if (c.totalAmount != null) add('total', '계약 총액', formatWon(c.totalAmount));
-  // 참고 금액(나눠 지급하는 금액의 합계 등) — 결제가 아니라 정보로만. 이미 보증금·계약 총액으로 보인 같은 금액은 생략
+  // 결제가 아닌 금액 (참고·면제·할인 전 …) — 정보로만 보여준다. 홈·캘린더·알림에는 들어가지 않는다
+  c.referenceAmounts.forEach((r, i) => add(`ref:${i}`, r.label, `${formatWon(r.amount)} · ${REFERENCE_ROLE_LABEL[r.role]}`));
+  // 이전 버전에서 결제로 저장된 참고 금액 (읽기 호환) — 이미 보증금·계약 총액으로 보인 같은 금액은 생략
   for (const p of record.payments) {
     if (p.obligation !== 'informational') continue;
     if ((p.kind === 'deposit' && c.depositAmount === p.amount) || c.totalAmount === p.amount) continue;
@@ -242,9 +244,19 @@ function oneTimeStatus(p: ContractPayment, today: ISODate): string {
   return p.direction === 'income' ? ' · 지급 완료' : ' · 결제 완료';
 }
 
+/** 참고 금액의 종류 표시 */
+export const REFERENCE_ROLE_LABEL: Record<ReferenceAmountRole, string> = {
+  total: '총액',
+  reference: '참고 금액',
+  waived: '면제',
+  discount: '할인',
+  before_discount: '할인 전 금액',
+};
+
 export interface ExtraCostRow {
   key: string;
-  paymentId: string;
+  /** 결제로 전환할 원본 — 선택형 결제(또는 이전 버전의 조건부 결제) / 금액이 있는 계약 체크 */
+  source: { kind: 'payment'; paymentId: string } | { kind: 'check'; checkId: string };
   label: string;
   /** 금액과 주기 (예: "월 5,000원", "30,000원") */
   value: string;
@@ -254,21 +266,36 @@ export interface ExtraCostRow {
 }
 
 /**
- * "추가로 발생할 수 있는 비용" — 계약서에 금액은 있지만 지금 낼 의무가 확정되지 않은 돈.
- * 선택형(락커 이용 시)·조건부(양도 시 수수료, 위약금, 연체이자)·잠재·참고 금액. 캘린더·지출에는 넣지 않는다.
+ * "추가로 발생할 수 있는 비용" — 계약서에 금액은 있지만 지금 낼 의무가 확정되지 않은 돈. 캘린더·지출에는 넣지 않는다.
+ * - 선택형 결제 (락커 이용 시 월 5,000원) → "이용 시작"
+ * - 금액이 있는 계약 체크 (위약금·연체료·양도 수수료 …) → "발생했어요" (그날 1회 결제)
+ * - 이전 버전에서 조건부·잠재 결제로 저장된 금액 (읽기 호환)
+ * 참고 금액(합계 등)은 발생할 수 있는 비용이 아니다 — 핵심 정보에 참고로만
  */
 export function extraCosts(record: ContractRecord): ExtraCostRow[] {
-  return record.payments
-    // 참고 금액(합계 등)은 발생할 수 있는 비용이 아니다 — 핵심 정보에 참고로만
+  const fromPayments = record.payments
     .filter((p) => !isConfirmedPayment(p) && p.obligation !== 'informational')
-    .map((p) => ({
+    .map((p): ExtraCostRow => ({
       key: `extra:${p.id}`,
-      paymentId: p.id,
+      source: { kind: 'payment', paymentId: p.id },
       label: p.label,
       value: p.frequency === 'one_time' ? formatWon(p.amount) : `${FREQUENCY_LABEL[p.frequency] === '매월' ? '월' : FREQUENCY_LABEL[p.frequency]} ${formatWon(p.amount)}`,
       condition: p.conditionNote ?? (p.obligation === 'optional' ? '이용 선택 시' : p.obligation === 'conditional' ? '해당 상황이 생기는 경우' : OBLIGATION_LABEL[p.obligation]),
-      obligation: p.obligation,
+      obligation: p.obligation === 'potential' ? 'conditional' : p.obligation,
     }));
+  // 이미 "발생했어요"로 결제가 된 체크는 빼고 (같은 이름의 확정 결제가 있음)
+  const fromChecks = record.aiChecks
+    .filter((c) => c.amount != null && c.amount > 0 && c.status !== 'dismissed')
+    .filter((c) => !record.payments.some((p) => isConfirmedPayment(p) && p.label === c.title))
+    .map((c): ExtraCostRow => ({
+      key: `extra-check:${c.id}`,
+      source: { kind: 'check', checkId: c.id },
+      label: c.title,
+      value: formatWon(c.amount!),
+      condition: c.rule?.condition ?? '해당 상황이 생기는 경우',
+      obligation: 'conditional',
+    }));
+  return [...fromPayments, ...fromChecks];
 }
 
 /** 상세 "계약 조건 · 기록" — 핵심 정보에 넣지 않은 유형별 속성 (근무시간·휴가·해지환급·저작권 …) */

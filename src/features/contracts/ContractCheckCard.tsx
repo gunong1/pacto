@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/controls';
 import { checkTopicLabel } from '@/domain/contractTypes';
 import { maskLevel1Text } from '@/domain/sensitive';
 import { formatDateKo } from '@/domain/dates';
+import { formatWon } from '@/domain/money';
 import type { AiCheck } from '@/domain/types';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
@@ -22,7 +23,7 @@ export function ContractCheckCard({
   action,
   testID,
 }: {
-  check: Pick<AiCheck, 'severity' | 'topic' | 'title' | 'description' | 'confidence' | 'evidenceQuote' | 'evidencePage' | 'behavior' | 'rule'>;
+  check: Pick<AiCheck, 'severity' | 'topic' | 'title' | 'description' | 'confidence' | 'evidenceQuote' | 'evidencePage' | 'behavior' | 'rule' | 'amount' | 'amountNote'>;
   /** 이 조항에서 계산된 챙길 날짜 (예: 해지 통보기한) */
   deadline?: { label: string; date: string } | null;
   onOpenOriginal?: () => void;
@@ -53,6 +54,11 @@ export function ContractCheckCard({
           <AppText variant="caption" color="textSecondary">
             <AppText variant="captionStrong">할 일</AppText> {check.rule.action}
           </AppText>
+          {check.amount != null || check.amountNote ? (
+            <AppText variant="caption" color="textSecondary" testID={testID ? `${testID}-amount` : undefined}>
+              <AppText variant="captionStrong">금액</AppText> {[check.amount != null ? formatWon(check.amount) : null, check.amountNote].filter(Boolean).join(' · ')}
+            </AppText>
+          ) : null}
           <AppText variant="small" color="textTertiary">
             조건이 생길 때만 적용돼요. 계약서만으로는 날짜가 정해지지 않아 일정을 만들지 않았어요.
           </AppText>

@@ -52,6 +52,15 @@ export type ReviewSeverity = 'info' | 'check' | 'caution';
 
 export type Confidence = 'high' | 'medium' | 'low';
 
+/** 결제가 아닌 금액의 종류 — total: 요약 칸(보증금·계약 총액)에 담지 못한 총액 / reference: 참고 / waived: 면제 / discount: 할인액 / before_discount: 할인 전 */
+export type ReferenceAmountRole = 'total' | 'reference' | 'waived' | 'discount' | 'before_discount';
+
+export interface ReferenceAmount {
+  label: string;
+  amount: number;
+  role: ReferenceAmountRole;
+}
+
 export interface Contract {
   id: string;
   title: string;
@@ -65,6 +74,8 @@ export interface Contract {
    * 추정(inferred)·계산(calculated) 값은 명시값처럼 보이지 않게 화면에서 구분한다.
    */
   valueSources: Record<string, SourceType>;
+  /** 결제가 아닌 금액 (차량가·대출금액·할인 전 금액·면제·할인액 …) — 보여주기만, 홈·캘린더·알림 계산에 넣지 않는다 */
+  referenceAmounts: ReferenceAmount[];
   counterparty: string | null;
   lifecycle: ContractLifecycle;
   lifecycleChangedOn: ISODate | null;
@@ -244,6 +255,10 @@ export interface AiCheck {
   behavior?: CheckBehavior;
   /** 조건부 의무: 어떤 경우에(condition) 무엇을(action) 기준일 며칠 전에(offsetDays) */
   rule?: { condition: string; action: string; offsetDays: number | null } | null;
+  /** 조건부 비용의 금액 (위약금 200,000원 등) — 홈·캘린더에 넣지 않는다. "발생했어요"로 1회 결제를 만들 수 있다 */
+  amount?: number | null;
+  /** 금액 계산식·기준 (예: 잔여 렌탈료의 10%) */
+  amountNote?: string | null;
   /** 이 체크를 일정 관리로 연결하는 제안. */
   suggestion: AiCheckSuggestion | null;
   status: 'new' | 'acknowledged' | 'dismissed';

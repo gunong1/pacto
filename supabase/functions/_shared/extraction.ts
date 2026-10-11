@@ -9,11 +9,12 @@
 //
 // 분석 순서: 1 분야 → 2 구조 → 3·4 날짜 → 5·6 금액 → 7 유형별 속성 → 8 종료·갱신·통보 → 9 계약 체크
 import { CATEGORY_CODES, CONTRACT_TYPE_CODES } from './contractRegistry.ts';
-import { attachSuggestions, cleanChecks, waivedCheck } from './analysisRules/checks.ts';
+import { attachSuggestions, cleanChecks, conditionalCostsToChecks, waivedCheck } from './analysisRules/checks.ts';
 import { cleanDates } from './analysisRules/dates.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
 import { resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
 import { buildPayments } from './analysisRules/payments.ts';
+import { totalsToFields } from './analysisRules/paymentRoles.ts';
 import type { AppExtractionResult } from './analysisRules/types.ts';
 import { classify, isObj } from './analysisRules/values.ts';
 import { FIELDS } from './analysisRules/vocabulary.ts';
@@ -58,14 +59,17 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   const fields = cleanFields(output.fields as Record<string, unknown>);
   // 3·4) 날짜
   const dates = cleanDates(output.dates);
-  // 5·6) 금액 — 결제 + 결제가 아닌 금액(합계·참고·면제·할인)
-  const { payments, references } = buildPayments(output.payments, dates);
+  // 5·6) 금액 — 결제 + 결제가 아닌 금액(참고·면제·할인·할인 전) + 총액(계약 요약 칸으로)
+  const { payments, references, totals } = buildPayments(output.payments, dates);
+  totalsToFields(totals, fields, references);
   // 7) 유형별 속성
   const details = buildDetails(output.details, payments);
   // 9) 계약 체크
   const auto = fields.autoRenewal.value as boolean | null;
   const months = fields.renewalPeriodMonths.value as number | null;
   const checks = cleanChecks(output.checks as unknown[]);
+  // 조건부 비용(위약금·연체료 …)은 결제가 아니라 계약 체크로
+  conditionalCostsToChecks(payments, checks);
   waivedCheck(checks, references);
   // 8) 종료일 기준 통보기한과 그 의미
   const notice = resolveNoticeDays(fields, checks);

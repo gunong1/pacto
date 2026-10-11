@@ -119,6 +119,8 @@ export const contractFormSchema = z
     memo: z.string().max(2000),
     /** 값별 출처 (화면에는 배지로만 표시) */
     valueSources: z.record(z.string(), z.enum(SOURCE_TYPES)),
+    /** 결제가 아닌 금액 (분석이 찾은 참고·면제·할인 전 금액) — 폼에서 고치지 않고 그대로 저장 */
+    referenceAmounts: z.array(z.object({ label: z.string(), amount: z.number(), role: z.enum(['total', 'reference', 'waived', 'discount', 'before_discount']) })),
     /** 직접 입력 화면에서만 있음 (확인·수정 화면은 결제 목록을 그대로 쓴다) */
     quick: quickFormSchema.optional(),
   })
@@ -262,6 +264,7 @@ export function draftToForm(d: ContractDraft): ContractFormValues {
     penaltyTerms: str(d.penaltyTerms),
     memo: str(d.memo),
     valueSources: d.valueSources,
+    referenceAmounts: d.referenceAmounts.map((r) => ({ ...r })),
   };
 }
 
@@ -466,5 +469,6 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
     penaltyTerms: nullable(v.penaltyTerms),
     memo: nullable(v.memo),
     valueSources: v.valueSources,
+    referenceAmounts: v.referenceAmounts,
   };
 }

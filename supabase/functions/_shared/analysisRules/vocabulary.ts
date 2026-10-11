@@ -67,6 +67,5 @@ export const FIELDS: Record<string, { type: FieldType; desc: string }> = {
     type: 'string',
     desc: 'terminationNoticeDays의 의미 (일수와 같은 조항). termination_notice: 해지·종료 의사를 통지해야 하는 기한 / renewal_notice: 갱신 또는 갱신 거절 의사를 통지해야 하는 기한 / renewal_decision: 갱신 여부를 확인·협의·결정하는 시점 / unknown: 의미가 불확실. 일수가 없으면 null',
   },
-  earlyTerminationTerms: { type: 'string', desc: '중도해지(중도상환) 조건 요약 (한 문장)' },
-  penaltyTerms: { type: 'string', desc: '위약금 조건 요약 (한 문장)' },
 };
+// 중도해지·위약금 조건은 공통 필드(글)로 받지 않는다 — 계약 체크(금액·조건·근거)에만 담는다 (같은 조항을 두 곳에 저장하지 않음)

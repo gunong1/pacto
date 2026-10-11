@@ -50,6 +50,7 @@ function contractPayload(d: ContractDraft, extra: Record<string, unknown> = {}):
     penalty_terms: d.penaltyTerms,
     deposit_amount: d.depositAmount,
     memo: d.memo,
+    reference_amounts: d.referenceAmounts as unknown as Json,
     ...extra,
   } as Json;
 }
