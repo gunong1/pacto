@@ -219,7 +219,7 @@ describe('7. 서비스(용역) — 총 계약금액(실제 돈으로 답함) = �
 describe('8. 결제일·첫 결제일 원칙 (리팩터링 D)', () => {
   test('결제일이 없는 반복 지출: 다른 결제의 결제일·시작일의 날짜를 쓰지 않음 → 결제일 확인 필요, 반복 일정 없음', () => {
     const out = F.rental();
-    out.payments[0] = { ...out.payments[0], day_of_month: null, evidence_quote: '월 렌탈료 31,900원' };
+    (out.payments as Record<string, unknown>[])[0] = { ...out.payments[0], day_of_month: null, evidence_quote: '월 렌탈료 31,900원' };
     const o = observe(out);
     expect(o.payments).toEqual([pay('월 렌탈료', 31900, 'expense', 'monthly', null)]);
     expect(o.flagged).toContain('payments.0.dayOfMonth');
@@ -237,7 +237,7 @@ describe('8. 결제일·첫 결제일 원칙 (리팩터링 D)', () => {
   });
   test('결제 자신의 첫 결제 날짜가 문구에 적혀 있으면 그 날짜의 일자가 결제일 (예: 연 보험료 2026.03.15)', () => {
     const out = F.carInsurance();
-    out.payments[0] = { ...out.payments[0], frequency: 'yearly', date: '2026-03-15', evidence_quote: '연 보험료 1,200,000원 매년 납입 (첫 납입 2026.03.15)' };
+    (out.payments as Record<string, unknown>[])[0] = { ...out.payments[0], frequency: 'yearly', date: '2026-03-15', evidence_quote: '연 보험료 1,200,000원 매년 납입 (첫 납입 2026.03.15)' };
     const o = observe(out);
     expect(o.payments[0]).toMatchObject({ label: '보험료', frequency: 'yearly', day: 15 });
   });
