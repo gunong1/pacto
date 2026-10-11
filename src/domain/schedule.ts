@@ -135,6 +135,7 @@ function expandNominal(
     return {
       date,
       nominalDate: date,
+      // 실제 금액은 expandPayment에서 amountOn(= amountAt + 기간 규칙)으로 정한다
       amount: payment.amount,
       amountNote: null,
       paymentId: payment.id,

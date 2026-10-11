@@ -70,7 +70,7 @@ export default function ContractsScreen() {
       .map((r) => {
         const s = deriveStatus(r.contract, today);
         const term = currentTerm(r.contract, today);
-        return { r, status: s, days: term ? daysUntil(term.termEnd, today) : null, next: nextPayment(r, today), monthly: contractMonthlyPayments(r) };
+        return { r, status: s, days: term ? daysUntil(term.termEnd, today) : null, next: nextPayment(r, today), monthly: contractMonthlyPayments(r, today) };
       })
       .filter((x) => matches(status, x.status))
       .filter((x) => category === 'all' || x.r.contract.category === category)

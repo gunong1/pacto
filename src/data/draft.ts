@@ -1,5 +1,6 @@
 import { paymentKindLabel } from '@/domain/contractTypes';
-import type { Contract, ContractDate, ContractPayment, ContractRecord } from '@/domain/types';
+import { amountAt } from '@/domain/paymentAmount';
+import type { Contract, ContractDate, ContractPayment, ContractRecord, ISODate } from '@/domain/types';
 
 import type { ContractDraft, DateDraft, PaymentDraft } from './repository';
 
@@ -111,7 +112,8 @@ export function draftToPayment(p: PaymentDraft, draft: Pick<ContractDraft, 'star
 }
 
 export function draftToPayments(draft: ContractDraft, contractId: string, newId: (i: number) => string, fallbackStart: string): ContractPayment[] {
-  return draft.payments.map((p, i) => draftToPayment(p, draft, contractId, newId(i), fallbackStart));
+  // 저장된 결제는 id를 유지한다 (변경 이력 연결)
+  return draft.payments.map((p, i) => draftToPayment(p, draft, contractId, p.id ?? newId(i), fallbackStart));
 }
 
 export function draftToDates(draft: ContractDraft, contractId: string, newId: (i: number) => string): ContractDate[] {
@@ -133,8 +135,10 @@ export function draftToRecord(draft: ContractDraft, id: string, fallbackStart: s
 /**
  * 저장된 계약 → 수정 폼 초기값.
  * 결제 시작일이 계약 시작일과 같으면 비워 둔다 → "시작일을 따라감"으로 보여주고, 시작일을 고치면 결제도 함께 옮겨진다.
+ * amountsAt: 수정 화면은 그날 적용 중인 금액을 보여준다 (저장 전 resolveAmountEdits가 최초 금액/변경 이력으로 되돌린다).
+ * 없으면 최초 금액 그대로 (다른 저장 경로).
  */
-export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payments' | 'dates'>): ContractDraft {
+export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payments' | 'dates'>, amountsAt?: ISODate): ContractDraft {
   const { contract } = record;
   return {
     title: contract.title,
@@ -156,10 +160,11 @@ export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payment
     memo: contract.memo,
     payments: record.payments.map(
       (p): PaymentDraft => ({
+        id: p.id,
         kind: p.kind,
         direction: p.direction,
         label: p.label,
-        amount: p.amount,
+        amount: amountsAt && p.frequency !== 'one_time' ? amountAt(p, amountsAt) : p.amount,
         frequency: p.frequency,
         dayOfMonth: p.dayOfMonth,
         monthOfYear: p.monthOfYear,

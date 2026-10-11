@@ -157,6 +157,31 @@ isOneToOne: true
       referencedColumns: ["id"]
     }
                   ]
+                },"contract_payment_changes": {
+                  Row: {
+                    "amount": number,"change_reason": string | null,"created_at": string,"day_of_month": number | null,"effective_from": string,"id": string,"payment_id": string,"source_document_id": string | null,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "amount": number,"change_reason"?: string | null,"created_at"?: string,"day_of_month"?: number | null,"effective_from": string,"id"?: string,"payment_id": string,"source_document_id"?: string | null,"updated_at"?: string,"user_id"?: string
+                  }
+                  Update: {
+                    "amount"?: number,"change_reason"?: string | null,"created_at"?: string,"day_of_month"?: number | null,"effective_from"?: string,"id"?: string,"payment_id"?: string,"source_document_id"?: string | null,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "contract_payment_changes_payment_id_fkey"
+      columns: ["payment_id"]
+isOneToOne: false
+      referencedRelation: "contract_payments"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "contract_payment_changes_source_document_id_fkey"
+      columns: ["source_document_id"]
+isOneToOne: false
+      referencedRelation: "contract_documents"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"contract_payments": {
                   Row: {
                     "amount": number,"business_day_rule": string,"components": NonNullable<Json>,"condition_note": string | null,"contract_id": string,"created_at": string,"currency": string,"day_of_month": number | null,"direction": string,"ends_on": string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id": string,"installment_count": number | null,"is_variable": boolean,"kind": string,"label": string,"month_of_year": number | null,"obligation": string,"sort_order": number,"starts_on": string,"updated_at": string,"user_id": string
@@ -384,6 +409,9 @@ isOneToOne: false
               "cancelled": number,"created": number,"updated": number
             }[]
                            },
+"cancel_payment_change":
+{ Args: { "p_change_id": string }; Returns: undefined
+                           },
 "claim_due_notifications":
 { Args: { "p_limit"?: number }; Returns: {
               "attempts": number,"contract_id": string,"event_type": string,"id": string,"payload_json": Json,"priority": string,"user_id": string
@@ -402,6 +430,9 @@ isOneToOne: false
 "owns_contract":
 { Args: { "cid": string }; Returns: boolean
                            },
+"owns_payment":
+{ Args: { "p_payment_id": string }; Returns: boolean
+                           },
 "purge_stale_analysis_jobs":
 { Args: Record<PropertyKey, never>; Returns: {
               "cleared_outputs": number,"deleted_jobs": number
@@ -411,7 +442,10 @@ isOneToOne: false
 { Args: { "p_device_id": string,"p_platform": string,"p_token": string }; Returns: undefined
                            },
 "save_contract":
-{ Args: { "p_ai_checks"?: Json,"p_contract": Json,"p_contract_id"?: string,"p_dates"?: Json,"p_document_ids"?: (string)[],"p_payments"?: Json }; Returns: string
+{ Args: { "p_ai_checks"?: Json,"p_amount_changes"?: Json,"p_contract": Json,"p_contract_id"?: string,"p_dates"?: Json,"p_document_ids"?: (string)[],"p_payments"?: Json }; Returns: string
+                           },
+"seoul_today":
+{ Args: Record<PropertyKey, never>; Returns: string
                            },
 "unregister_push_token":
 { Args: { "p_device_id": string }; Returns: undefined

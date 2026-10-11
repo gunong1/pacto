@@ -1,3 +1,4 @@
+import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { NoticeKind } from '@/domain/noticeKind';
 import type {
   AiCheck,
@@ -20,6 +21,8 @@ import type {
 
 /** 결제 한 건 (확인/수정 폼). 한 계약에 여러 건 — 월 렌탈료 + 설치비, 계약금 + 잔금 … */
 export interface PaymentDraft {
+  /** 저장된 결제 id (수정 시 유지 — 변경 이력·근거 문서가 이 id에 연결). 없으면 새 결제 */
+  id?: string | null;
   kind: PaymentKind;
   /** 사용자 기준 돈의 방향 (지출 / 수입 / 보증금 등 중립) */
   direction: Direction;
@@ -108,7 +111,10 @@ export interface ContractRepository {
   list(): Promise<ContractRecord[]>;
   get(id: string): Promise<ContractRecord | null>;
   create(input: CreateContractInput): Promise<ContractRecord>;
-  update(id: string, draft: ContractDraft): Promise<ContractRecord>;
+  /** amountChanges: 반복 금액 변경 (적용일부터 새 금액 / 변경 금액 정정) — 결제 저장과 같은 트랜잭션 */
+  update(id: string, draft: ContractDraft, amountChanges?: readonly AmountChangeOp[]): Promise<ContractRecord>;
+  /** 아직 적용 전인 금액 변경 취소 (이미 적용이 시작된 변경은 취소할 수 없다) */
+  cancelAmountChange(id: string, changeId: string): Promise<ContractRecord>;
   setLifecycle(id: string, lifecycle: ContractLifecycle, on: ISODate | null): Promise<ContractRecord>;
   setNotificationsEnabled(id: string, enabled: boolean): Promise<ContractRecord>;
   addEvent(id: string, input: NewEventInput): Promise<ContractRecord>;

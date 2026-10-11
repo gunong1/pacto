@@ -18,6 +18,7 @@ import { categoryLabel, EVENT_TYPE_LABEL } from '@/domain/labels';
 import { formatWon } from '@/domain/money';
 import { noticeLabelOf } from '@/domain/noticeKind';
 import { contractSchedule, isPaymentDayUnknown, nextPayment } from '@/domain/schedule';
+import { amountHistory, type AmountHistoryRow } from '@/domain/amountEdits';
 import { contractMonthlyEquivalent } from '@/domain/spending';
 import { currentTerm, deriveStatus, terminationNoticeDeadline } from '@/domain/status';
 import { endProfile, isActionable, nextAction } from '@/domain/nextAction';
@@ -73,7 +74,7 @@ export default function ContractDetailScreen() {
       next: nextPayment(record, today),
       // 지급일이 없는 정기 수입(급여 등) — 반복 일정을 만들지 않았다
       dayUnknown: record.payments.filter((p) => isConfirmedPayment(p) && isPaymentDayUnknown(p)),
-      monthly: contractMonthlyEquivalent(record),
+      monthly: contractMonthlyEquivalent(record, today),
       core: coreInfo(record, today),
       other: otherDetails(record),
       extra: extraCosts(record),
@@ -96,6 +97,11 @@ export default function ContractDetailScreen() {
     if (ok) remove.mutate(c.id, { onSuccess: () => router.back(), onError: (e) => notify('계약 삭제', e instanceof Error ? e.message : '삭제하지 못했어요.') });
   };
 
+  const cancelChange = async (label: string, h: AmountHistoryRow) => {
+    if (!h.changeId) return;
+    const ok = await confirm('금액 변경 취소', `${label}의 ${h.period} ${formatWon(h.amount)} 변경을 취소할까요?\n그 이후 일정은 이전 금액으로 돌아가요.`, '변경 취소');
+    if (ok) actions.cancelAmountChange.mutate([h.changeId]);
+  };
   const confirmInferred = async (label: string, path: string) => {
     const ok = await confirm('AI 추정 값 확인', `'${label}' 값은 AI가 문맥으로 추정한 값이에요. 계약서와 같은지 확인하셨나요?\n다르면 '수정'에서 고쳐주세요.`, '계약서와 같아요');
     if (ok) actions.confirmValue.mutate([path]);
@@ -289,6 +295,36 @@ export default function ContractDetailScreen() {
               AI 추정: 계약서에 그대로 적힌 값이 아니라 문맥으로 판단한 값이에요. 눌러서 확인할 수 있어요.{'\n'}PACTO 계산: 계약 조건으로 계산한 값이에요.
             </AppText>
           ) : null}
+          {/* 금액 변경 이력 — 과거 일정은 그때 금액 그대로, 아직 적용 전인 변경만 취소할 수 있다 */}
+          {record.payments.map((p) => {
+            const rows = amountHistory(p, today);
+            if (rows.length === 0) return null;
+            return (
+              <View key={`hist-${p.id}`} style={styles.history} testID={`amount-history-${p.id}`}>
+                <AppText variant="captionStrong" color="textSecondary">
+                  금액 변경 이력 · {p.label}
+                </AppText>
+                {rows.map((h) => (
+                  <View key={h.key} style={styles.historyRow}>
+                    <AppText variant="body2" color={h.upcoming ? 'primary' : 'textSecondary'} style={{ flex: 1 }}>
+                      {h.upcoming ? `${h.period} ${formatWon(h.amount)} 예정` : h.period}
+                    </AppText>
+                    {h.upcoming ? (
+                      <Pressable onPress={() => cancelChange(p.label, h)} accessibilityRole="button" hitSlop={8} testID={`amount-change-cancel-${h.changeId}`}>
+                        <AppText variant="captionStrong" color="caution">
+                          변경 취소
+                        </AppText>
+                      </Pressable>
+                    ) : (
+                      <AppText variant="body2" tabular>
+                        {formatWon(h.amount)}
+                      </AppText>
+                    )}
+                  </View>
+                ))}
+              </View>
+            );
+          })}
           {view.monthly > 0 && record.payments.some((p) => p.frequency !== 'monthly' && p.frequency !== 'one_time') ? (
             <KeyValueRow label="월 환산 (참고)" value={formatWon(view.monthly)} />
           ) : null}
@@ -611,6 +647,8 @@ function RuleScheduler({ check, onSchedule }: { check: AiCheck; onSchedule: (tit
 }
 
 const styles = StyleSheet.create({
+  history: { marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, gap: 4 },
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 2 },
   extra: { paddingVertical: spacing.md },
   head: { paddingHorizontal: spacing.gutter, paddingTop: spacing.sm, paddingBottom: spacing.xl },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },

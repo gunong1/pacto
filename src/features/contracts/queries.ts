@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { contractRepository, documentStore, notificationStore } from '@/data';
 import type { PickedFile } from '@/data/ai/provider';
 import { activateCost, recordToDraft } from '@/data/draft';
+import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { ContractDraft, CreateContractInput, NewEventInput } from '@/data/repository';
 import { todayInSeoul } from '@/domain/dates';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
@@ -62,7 +63,7 @@ export function useCreateContract() {
 export function useUpdateContract(id: string) {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: (draft: ContractDraft) => contractRepository.update(id, draft),
+    mutationFn: ({ draft, amountChanges = [] }: { draft: ContractDraft; amountChanges?: readonly AmountChangeOp[] }) => contractRepository.update(id, draft, amountChanges),
     onSuccess: (r) => invalidate(r),
   });
 }
@@ -88,6 +89,8 @@ export function useContractActions(id: string) {
       return contractRepository.update(id, { ...recordToDraft(r), valueSources: { ...r.contract.valueSources, [path]: 'user_confirmed' } });
     }),
     /** 선택형·조건부 비용이 실제로 생김 (락커 이용 시작, 회원권 양도) → 그날부터 확정 결제 */
+    /** 아직 적용 전인 금액 변경 취소 */
+    cancelAmountChange: useAction((changeId: string) => contractRepository.cancelAmountChange(id, changeId)),
     activateCost: useAction(async (paymentId: string, date: ISODate) => {
       const r = await contractRepository.get(id);
       if (!r) throw new Error('계약을 찾을 수 없어요.');

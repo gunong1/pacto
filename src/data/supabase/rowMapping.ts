@@ -14,6 +14,7 @@ import type {
   ContractPayment,
   ContractRecord,
   DocumentProtection,
+  PaymentAmountChange,
   ProtectionPage,
   ProtectionStatus,
   SensitiveRegion,
@@ -21,8 +22,9 @@ import type {
 import type { Database } from '@/types/database';
 
 export type Row<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
+export type PaymentRow = Row<'contract_payments'> & { contract_payment_changes?: Row<'contract_payment_changes'>[] };
 export type ContractRow = Row<'contracts'> & {
-  contract_payments: Row<'contract_payments'>[];
+  contract_payments: PaymentRow[];
   contract_dates: Row<'contract_dates'>[];
   contract_events: Row<'contract_events'>[];
   contract_documents: DocumentRow[];
@@ -35,10 +37,22 @@ export type DocumentRow = Row<'contract_documents'> & {
 export const DOCUMENT_SELECT = '*, document_sensitive_regions(*), document_derivatives(*)';
 
 /** 계약 + 결제·날짜·일정·문서 */
-export const CONTRACT_SELECT = `*, contract_payments(*), contract_dates(*), contract_events(*), contract_documents(${DOCUMENT_SELECT})`;
+export const CONTRACT_SELECT = `*, contract_payments(*, contract_payment_changes(*)), contract_dates(*), contract_events(*), contract_documents(${DOCUMENT_SELECT})`;
 
 // ===== row → domain =====
-function toPayment(r: Row<'contract_payments'>): ContractPayment {
+function toAmountChange(r: Row<'contract_payment_changes'>): PaymentAmountChange {
+  return {
+    id: r.id,
+    paymentId: r.payment_id,
+    effectiveFrom: r.effective_from,
+    amount: r.amount,
+    changeReason: r.change_reason,
+    sourceDocumentId: r.source_document_id,
+    createdAt: r.created_at,
+  };
+}
+
+function toPayment(r: PaymentRow): ContractPayment {
   return {
     id: r.id,
     contractId: r.contract_id,
@@ -57,6 +71,7 @@ function toPayment(r: Row<'contract_payments'>): ContractPayment {
     businessDayRule: r.business_day_rule as ContractPayment['businessDayRule'],
     obligation: r.obligation as ContractPayment['obligation'],
     conditionNote: r.condition_note,
+    amountChanges: (r.contract_payment_changes ?? []).map(toAmountChange).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1)),
   };
 }
 

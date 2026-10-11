@@ -84,7 +84,7 @@ AI 순서: 계약서 입력 → 계약 유형 분류(신뢰도·대안) → 날�
 - `contracts.contract_type` + `contracts.contract_details`(JSONB) — 유형별 속성. 허용 키·값 형식을 DB(`valid_contract_details` 검사 제약)와 앱(`DETAIL_SCHEMAS`, Zod)에서 같은 목록으로 검증. AI 결과도 같은 스키마로 정리. 자주 검색·통계하는 키는 같은 이름(snake_case)으로 정식 컬럼 승격 가능.
 - `contract_payments.kind`(결제 의미) + `installment_count`(총 회차) — 한 계약에 결제 여러 건 (월 렌탈료 + 설치비, 계약금 + 잔금, 월세 + 관리비 …)
 - `contract_dates` — 유형별 주요 날짜 (설치·개통·입주·잔금·갱신·기타). 시작·종료는 `contracts.start_date/end_date`, 체결일은 `contract_date`(선택값, 기록용)
-- `save_contract` v2: 계약 + 결제 목록 + 날짜 목록 + 원본 연결을 한 트랜잭션으로 (목록은 통째로 교체)
+- `save_contract` v2: 계약 + 결제 목록 + 날짜 목록 + 원본 연결을 한 트랜잭션으로 (날짜 목록은 통째로 교체). 개정 12: 결제는 id 유지 — 기존 결제 UPDATE / 새 결제 INSERT / 빠진 결제만 DELETE, 금액 변경(`p_amount_changes`)도 같은 트랜잭션
 - 기존 데이터: 분야에서 유형 결정(부동산→임대차, 보험→보험, 금융→대출, 렌탈·통신·회원권·구독→월 납입형, 그 외 정기 결제 있으면 월 납입형)
 
 **일정·지출 규칙** (`src/domain/contractTypes.ts`, `schedule.ts`, `spending.ts`)
@@ -997,6 +997,16 @@ pacto/
 - **사진 마스킹**: 사진은 private 보관·AI 분석·등록 가능, 자동 가리기 미지원(`unsupported_scan`/`image_file` — "사진으로 등록한 계약서" 안내, 보호됨으로 표시하지 않음).
 - **로그**: 작업 id·역할·신뢰도·판정·파일 수·의심 쪽 수·신호 수·시간.
 - 테스트: `document-gate.test.ts`(A~L·신호 기준·쪽 제외·재분석·중복·사용자 확인), `step12-document-gate`(Deno 함수·DB 가드·고아 정리), `e2e/photo-gate.js`(시트·음식·저해상도·의심 쪽 제외·중복·촬영).
+
+### 반복 금액 변경 이력 (개정 12)
+원칙: **현재 조건이 바뀌어도 과거가 자동으로 다시 쓰이지 않는다.**
+- `contract_payments.amount` = 최초 금액(그대로 유지). 변경은 `contract_payment_changes`(payment_id, effective_from, amount, day_of_month, change_reason, source_document_id)에 누적. 결제 규칙을 기간별 여러 행으로 쪼개지 않는다
+- `effective_to`는 저장하지 않는다 — 다음 변경 적용일 - 1일 (겹침·빈틈 불가)
+- `amountAt(payment, date)`(domain/paymentAmount.ts): 그 날짜(계약서상 결제일) 이전·당일에 시작된 가장 최근 변경의 금액, 없으면 최초 금액. 홈·캘린더·알림·상세·지출·수입이 모두 `expandPayment → amountOn`으로 이 값을 쓴다. 수습 90% 등 기간 규칙은 amountAt 결과에 적용
+- 수정 화면: 오늘 적용 중인 금액을 보여주고, 지난 회차가 있는 정기 결제·수입의 금액을 바꾸면 "결제/입금 금액이 변경되었어요 · 언제부터?" — 다음 결제일부터(기본) / 적용 날짜 직접 선택(과거면 "과거 일정 N건의 금액도 변경됩니다" 확인) / 처음부터 이 금액이었어요(입력 실수 정정: 이력 없이 최초 금액 수정, 이미 적용 중인 변경이 있으면 그 변경의 금액만 정정)
+- 과거 일정이 바뀌는 경우는 "처음부터 이 금액이었어요" 또는 사용자가 확인한 과거 적용일뿐
+- 상세 "금액 변경 이력": 기간별 금액, 아직 적용 전인 변경만 [변경 취소] (DB도 RLS·RPC로 미래 변경만 삭제 허용, 적용일·결제 연결은 수정 불가)
+- 후속: 변경계약서 업로드 → AI가 변경 금액·적용일 추출 → 사용자 확인 → 변경 생성 (`source_document_id`로 연결). 결제일·주기 변경 이력은 미구현 (`day_of_month` 칸만 준비)
 
 ### 7.x 계약서 민감정보 보호 (개정 8, V1)
 

@@ -47,6 +47,8 @@ const optionalInt = (min: number, max: number, message: string) =>
     .refine((v) => v === '' || (/^\d+$/.test(v) && Number(v) >= min && Number(v) <= max), message);
 
 const paymentFormSchema = z.object({
+  /** 저장된 결제 id (화면에 보이지 않음 — 수정 시 유지) */
+  id: z.string().optional(),
   kind: z.enum(PAYMENT_KINDS),
   direction: z.enum(DIRECTIONS),
   label: z.string().max(40),
@@ -216,6 +218,7 @@ export function detailsFromForm(type: ContractType, values: Record<string, strin
 
 export function paymentToForm(p: PaymentDraft): PaymentFormValues {
   return {
+    ...(p.id ? { id: p.id } : {}),
     kind: p.kind,
     direction: p.direction,
     label: p.label,
@@ -418,6 +421,7 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
 export function paymentFromForm(p: PaymentFormValues): PaymentDraft {
   const oneTime = p.frequency === 'one_time';
   return {
+    ...(p.id ? { id: p.id } : {}),
     kind: p.kind,
     direction: p.direction,
     label: p.label.trim(),

@@ -3,6 +3,7 @@ import { detailFields, isConfirmedPayment, OBLIGATION_LABEL, profileOf, type Pay
 import { addDays, formatDateKo } from './dates';
 import { FREQUENCY_LABEL } from './labels';
 import { formatWon, formatWonCompact } from './money';
+import { withAmountAt } from './paymentAmount';
 import { amountPeriods, probationPeriod } from './paymentRules';
 import { expandPayment, isPaymentDayUnknown } from './schedule';
 import { noticeLabelOf } from './noticeKind';
@@ -84,8 +85,9 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
     }
   };
   const ofKind = (...kinds: PaymentKind[]) => payments.filter((p) => kinds.includes(p.kind));
+  // 정기 결제는 오늘 적용 중인 금액 (금액 변경 이력 반영 — 지난 회차 금액은 일정에서 그대로)
   const payRow = (p: ContractPayment, emphasis = p.direction !== 'neutral') =>
-    add(`pay:${p.id}`, p.label, p.frequency === 'one_time' ? `${money(p)} · ${formatDateKo(p.startsOn)}${oneTimeStatus(p, today)}` : `${money(p)} · ${paymentRule(p)}`, emphasis);
+    add(`pay:${p.id}`, p.label, p.frequency === 'one_time' ? `${money(p)} · ${formatDateKo(p.startsOn)}${oneTimeStatus(p, today)}` : `${money(withAmountAt(p, today))} · ${paymentRule(p)}`, emphasis);
   const dateRow = (kind: string, label: string) => {
     const v = dates.find((x) => x.kind === kind)?.date;
     add(`dk:${kind}`, label, v ? formatDateKo(v) : null);

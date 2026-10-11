@@ -1,4 +1,5 @@
 import { isConfirmedPayment } from './contractTypes';
+import { amountAt } from './paymentAmount';
 import { monthRange, type YearMonth } from './dates';
 import { expandPayment, type PaymentOccurrence } from './schedule';
 import type { ContractCategory, ContractPayment, ContractRecord, Direction, ISODate } from './types';
@@ -59,13 +60,13 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth): MonthSp
 }
 
 /** 매월 결제되는 확정 지출 금액 (매월이 아니거나 수입·보증금·선택형·조건부면 0) */
-export function monthlyPaymentAmount(payment: ContractPayment): number {
-  return payment.frequency === 'monthly' && payment.direction === 'expense' && isConfirmedPayment(payment) ? payment.amount : 0;
+export function monthlyPaymentAmount(payment: ContractPayment, today: ISODate): number {
+  return payment.frequency === 'monthly' && payment.direction === 'expense' && isConfirmedPayment(payment) ? amountAt(payment, today) : 0;
 }
 
 /** 계약 한 건의 매월 결제 합계 (계약 목록 "월 ○○원" — 연납 등은 나누지 않음) */
-export function contractMonthlyPayments(record: ContractRecord): number {
-  return record.payments.reduce((sum, p) => sum + monthlyPaymentAmount(p), 0);
+export function contractMonthlyPayments(record: ContractRecord, today: ISODate): number {
+  return record.payments.reduce((sum, p) => sum + monthlyPaymentAmount(p, today), 0);
 }
 
 const MONTHS_PER_PAYMENT: Record<ContractPayment['frequency'], number | null> = {
@@ -78,13 +79,14 @@ const MONTHS_PER_PAYMENT: Record<ContractPayment['frequency'], number | null> = 
 };
 
 /** 결제 규칙의 월 환산액 (연납 1,368,000 → 114,000). 일시불·보증금은 0. 실제 월 지출과 섞지 않는 보조 지표. */
-export function paymentMonthlyEquivalent(payment: ContractPayment): number {
+export function paymentMonthlyEquivalent(payment: ContractPayment, today?: ISODate): number {
   if (payment.direction !== 'expense' || !isConfirmedPayment(payment)) return 0;
   const months = MONTHS_PER_PAYMENT[payment.frequency];
-  return months ? Math.round(payment.amount / months) : 0;
+  const amount = today ? amountAt(payment, today) : payment.amount;
+  return months ? Math.round(amount / months) : 0;
 }
 
-/** 계약 한 건의 월 환산액 (정기결제 규칙 기준). */
-export function contractMonthlyEquivalent(record: ContractRecord): number {
-  return record.payments.reduce((sum, p) => sum + paymentMonthlyEquivalent(p), 0);
+/** 계약 한 건의 월 환산액 (정기결제 규칙 기준, today가 있으면 그날 적용 중인 금액). */
+export function contractMonthlyEquivalent(record: ContractRecord, today?: ISODate): number {
+  return record.payments.reduce((sum, p) => sum + paymentMonthlyEquivalent(p, today), 0);
 }

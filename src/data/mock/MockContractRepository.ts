@@ -1,3 +1,5 @@
+import type { AmountChangeOp } from '@/domain/amountEdits';
+import { todayInSeoul } from '@/domain/dates';
 import type { AiCheck, ContractRecord } from '@/domain/types';
 
 import { applyDraftToContract, blankContract, draftToDates, draftToPayments } from '../draft';
@@ -81,14 +83,47 @@ export class MockContractRepository implements ContractRepository {
     return clone(record);
   }
 
-  async update(id: string, draft: ContractDraft) {
+  async update(id: string, draft: ContractDraft, amountChanges: readonly AmountChangeOp[] = []) {
     await this.delay();
     const r = this.find(id);
+    // DB save_contract와 같은 의미: 저장된 결제는 id 유지(수정), 새 결제는 추가, 목록에서 빠진 결제만 삭제 (변경 이력도 함께)
+    const before = new Map(r.payments.map((p) => [p.id, p]));
+    for (const p of draft.payments) if (p.id && !before.has(p.id)) throw new Error('결제 항목을 찾을 수 없어요.');
+    const payments = draftToPayments(draft, id, () => newId('p'), r.contract.createdAt.slice(0, 10)).map((p) => ({ ...p, amountChanges: before.get(p.id)?.amountChanges ?? [] }));
+    for (const c of amountChanges) {
+      if (c.op === 'add') {
+        const p = payments.find((x) => x.id === c.paymentId);
+        if (!p || p.frequency === 'one_time' || c.effectiveFrom <= p.startsOn) throw new Error('금액 변경 적용일을 확인해주세요.');
+        const list = p.amountChanges ?? [];
+        const same = list.find((x) => x.effectiveFrom === c.effectiveFrom);
+        if (same) same.amount = c.amount;
+        else list.push({ id: newId('pc'), paymentId: p.id, effectiveFrom: c.effectiveFrom, amount: c.amount, changeReason: null, sourceDocumentId: null, createdAt: new Date().toISOString() });
+        p.amountChanges = list.sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1));
+      } else {
+        const hit = payments.flatMap((p) => p.amountChanges ?? []).find((x) => x.id === c.changeId);
+        if (!hit) throw new Error('금액 변경 이력을 찾을 수 없어요.');
+        hit.amount = c.amount;
+      }
+    }
     r.contract = applyDraftToContract(r.contract, draft);
-    // 결제·날짜 목록은 통째로 교체 (DB save_contract와 같은 의미)
-    r.payments = draftToPayments(draft, id, () => newId('p'), r.contract.createdAt.slice(0, 10));
+    r.payments = payments;
     r.dates = draftToDates(draft, id, () => newId('dt'));
     return this.touch(r);
+  }
+
+  async cancelAmountChange(id: string, changeId: string) {
+    await this.delay();
+    const r = this.find(id);
+    const today = todayInSeoul();
+    for (const p of r.payments) {
+      const hit = p.amountChanges?.find((x) => x.id === changeId);
+      if (!hit) continue;
+      // 이미 적용이 시작된 변경은 취소할 수 없다
+      if (hit.effectiveFrom <= today) throw new Error('이미 적용된 변경은 취소할 수 없어요.');
+      p.amountChanges = p.amountChanges!.filter((x) => x.id !== changeId);
+      return this.touch(r);
+    }
+    throw new Error('금액 변경 이력을 찾을 수 없어요.');
   }
 
   async setLifecycle(id: string, lifecycle: ContractRecord['contract']['lifecycle'], on: string | null) {

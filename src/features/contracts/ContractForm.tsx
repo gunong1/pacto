@@ -156,7 +156,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
     defaultValues,
     mode: 'onTouched',
   });
-  const payments = useFieldArray({ control, name: 'payments' });
+  // 결제 값의 id(저장된 결제 id)와 겹치지 않게 목록 키는 'key'
+  const payments = useFieldArray({ control, name: 'payments', keyName: 'key' });
   const dates = useFieldArray({ control, name: 'dates' });
 
   const values = useWatch({ control }) as ContractFormValues;
@@ -285,7 +286,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           const oneTime = pv.frequency === 'one_time';
           const path = `payments.${i}`;
           return (
-            <View key={p.id} style={styles.card} testID={`payment-${i}`}>
+            <View key={p.key} style={styles.card} testID={`payment-${i}`}>
               <View style={styles.cardHeader}>
                 <AppText variant="body2Strong">결제 {i + 1}</AppText>
                 {pv.obligation !== 'confirmed' ? (

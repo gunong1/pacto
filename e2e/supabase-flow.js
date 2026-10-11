@@ -81,8 +81,21 @@ async function signUp(page, email, password) {
   // 직접 입력한 계약은 등록과 같은 화면 — 위쪽 "금액"
   await page.fill(`input${tid('quick-amount')}`, '60000');
   await page.click(tid('submit-contract'));
+  // 지난 결제가 있는 정기 결제 → 바로 덮어쓰지 않고 "언제부터" 확인 (기본: 다음 결제일부터)
+  await page.waitForSelector(tid('amount-change-sheet'), { timeout: 10000 });
+  await page.click(tid('amount-change-apply'));
   await page.locator(`${tid('contract-detail')} >> text=60,000원`).first().waitFor({ timeout: 15000 });
-  log('계약 수정 → 60,000원');
+  const hist = (await page.locator('[data-testid^="amount-history-"]').first().innerText()).replace(/\s+/g, ' ');
+  if (!hist.includes('55,000원') || !hist.includes('60,000원 예정')) throw new Error('금액 변경 이력: ' + hist);
+  // 새로고침해도 DB에 남아 있음 (결제 id 유지 + 변경 이력)
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.locator('[data-testid^="amount-history-"] >> text=60,000원 예정').first().waitFor({ timeout: 15000 });
+  // 새로고침으로 화면 기록이 사라졌으니 목록에서 다시 들어간다 (삭제 후 목록으로 돌아가는 흐름 유지)
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await page.click(tid('tab-contracts'));
+  await page.locator(`${tid('contracts-list')} >> text=헬스장`).first().click();
+  await page.waitForSelector(tid('detail-title'), { timeout: 15000 });
+  log('계약 수정 → 다음 결제일부터 60,000원 (지난 결제 55,000원 유지, 새로고침 후에도 이력 유지)');
 
   // 일정 추가 → 수정 → 삭제
   await page.locator(`${tid('detail-schedule')} >> text=일정 추가`).click();

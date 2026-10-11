@@ -1,4 +1,5 @@
 import { detailsToDb } from '@/domain/contractTypes';
+import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
 import type { Database, Json } from '@/types/database';
 
@@ -57,6 +58,8 @@ function paymentsPayload(d: ContractDraft, today: ISODate): Json {
   return d.payments.map((p) => {
     const r = draftToPayment(p, d, '', '', today);
     return {
+      // 저장된 결제는 id로 UPDATE (전부 지우고 다시 넣지 않는다 — 변경 이력 보존)
+      id: p.id ?? null,
       kind: r.kind,
       direction: r.direction,
       label: r.label,
@@ -128,15 +131,23 @@ export class SupabaseContractRepository implements ContractRepository {
     return this.mustGet(id);
   }
 
-  async update(id: string, draft: ContractDraft) {
+  async update(id: string, draft: ContractDraft, amountChanges: readonly AmountChangeOp[] = []) {
     check(
       await this.sb.rpc('save_contract', {
         p_contract: contractPayload(draft),
         p_payments: paymentsPayload(draft, this.today()),
         p_dates: datesPayload(draft),
         p_contract_id: id,
+        p_amount_changes: amountChanges.map((c) =>
+          c.op === 'add' ? { op: 'add', payment_id: c.paymentId, effective_from: c.effectiveFrom, amount: c.amount } : { op: 'correct', change_id: c.changeId, amount: c.amount },
+        ),
       }),
     );
+    return this.mustGet(id);
+  }
+
+  async cancelAmountChange(id: string, changeId: string) {
+    check(await this.sb.rpc('cancel_payment_change', { p_change_id: changeId }));
     return this.mustGet(id);
   }
 

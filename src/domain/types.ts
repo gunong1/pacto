@@ -117,6 +117,23 @@ export interface ContractPayment {
   obligation: PaymentObligation;
   /** 언제 내는 돈인지 (예: 회원권을 양도하는 경우, 락커를 이용하는 경우) */
   conditionNote: string | null;
+  /**
+   * 금액 변경 이력 (적용일 순). amount는 최초 금액 — 어떤 날짜의 금액은 amountAt(payment, date)로 구한다.
+   * 과거 일정은 변경 이력이 없는 한 최초 금액을 유지한다.
+   */
+  amountChanges?: PaymentAmountChange[];
+}
+
+/** 반복 결제·수입 금액 변경 — effectiveFrom부터 amount (다음 변경 전날까지) */
+export interface PaymentAmountChange {
+  id: string;
+  paymentId: string;
+  effectiveFrom: ISODate;
+  amount: number;
+  changeReason: string | null;
+  /** 변경계약서 등 근거 문서 (추후 AI 추출 → 사용자 확인으로 연결) */
+  sourceDocumentId: string | null;
+  createdAt: string;
 }
 
 /** 계약 유형별 주요 날짜 (설치일·입주일·잔금일·갱신일 …). 시작·종료·체결일은 Contract 필드. */

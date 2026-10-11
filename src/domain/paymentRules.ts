@@ -1,4 +1,5 @@
 import { addDays, addMonths } from './dates';
+import { amountAt } from './paymentAmount';
 import type { ContractPayment, ContractRecord, ISODate } from './types';
 
 /**
@@ -10,7 +11,10 @@ import type { ContractPayment, ContractRecord, ISODate } from './types';
 export interface AmountPeriod {
   from: ISODate;
   to: ISODate;
+  /** 표시용: 기간 시작일 기준 금액 (금액 변경이 있으면 회차마다 amountOn으로 다시 계산) */
   amount: number;
+  /** 기준 금액(그 날짜의 amountAt)에 곱하는 비율(%) — 예: 수습 90 */
+  rate: number;
   /** 화면 표시: '수습기간 90%' */
   label: string;
 }
@@ -41,7 +45,7 @@ const AMOUNT_RULES: AmountRule[] = [
     const rate = record.contract.details.probationPayRate;
     const period = probationPeriod(record);
     if (!period || typeof rate !== 'number' || rate <= 0 || rate >= 100 || payment.kind !== 'salary' || payment.frequency === 'one_time') return [];
-    return [{ from: period.from, to: period.to, amount: Math.round((payment.amount * rate) / 100), label: `수습기간 ${rate}%` }];
+    return [{ from: period.from, to: period.to, amount: Math.round((amountAt(payment, period.from) * rate) / 100), rate, label: `수습기간 ${rate}%` }];
   },
 ];
 
@@ -50,10 +54,14 @@ export function amountPeriods(record: Pick<ContractRecord, 'contract' | 'dates'>
   return AMOUNT_RULES.flatMap((rule) => rule(record, payment));
 }
 
-/** 계약서상 지급일(nominal) 기준으로 그 회차 금액 */
+/**
+ * 계약서상 지급일(nominal) 기준으로 그 회차 금액.
+ * 먼저 amountAt(date)로 그날의 기준 금액(변경 이력 반영)을 구하고, 그다음 기간 규칙(수습 90% 등)을 적용한다.
+ */
 export function amountOn(periods: readonly AmountPeriod[], payment: ContractPayment, nominalDate: ISODate): { amount: number; note: string | null } {
+  const base = amountAt(payment, nominalDate);
   const p = periods.find((x) => nominalDate >= x.from && nominalDate <= x.to);
-  return p ? { amount: p.amount, note: p.label } : { amount: payment.amount, note: null };
+  return p ? { amount: Math.round((base * p.rate) / 100), note: p.label } : { amount: base, note: null };
 }
 
 /** 기간 경계 일정 (수습기간 종료 예정 등) */
