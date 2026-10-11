@@ -188,7 +188,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* 일시불(1년권 일시 결제 등)은 결제한 달 지출에만 — 매달 나가는 돈과 섞지 않는다 */}
+        {/* 매월 결제만 — 연납·분기납·일시불은 나누지 않고 결제하는 달 지출에 전액 (캘린더와 같은 결제 일정 기준) */}
         <View style={styles.subMetrics} testID="home-recurring">
           <View style={styles.metric}>
             <AppText variant="caption" color="textTertiary">
@@ -202,7 +202,7 @@ export default function HomeScreen() {
               {formatKRW(view.recurring)} / 월
             </AppText>
             <AppText variant="small" color="textTertiary" align="center">
-              월납·연납 등 정기 결제를 월 단위로 환산 · 일시불 제외
+              매월 결제되는 계약만 · 연납·분기납·일시불은 결제하는 달 지출에 포함
             </AppText>
           </View>
         </View>

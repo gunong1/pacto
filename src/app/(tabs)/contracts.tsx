@@ -12,7 +12,7 @@ import { daysUntil } from '@/domain/dday';
 import { categoryLabel } from '@/domain/labels';
 import { formatWon } from '@/domain/money';
 import { nextPayment } from '@/domain/schedule';
-import { contractMonthlyEquivalent } from '@/domain/spending';
+import { contractMonthlyPayments } from '@/domain/spending';
 import { currentTerm, deriveStatus } from '@/domain/status';
 import { CONTRACT_CATEGORIES, type ContractCategory, type ContractStatus } from '@/domain/types';
 import { useContracts, useToday } from '@/features/contracts/queries';
@@ -70,7 +70,7 @@ export default function ContractsScreen() {
       .map((r) => {
         const s = deriveStatus(r.contract, today);
         const term = currentTerm(r.contract, today);
-        return { r, status: s, days: term ? daysUntil(term.termEnd, today) : null, next: nextPayment(r, today), monthly: contractMonthlyEquivalent(r) };
+        return { r, status: s, days: term ? daysUntil(term.termEnd, today) : null, next: nextPayment(r, today), monthly: contractMonthlyPayments(r) };
       })
       .filter((x) => matches(status, x.status))
       .filter((x) => category === 'all' || x.r.contract.category === category)

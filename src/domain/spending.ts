@@ -59,9 +59,10 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth): MonthSp
 }
 
 /**
- * 매달 나가는 정기 계약비 = 지금 이어지고 있는 정기 결제(월납·분기납·연납 …)의 월 환산 합계.
- * 일시불(헬스장 1년권 일시 결제·설치비 등)은 한 번 내는 돈이라 넣지 않는다 — 결제한 달의 지출에만 나타난다.
- * 앞으로 12개월 안에 결제가 남아 있는 확정 지출만 (종료·해지·회차 완료된 결제와 선택형·조건부 비용 제외).
+ * 매달 나가는 정기 계약비 = 지금 이어지고 있는 **매월** 결제(확정 지출)의 합계.
+ * 2개월·분기·6개월·연납과 일시불은 월 단위로 나누어 넣지 않는다 — 실제로 결제하는 달의 지출(monthSpending)에 전액 들어간다.
+ * 앞으로 12개월 안에 결제가 남아 있는 결제만 (종료·해지·회차 완료된 결제와 선택형·조건부 비용 제외).
+ * 월 환산(paymentMonthlyEquivalent)은 "월평균 부담" 같은 별도 참고 지표에만 쓴다.
  */
 export function recurringMonthlyCost(records: ContractRecord[], today: ISODate): number {
   const range = { start: today, end: addDays(today, 365) };
@@ -69,10 +70,20 @@ export function recurringMonthlyCost(records: ContractRecord[], today: ISODate):
     (sum, { contract, payments, dates }) =>
       sum +
       payments
-        .filter((p) => p.frequency !== 'one_time' && expandPayment(p, contract, range, dates).length > 0)
-        .reduce((s, p) => s + paymentMonthlyEquivalent(p), 0),
+        .filter((p) => p.frequency === 'monthly' && expandPayment(p, contract, range, dates).length > 0)
+        .reduce((s, p) => s + monthlyPaymentAmount(p), 0),
     0,
   );
+}
+
+/** 매월 결제되는 확정 지출 금액 (매월이 아니거나 수입·보증금·선택형·조건부면 0) */
+export function monthlyPaymentAmount(payment: ContractPayment): number {
+  return payment.frequency === 'monthly' && payment.direction === 'expense' && isConfirmedPayment(payment) ? payment.amount : 0;
+}
+
+/** 계약 한 건의 매월 결제 합계 (계약 목록 "월 ○○원" — 연납 등은 나누지 않음) */
+export function contractMonthlyPayments(record: ContractRecord): number {
+  return record.payments.reduce((sum, p) => sum + monthlyPaymentAmount(p), 0);
 }
 
 const MONTHS_PER_PAYMENT: Record<ContractPayment['frequency'], number | null> = {
