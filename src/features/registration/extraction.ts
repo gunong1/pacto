@@ -75,6 +75,20 @@ const KEY_DATE_KIND: Partial<Record<Meaning, ContractDateKind>> = {
 /** 시작·종료로 쓰이지 않으면 '기타 날짜'로 남길 의미 (계약서의 날짜를 버리지 않는다) */
 const KEEP_AS_OTHER: ReadonlySet<Meaning> = new Set(['service_start', 'contract_start', 'loan_execution', 'coverage_start', 'maturity', 'contract_end', 'completion', 'other']);
 
+/**
+ * 반복 결제일(예: "월세 지급일 매월 5일")은 주요 날짜가 아니다 — 금액의 결제일·주기로 캘린더에 반복 표시된다.
+ * 하루짜리 날짜(입주일·잔금일·설치일)와 섞이지 않도록 이름·원문으로 걸러낸다.
+ */
+const RECURRING_WORD = /매\s?(월|달|년|주|일)|정기|자동\s?이체/;
+const PAY_DAY_WORD = /(지급|결제|납부|납입|이체|입금|출금|청구)\s?일|월세|임대료|관리비|렌탈료|이용료|보험료|급여|월급|임금|상환|할부금|납입금|요금|구독료/;
+const PAY_DAY_LABEL = /(월세|차임|임대료|관리비|렌탈료|이용료|보험료|급여|월급|임금|상환금?|할부금|납입금|요금|구독료|회비)\s?(지급|결제|납부|납입|이체|입금|출금)?\s?일$/;
+export function isRecurringPaymentDay(d: Pick<ExtractedDate, 'label' | 'evidence'>): boolean {
+  const label = d.label.trim();
+  if (PAY_DAY_LABEL.test(label)) return true;
+  const text = `${label} ${(d.evidence ?? []).map((e) => e.quote).join(' ')}`;
+  return RECURRING_WORD.test(text) && PAY_DAY_WORD.test(text);
+}
+
 export const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
 
 /** '월 이용료' → '월 이용료와', '관리비 청구금' → '관리비 청구금과' */
@@ -301,10 +315,11 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     draft.payments.push(payment);
   });
 
-  // 주요 날짜 — 체결·시작·종료·첫 결제일로 쓴 날짜, 결제와 겹치는 잔금일은 제외
+  // 주요 날짜 — 체결·시작·종료·첫 결제일로 쓴 날짜, 결제와 겹치는 잔금일, 반복 결제일(월세 지급일 등)은 제외
   const dates: DateDraft[] = [];
   for (const d of result.dates) {
     if (used.has(d) || d.meaning === 'contract_signed') continue;
+    if (isRecurringPaymentDay(d)) continue;
     const kind = KEY_DATE_KIND[d.meaning] ?? (KEEP_AS_OTHER.has(d.meaning) ? 'other' : null);
     if (!kind) continue;
     if (kind === 'balance_due' && draft.payments.some((p) => p.startsOn === d.date && p.frequency === 'one_time')) continue;
