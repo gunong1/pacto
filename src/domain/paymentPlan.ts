@@ -1,6 +1,6 @@
 import { isConfirmedPayment } from './contractTypes';
 import { addDays, minDate } from './dates';
-import { expandPayment, isPaymentDayUnknown, lastInstallmentDate } from './schedule';
+import { expandPayment, firstPaymentNeedsCheck, isPaymentDayUnknown, lastInstallmentDate } from './schedule';
 import { paymentCutoff } from './status';
 import type { Contract, ContractPayment, ContractRecord, ISODate } from './types';
 
@@ -29,6 +29,8 @@ export interface PaymentPlan {
   basis: PlanBasis;
   /** 계약서 총 회차와 종료일 기준 회차가 다름 */
   conflict: { installments: number; byDate: number } | null;
+  /** 첫 지급일 확인 필요 (급여: 당월/익월 지급을 임의로 정하지 않음) */
+  firstNeedsCheck: boolean;
 }
 
 /** 날짜로 정해진 끝 (결제 마지막 결제일 · 자동갱신 아닌 계약 종료일 · 해지/만료 처리일) */
@@ -44,6 +46,7 @@ const occurrences = (p: ContractPayment, contract: Contract, dates: ContractReco
 export function paymentPlan(p: ContractPayment, record: Pick<ContractRecord, 'contract' | 'dates'>, today: ISODate): PaymentPlan | null {
   if (p.frequency === 'one_time' || !isConfirmedPayment(p) || isPaymentDayUnknown(p)) return null;
   const { contract, dates } = record;
+  const firstNeedsCheck = firstPaymentNeedsCheck(p, contract, dates);
   const byDateEnd = dateEnd(p, contract);
   const byCountEnd = lastInstallmentDate(p);
   const end = byDateEnd && byCountEnd ? minDate(byDateEnd, byCountEnd) : (byDateEnd ?? byCountEnd);
@@ -52,7 +55,7 @@ export function paymentPlan(p: ContractPayment, record: Pick<ContractRecord, 'co
     // 무기한 반복 — 진행 회차만 (첫 결제는 앞으로 2년 안에서 찾는다)
     const past = expandPayment(p, contract, { start: addDays(p.startsOn, -10), end: today }, dates);
     const first = past[0]?.date ?? expandPayment(p, contract, { start: today, end: addDays(today, 800) }, dates)[0]?.date ?? null;
-    return { first, last: null, total: null, done: past.length, remaining: null, basis: 'open', conflict: null };
+    return { first, last: null, total: null, done: past.length, remaining: null, basis: 'open', conflict: null, firstNeedsCheck };
   }
 
   const all = occurrences(p, contract, dates, end);
@@ -70,6 +73,7 @@ export function paymentPlan(p: ContractPayment, record: Pick<ContractRecord, 'co
     remaining: all.length - done,
     basis: byDateEnd ? 'end_date' : 'installments',
     conflict,
+    firstNeedsCheck,
   };
 }
 

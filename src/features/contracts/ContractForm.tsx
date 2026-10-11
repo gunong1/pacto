@@ -410,12 +410,16 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                 date(`payments.${i}.startsOn`, '결제일', { hint: values.startDate ? '비워두면 계약 시작일' : undefined, testID: `payment-${i}-startsOn` })
               ) : (
                 <>
-                  <View style={styles.row2}>
-                    <View style={styles.colNarrow}>
-                      {field(`payments.${i}.dayOfMonth`, pv.direction === 'income' ? '지급일' : '결제일', { keyboardType: 'number-pad', suffix: '일', maxLength: 2, testID: `payment-${i}-dayOfMonth`, flagged: flagged?.has(`${path}.dayOfMonth`), hint: hint(`${path}.dayOfMonth`) })}
-                    </View>
-                    <View style={styles.col}>{date(`payments.${i}.startsOn`, pv.direction === 'income' ? '첫 지급일' : '첫 결제일', { hint: '비워두면 시작일부터', testID: `payment-${i}-startsOn` })}</View>
+                  <View style={styles.colNarrow}>
+                    {field(`payments.${i}.dayOfMonth`, pv.direction === 'income' ? '지급일' : '결제일', { keyboardType: 'number-pad', suffix: '일', maxLength: 2, testID: `payment-${i}-dayOfMonth`, flagged: flagged?.has(`${path}.dayOfMonth`), hint: hint(`${path}.dayOfMonth`) })}
                   </View>
+                  <AppText variant="caption" color="textTertiary" style={{ marginBottom: spacing.sm }}>
+                    첫 {pv.direction === 'income' ? '지급' : '결제'} 시점은 시작일과 {pv.direction === 'income' ? '지급일' : '결제일'}을 기준으로 자동 계산해요.
+                  </AppText>
+                  {/* 예외만: 계약서에 첫 지급일이 따로 있거나 첫 달만 다른 경우 */}
+                  <CustomFirstDate income={pv.direction === 'income'} initialOpen={!!pv.startsOn} onClear={() => setValue(`payments.${i}.startsOn`, '')} testID={`payment-${i}-firstToggle`}>
+                    {date(`payments.${i}.startsOn`, pv.direction === 'income' ? '첫 지급일' : '첫 결제일', { testID: `payment-${i}-startsOn` })}
+                  </CustomFirstDate>
                   {/* 총 회차·마지막 결제일은 입력하지 않고 계약 기간(또는 계약서 회차)으로 계산해 보여준다 */}
                   <PlanLine plan={plans ? (plans[plans.length - (values.payments?.length ?? 0) + i]?.plan ?? null) : null} income={pv.direction === 'income'} testID={`payment-${i}-plan`} />
                   <FormLabel label={pv.direction === 'income' ? '지급일이 휴일이면' : '결제일이 휴일이면'} />
@@ -575,8 +579,6 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
     const advice = quickDirectionAdvice(type);
     const income = q?.direction === 'income';
     const oneTime = q?.frequency === 'one_time';
-    const monthly = (q?.frequency ?? 'monthly') === 'monthly';
-    const day = q?.nextDate && /^\d{4}-\d{2}-\d{2}$/.test(q.nextDate) ? Number(q.nextDate.slice(8, 10)) : null;
     return (
       <Screen edges={['bottom']} footer={footer}>
         {header}
@@ -614,8 +616,10 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           <FormLabel label={income ? '지급 주기' : '결제 주기'} />
           <Controller control={control} name="quick.frequency" render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value ?? 'monthly'} onChange={f.onChange} scroll testIDPrefix="quick-frequency" />} />
           <View style={{ height: spacing.lg }} />
-          {monthly ? (
-            <View style={styles.row2}>
+          {oneTime ? (
+            date('quick.nextDate', income ? '지급 예정일' : '결제 예정일', { testID: 'quick-nextDate' })
+          ) : (
+            <>
               <View style={styles.colNarrow}>
                 {field('quick.day', income ? '지급일' : '결제일', {
                   keyboardType: 'number-pad',
@@ -623,21 +627,13 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                   maxLength: 2,
                   placeholder: '예: 15',
                   testID: 'quick-day',
-                  hint: income ? '매월 몇 일에 받나요?' : '매월 몇 일에 결제되나요?',
+                  hint: `${q?.frequency === 'monthly' || !q?.frequency ? '매월' : FREQUENCY_LABEL[q.frequency]} 몇 일에 ${income ? '받나요?' : '결제되나요?'}`,
                 })}
               </View>
-              <View style={styles.col}>
-                {date('quick.nextDate', income ? '첫 지급일' : '첫 결제일', {
-                  testID: 'quick-firstDate',
-                  hint: values.startDate ? '비워두면 계약 시작일부터' : '비워두면 오늘 이후부터',
-                })}
-              </View>
-            </View>
-          ) : (
-            date('quick.nextDate', oneTime ? (income ? '지급 예정일' : '결제 예정일') : income ? '첫 지급일' : '첫 결제일', {
-              testID: 'quick-nextDate',
-              hint: day && !oneTime ? `이날부터 ${FREQUENCY_LABEL[q?.frequency ?? 'monthly']} ${day}일에 ${income ? '받아요' : '결제돼요'}` : undefined,
-            })
+              <AppText variant="caption" color="textTertiary" testID="quick-auto-note">
+                첫 {income ? '지급' : '결제'} 시점은 시작일과 {income ? '지급일' : '결제일'}을 기준으로 자동 계산해요.
+              </AppText>
+            </>
           )}
           {/* 총 회차·마지막 결제일은 종료일(또는 계약서 회차)로 계산 */}
           {!oneTime && values.quick?.amount?.trim() ? <PlanLine plan={plans?.[0]?.plan ?? null} income={income} testID="quick-plan" /> : null}
@@ -677,6 +673,11 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             <Section title="상세 정보">
               {field('counterparty', '계약 상대방', { placeholder: '예: 구글' })}
               {date('contractDate', '계약 체결일', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
+              {!oneTime ? (
+                <CustomFirstDate income={income} initialOpen={!!values.quick?.nextDate} onClear={() => setValue('quick.nextDate', '')} testID="quick-firstToggle">
+                  {date('quick.nextDate', income ? '첫 지급일' : '첫 결제일', { testID: 'quick-firstDate' })}
+                </CustomFirstDate>
+              ) : null}
             </Section>
             {detailsBlock}
             <SectionGap />
@@ -809,14 +810,51 @@ function usePaymentPlans(values: ContractFormValues, today: string) {
 /** 결제 카드 아래 계산 결과: "총 24회 · 10회 진행 · 14회 남음 · 마지막 결제 2027. 12. 15." */
 function PlanLine({ plan, income, testID }: { plan: PaymentPlan | null; income: boolean; testID?: string }) {
   if (!plan) return null;
-  const parts = [planSummary(plan), plan.last ? `마지막 ${income ? '지급' : '결제'} ${formatDateKo(plan.last)}` : null].filter(Boolean).join(' · ');
+  const w = income ? '지급' : '결제';
+  const parts = [plan.first ? `첫 ${w} ${formatDateKo(plan.first)}${plan.firstNeedsCheck ? ' (예상)' : ''}` : null, planSummary(plan), plan.last ? `마지막 ${w} ${formatDateKo(plan.last)}` : null].filter(Boolean).join(' · ');
   return (
     <View style={styles.planLine} testID={testID}>
       <Badge label="자동 계산" tone="primary" />
       <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
         {parts}
         {plan.conflict ? ` · 계약서 ${plan.conflict.installments}회와 달라요 (확인 필요)` : ''}
+        {plan.firstNeedsCheck ? ' · 첫 지급일 확인 필요 (당월·익월 지급은 계약서를 확인해 직접 지정해주세요)' : ''}
       </AppText>
+    </View>
+  );
+}
+
+/**
+ * "+ 첫 지급일 직접 지정" — 계약서에 첫 지급일이 따로 있거나(입사 첫 달 급여는 익월 지급, 첫 달 무료, 첫 결제만 다른 날짜) 할 때만.
+ * 기본은 시작일 이후 결제일로 자동 계산. 닫으면 직접 지정한 날짜를 지우고 자동 계산으로 돌아간다.
+ */
+function CustomFirstDate({ income, initialOpen, onClear, testID, children }: { income: boolean; initialOpen: boolean; onClear: () => void; testID: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(initialOpen);
+  const w = income ? '지급' : '결제';
+  return (
+    <View style={{ marginBottom: spacing.sm }}>
+      <Pressable
+        onPress={() => {
+          if (open) onClear();
+          setOpen(!open);
+        }}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        hitSlop={hitSlop}
+        testID={testID}
+        style={styles.classToggle}>
+        <AppText variant="captionStrong" color="primary">
+          {open ? `− 첫 ${w}일 직접 지정 취소 (자동 계산)` : `+ 첫 ${w}일 직접 지정`}
+        </AppText>
+      </Pressable>
+      {open ? (
+        <View style={{ marginTop: spacing.sm }}>
+          <AppText variant="caption" color="textTertiary" style={{ marginBottom: spacing.xs }}>
+            계약서에 첫 {w}일이 따로 있거나 첫 달만 다른 경우에만 입력하세요.
+          </AppText>
+          {children}
+        </View>
+      ) : null}
     </View>
   );
 }

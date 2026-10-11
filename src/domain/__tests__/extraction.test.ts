@@ -352,7 +352,7 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
     const r = draftToRecord(m.draft, 'e', TODAY);
     const on = (d: string) => scheduleForRange([r], { start: d, end: d }, TODAY).map((i) => `${i.title}${i.amount != null ? ` ${i.amount}` : ''}`);
     expect(on('2027-08-31')).toEqual([]);
-    expect(on('2026-10-23')).toEqual(['월 임금 (수습기간 90%) 3240000']);
+    expect(on('2026-10-23')).toEqual(['월 임금 (수습기간 90% · 첫 지급일 확인 필요) 3240000']);
     expect(on('2026-12-31')).toEqual(['수습기간 종료 예정']);
     expect(on('2027-01-25')).toEqual(['월 임금 3600000']);
     expect(monthSpending([r], { year: 2027, month: 1 })).toMatchObject({ incomeTotal: 3_600_000, total: 0 });

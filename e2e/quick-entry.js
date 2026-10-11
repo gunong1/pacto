@@ -110,7 +110,8 @@ const kst = (n) => {
   await page.waitForTimeout(150);
   const o = await label();
   await page.click(tid('quick-frequency-monthly'));
-  check('H2', '분기마다 → "첫 결제일" / 일회성 → "결제 예정일"', q.includes('첫 결제일') && o.includes('결제 예정일') && !q.includes('다음 결제일'));
+  check('H2', '분기마다 → "결제일"(분기마다 몇 일) + 자동 계산 안내 (첫 결제일 칸 없음) / 일회성 → "결제 예정일"', q.includes('결제일') && q.includes('시작일과 결제일을 기준으로 자동 계산') && !q.includes('첫 결제일') && o.includes('결제 예정일'), q);
+  check('H3', '"+ 첫 결제일 직접 지정"은 기본 화면에 없고 상세 정보에만', !(await has('quick-firstToggle')) && !(await has('quick-firstDate')));
 
   // F 종류 추천 (계약 종류 하나만 — 유형·분야를 따로 고르지 않음)
   await openManual();

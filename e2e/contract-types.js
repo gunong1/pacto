@@ -244,7 +244,11 @@ const CONTRACTS = [
       await input(`payment-${i}-label`).fill(p.label);
       await input(`payment-${i}-amount`).fill(p.amount);
       if (p.date) await input(`payment-${i}-startsOn`).fill(p.date);
-      if (p.first) await input(`payment-${i}-startsOn`).fill(p.first);
+      // 첫 결제일은 기본 입력이 아니다 — 시작일과 다른 경우만 "+ 첫 결제일 직접 지정"
+      if (p.first) {
+        await page.click(tid(`payment-${i}-firstToggle`));
+        await input(`payment-${i}-startsOn`).fill(p.first);
+      }
       if (p.day) await input(`payment-${i}-dayOfMonth`).fill(p.day);
       // 총 회차는 입력하지 않는다 — 계약 종료일 기준으로 자동 계산 (결과는 카드 아래 "자동 계산"과 상세 "결제 일정")
       if (p.dir) await page.click(tid(`payment-${i}-direction-${p.dir}`));

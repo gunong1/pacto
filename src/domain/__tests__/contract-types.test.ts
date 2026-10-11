@@ -379,7 +379,7 @@ describe('8. 근로계약: 급여는 수입(지출과 섞지 않음), 근로 시
   });
   test('캘린더: 근로 시작 + 입사일, 급여일, 근로계약 종료', () => {
     expect(titles(on(r, '2026-11-02'))).toEqual(['근로 시작', '입사일'].sort());
-    expect(on(r, '2026-11-25').map((i) => [i.title, i.direction])).toEqual([['월 급여', 'income']]);
+    expect(on(r, '2026-11-25').map((i) => [i.title, i.direction])).toEqual([['월 급여 (첫 지급일 확인 필요)', 'income']]);
     expect(titles(on(r, '2027-11-01'))).toEqual(['근로계약 종료']);
     expect(on(r, '2026-10-20')).toEqual([]);
   });

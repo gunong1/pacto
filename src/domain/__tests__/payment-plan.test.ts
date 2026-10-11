@@ -95,3 +95,22 @@ describe('캘린더·알림 제목의 회차 (사용자가 총 회차를 입력�
     expect(plan(r, '2026-10-20').total).toBe(24);
   });
 });
+
+describe('첫 지급일 확인 필요 (급여: 당월/익월 지급을 임의로 정하지 않음)', () => {
+  const salary = (startsOn: string | null, startDate: string | null = '2026-07-20') =>
+    draftToRecord({ ...EMPTY_DRAFT, title: '근로', contractType: 'employment', startDate, payments: [pay({ kind: 'salary', direction: 'income', label: '월 급여', dayOfMonth: 10, startsOn })] }, 'c1', '2026-07-01');
+  test('근로 시작 2026-07-20 · 지급일 10일 · 첫 지급일 미지정 → 첫 지급 2026-08-10(예상) · 확인 필요, 첫 회차 제목에 표시', () => {
+    const r = salary(null);
+    expect(plan(r, '2026-07-21')).toMatchObject({ first: '2026-08-10', firstNeedsCheck: true });
+    const titles = scheduleForRange([r], { start: '2026-08-01', end: '2026-09-30' }, '2026-07-21').filter((i) => i.type === 'payment').map((i) => i.title);
+    expect(titles).toEqual(['월 급여 (첫 지급일 확인 필요)', '월 급여']);
+  });
+  test('첫 지급일을 직접 지정(익월 2026-09-10) → 확인 필요 아님, 그 날짜부터', () => {
+    const r = salary('2026-09-10');
+    expect(plan(r, '2026-07-21')).toMatchObject({ first: '2026-09-10', firstNeedsCheck: false });
+  });
+  test('시작일이 없으면 확인 필요 / 급여가 아닌 결제는 해당 없음', () => {
+    expect(plan(salary(null, null), '2026-07-21').firstNeedsCheck).toBe(true);
+    expect(plan(rec({}), '2026-07-21').firstNeedsCheck).toBe(false);
+  });
+});

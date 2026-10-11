@@ -115,7 +115,7 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   await shot('05-calendar-1231', false);
   const d0125 = await day('2027-01-25');
   const d0831 = await day('2027-08-31');
-  check('C1', '10/23 수습 급여 +3,240,000', d1023.includes('월 임금 (수습기간 90%)') && d1023.includes('3,240,000'), d1023);
+  check('C1', '10/23 수습 급여 +3,240,000 · 첫 회차는 첫 지급일 확인 필요 (당월/익월 임의 추론 안 함)', d1023.includes('월 임금 (수습기간 90%') && d1023.includes('첫 지급일 확인 필요') && d1023.includes('3,240,000'), d1023);
   check('C2', '10/25(일)에는 없음', !d1025.includes('월 임금'), d1025);
   check('C3', '12/24 (12/25 성탄절 → 직전 영업일)', d1224.includes('3,240,000'), d1224);
   check('C4', '12/31 수습기간 종료 예정', d1231.includes('수습기간 종료 예정'), d1231);

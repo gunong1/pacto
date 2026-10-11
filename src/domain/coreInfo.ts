@@ -98,7 +98,8 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
     const income = p.direction === 'income';
     const conflict = plan.conflict ? ` · 계약서 ${plan.conflict.installments}회와 달라요 (확인 필요)` : '';
     const w = income ? '지급' : '결제';
-    if (plan.first) add(`first:${p.id}`, `첫 ${w}`, formatDateKo(plan.first));
+    // 첫 회차: 시작일과 결제일로 계산 — 급여처럼 당월/익월이 정해지지 않았으면 "확인 필요"
+    if (plan.first) add(`first:${p.id}`, `첫 ${w}`, plan.firstNeedsCheck ? `${formatDateKo(plan.first)} (예상) · 확인 필요` : formatDateKo(plan.first), false, 'calculated');
     add(`plan:${p.id}`, `${w} 회차`, planSummary(plan) + conflict, plan.total != null, 'calculated');
     if (plan.last) add(`last:${p.id}`, income ? '마지막 지급' : '마지막 결제', formatDateKo(plan.last), false, 'calculated');
   };

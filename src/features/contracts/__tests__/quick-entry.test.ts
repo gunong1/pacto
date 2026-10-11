@@ -18,7 +18,8 @@ test('유튜브 프리미엄: 월 14,900원 · 결제일 12일 · 자동갱신 �
   expect(parsed.success).toBe(true);
   const draft = formToDraft(parsed.data!, TODAY);
   expect(draft.payments).toHaveLength(1);
-  expect(draft.payments[0]).toMatchObject({ kind: 'recurring_fee', direction: 'expense', amount: 14900, frequency: 'monthly', dayOfMonth: 12, startsOn: '2026-10-12', obligation: 'confirmed' });
+  // 첫 결제일은 저장하지 않고(null) 시작일(없으면 오늘) 이후 결제일로 계산
+  expect(draft.payments[0]).toMatchObject({ kind: 'recurring_fee', direction: 'expense', amount: 14900, frequency: 'monthly', dayOfMonth: 12, startsOn: null, obligation: 'confirmed' });
   expect(draft.autoRenewal).toBe(true);
   const record = draftToRecord(draft, 'x', '2026-10-09');
   const dates = expandPayment(record.payments[0], record.contract, { start: '2026-10-01', end: '2027-01-31' }).map((o) => o.date);
@@ -41,12 +42,13 @@ test('매월: 금액만 있고 결제일 없음 → "결제일을 입력해주�
   expect(c.error!.issues.map((i) => i.path.join('.'))).toContain('quick.day');
 });
 
-test('주기별 날짜 이름: 2개월·분기·6개월·매년 → 첫 결제일 / 일회성 → 결제 예정일 (수입이면 지급)', () => {
+test('정기 결제는 주기와 관계없이 결제일(일)만 필수 — 첫 결제일은 묻지 않음 / 일회성 → 결제 예정일 (수입이면 지급)', () => {
   const msg = (quick: Record<string, string>) => contractFormSchema.safeParse(base({ title: 'x' }, { amount: '1000', ...quick })).error!.issues.map((i) => [i.path.join('.'), i.message]);
-  for (const f of ['bimonthly', 'quarterly', 'semiannual', 'yearly']) expect(msg({ frequency: f })).toContainEqual(['quick.nextDate', '첫 결제일을 입력해주세요']);
+  for (const f of ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly']) expect(msg({ frequency: f })).toContainEqual(['quick.day', '결제일을 입력해주세요']);
   expect(msg({ frequency: 'one_time' })).toContainEqual(['quick.nextDate', '결제 예정일을 입력해주세요']);
   expect(msg({ frequency: 'monthly', direction: 'income' })).toContainEqual(['quick.day', '지급일을 입력해주세요']);
-  expect(msg({ frequency: 'quarterly', direction: 'income' })).toContainEqual(['quick.nextDate', '첫 지급일을 입력해주세요']);
+  expect(msg({ frequency: 'quarterly', direction: 'income' })).toContainEqual(['quick.day', '지급일을 입력해주세요']);
+  expect(contractFormSchema.safeParse(base({ title: 'x' }, { amount: '1000', frequency: 'yearly', day: '22' })).success).toBe(true);
 });
 
 test('매월 결제일 → 오늘 이후 첫 그날: 지났으면 다음 달 · 오늘이면 오늘 · 31일은 그 달 말일 · 12월 → 다음 해', () => {
@@ -58,21 +60,26 @@ test('매월 결제일 → 오늘 이후 첫 그날: 지났으면 다음 달 · 
   expect(nextMonthlyDate('2027-02-27', 30)).toBe('2027-02-28');
   // 31일 결제 → 결제일은 31로 저장 (없는 달은 일정 계산에서 말일)
   const d = formToDraft(contractFormSchema.parse(base({ title: '월세' }, { amount: '500000', day: '31' })), '2026-11-10');
-  expect(d.payments[0]).toMatchObject({ dayOfMonth: 31, startsOn: '2026-11-30' });
+  expect(d.payments[0]).toMatchObject({ dayOfMonth: 31, startsOn: null });
+  const r = draftToRecord(d, 'x', '2026-11-10');
+  expect(expandPayment(r.payments[0], r.contract, { start: '1900-01-01', end: '2027-01-31' }).map((o) => o.date)).toEqual(['2026-11-30', '2026-12-31', '2027-01-31']);
 });
 
 test('근로 유형 → 급여(수입), 일시불 → 결제일 하루', () => {
   const salary = formToDraft(contractFormSchema.parse(base({ title: '아르바이트', contractType: 'employment' }, { amount: '1,000,000', day: '25' })), TODAY);
-  expect(salary.payments[0]).toMatchObject({ kind: 'salary', direction: 'income', dayOfMonth: 25, startsOn: '2026-10-25' });
-  const quarterly = formToDraft(contractFormSchema.parse(base({ title: '분기 회비' }, { amount: '30,000', frequency: 'quarterly', nextDate: '2026-12-01' })), TODAY);
-  expect(quarterly.payments[0]).toMatchObject({ frequency: 'quarterly', dayOfMonth: 1, startsOn: '2026-12-01' });
+  expect(salary.payments[0]).toMatchObject({ kind: 'salary', direction: 'income', dayOfMonth: 25, startsOn: null });
+  // 분기: 시작일 + 결제일(1일) → 시작 달부터 3개월마다 1일
+  const quarterly = formToDraft(contractFormSchema.parse(base({ title: '분기 회비', startDate: '2026-12-01' }, { amount: '30,000', frequency: 'quarterly', day: '1' })), TODAY);
+  expect(quarterly.payments[0]).toMatchObject({ frequency: 'quarterly', dayOfMonth: 1, startsOn: null });
+  const qr = draftToRecord(quarterly, 'x', TODAY);
+  expect(expandPayment(qr.payments[0], qr.contract, { start: '1900-01-01', end: '2027-06-30' }).map((o) => o.date)).toEqual(['2026-12-01', '2027-03-01', '2027-06-01']);
   const once = formToDraft(contractFormSchema.parse(base({ title: '이사 견적', contractType: 'one_time' }, { amount: '500000', frequency: 'one_time', nextDate: '2026-11-01' })));
   expect(once.payments[0]).toMatchObject({ frequency: 'one_time', dayOfMonth: null, startsOn: '2026-11-01' });
 });
 
 test('추가 결제(상세 정보)는 빠른 입력 결제 뒤에 그대로 이어진다', () => {
   const v = base({ title: '정수기' }, { amount: '39,900', day: '25' });
-  const full = draftToForm({ ...EMPTY_DRAFT, contractType: 'recurring', payments: [{ ...formToDraft(contractFormSchema.parse({ ...v })).payments[0], kind: 'setup_fee', label: '설치비', frequency: 'one_time', amount: 50000, dayOfMonth: null }] });
+  const full = draftToForm({ ...EMPTY_DRAFT, contractType: 'recurring', payments: [{ ...formToDraft(contractFormSchema.parse({ ...v })).payments[0], kind: 'setup_fee', label: '설치비', frequency: 'one_time', amount: 50000, dayOfMonth: null, startsOn: '2026-10-25' }] });
   const draft = formToDraft(contractFormSchema.parse({ ...v, payments: full.payments }));
   expect(draft.payments.map((p) => p.label)).toEqual(['정기 이용료', '설치비']);
 });
@@ -116,7 +123,7 @@ describe('금액 구분(지출·수입·중립) — 유형으로 고정하지 �
   });
 });
 
-describe('매월 첫 결제일 → 회차 자동 계산 (총 회차·마지막 결제일은 입력하지 않음)', () => {
+describe('첫 결제일 직접 지정(선택) → 회차 자동 계산 (총 회차·마지막 결제일은 입력하지 않음)', () => {
   const plan = (patch: Partial<ContractFormValues>, quick: Partial<NonNullable<ContractFormValues['quick']>>) => {
     const draft = formToDraft(contractFormSchema.parse(base({ title: '할부', ...patch }, { amount: '300,000', day: '15', ...quick })), TODAY);
     const record = draftToRecord(draft, 'x', TODAY);
@@ -127,9 +134,9 @@ describe('매월 첫 결제일 → 회차 자동 계산 (총 회차·마지막 �
     expect(p).toMatchObject({ startsOn: '2026-01-15', dayOfMonth: 15, installmentCount: null, endsOn: null });
     expect(x).toMatchObject({ total: 24, done: 9, remaining: 15, last: '2027-12-15' });
   });
-  test('첫 결제일을 비우면 계약 시작일 이후 첫 결제일부터 (시작일이 없으면 오늘 이후)', () => {
-    expect(plan({ startDate: '2026-01-10', endDate: '2027-12-15' }, {}).p.startsOn).toBe('2026-01-15');
-    expect(plan({}, {}).p.startsOn).toBe('2026-10-15');
+  test('첫 결제일을 비우면 계약 시작일 이후 결제일부터 자동 계산 (시작일이 없으면 오늘 이후)', () => {
+    expect(plan({ startDate: '2026-01-10', endDate: '2027-12-15' }, {}).plan).toMatchObject({ first: '2026-01-15', total: 24 });
+    expect(plan({}, {}).plan?.first).toBe('2026-10-15');
   });
   test('종료일이 없으면 무기한 반복 (총 회차 없음)', () => {
     expect(plan({}, { nextDate: '2026-01-15' }).plan).toMatchObject({ total: null, done: 9 });

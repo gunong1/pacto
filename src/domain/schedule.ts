@@ -65,6 +65,27 @@ function firstOccurrenceIdx(payment: ContractPayment): number {
   return idx;
 }
 
+export const FIRST_PAYMENT_CHECK = '첫 지급일 확인 필요';
+
+/** 계약서상 첫 회차 날짜 (휴일 조정 전) */
+export function firstNominalDate(payment: ContractPayment): ISODate {
+  if (payment.frequency === 'one_time') return payment.startsOn;
+  const idx = firstOccurrenceIdx(payment);
+  return dateInMonth(Math.floor(idx / 12), (idx % 12) + 1, payment.dayOfMonth ?? parseISODate(payment.startsOn).day);
+}
+
+/**
+ * 급여의 첫 지급일을 확인해야 하는지 — 첫 지급이 근로 시작 당월인지 익월인지는 계약마다 달라 계산으로 정하지 않는다.
+ * 첫 지급일을 따로 정했으면(근로 시작일·입사일과 다른 날짜) 확인 필요 아님. 시작일이 없으면 확인 필요.
+ */
+export function firstPaymentNeedsCheck(payment: ContractPayment, contract: Contract, dates: ContractRecord['dates'] = []): boolean {
+  if (payment.kind !== 'salary' || payment.direction !== 'income' || payment.frequency === 'one_time') return false;
+  const start = contract.startDate;
+  if (!start) return true;
+  const hire = dates.find((d) => d.kind === 'hire')?.date;
+  return payment.startsOn === start || payment.startsOn === hire;
+}
+
 /** 총 회차가 있는 결제의 마지막 회차 날짜 (일시불은 결제일). */
 export function lastInstallmentDate(payment: ContractPayment): ISODate | null {
   if (payment.installmentCount == null) return null;
@@ -93,10 +114,13 @@ export function expandPayment(
   const margin = rule === 'none' ? 0 : 10;
   const nominal = expandNominal(payment, contract, { start: addDays(range.start, -margin), end: addDays(range.end, margin) });
   const periods = amountPeriods({ contract, dates }, payment);
+  // 첫 지급일이 계약서·사용자로 정해지지 않은 급여 → 첫 회차는 "확인 필요" (당월/익월 지급을 임의로 추론하지 않음)
+  const firstUnsure = firstPaymentNeedsCheck(payment, contract, dates) ? firstNominalDate(payment) : null;
   return nominal
     .map((o) => {
       const { amount, note } = amountOn(periods, payment, o.nominalDate);
-      return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote: note };
+      const amountNote = o.nominalDate === firstUnsure ? [note, FIRST_PAYMENT_CHECK].filter(Boolean).join(' · ') : note;
+      return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote };
     })
     .filter((o) => o.date >= range.start && o.date <= range.end);
 }
