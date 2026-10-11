@@ -86,6 +86,8 @@ const quickFormSchema = z.object({
    * 등록 화면에서는 없음
    */
   base: paymentFormSchema.optional(),
+  /** 구성항목 (기본급·수당 등) — 위 금액을 이루는 하위 항목, 따로 더하지 않는다 */
+  components: z.array(z.object({ label: z.string(), amount: z.number() })).optional(),
 });
 
 const dateFormSchema = z.object({
@@ -338,6 +340,7 @@ export function draftToQuickForm(d: ContractDraft): ContractFormValues {
       // 시작일이 없는 계약은 저장 당시 날짜가 기준일로 들어가 있어 직접 지정한 값으로 보지 않는다
       nextDate: oneTime ? str(p.startsOn) : p.startsOn && d.startDate ? p.startsOn : '',
       base: v.payments[pick],
+      components: p.components.map((c) => ({ ...c })),
     },
   };
 }
@@ -386,6 +389,7 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
       installmentCount: oneTime ? null : base.installmentCount,
       isVariable: oneTime ? false : base.isVariable,
       businessDayRule: oneTime ? 'none' : base.businessDayRule,
+      components: q.components ?? base.components,
     };
   }
   if (amount == null) return null;
@@ -405,7 +409,7 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
     endsOn: null,
     installmentCount: null,
     isVariable: false,
-    components: [],
+    components: q.components ?? [],
     businessDayRule: 'none',
     obligation: 'confirmed',
     conditionNote: null,

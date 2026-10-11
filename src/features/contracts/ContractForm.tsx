@@ -399,34 +399,14 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                 </View>
               </View>
               {/* 구성항목: 이 금액을 이루는 하위 항목 (기본급·수당 등) — 따로 일정·합계에 넣지 않는다 */}
-              {pv.components && pv.components.length > 0 ? (
-                <View style={styles.components} testID={`payment-${i}-components`}>
-                  <AppText variant="captionStrong" color="textSecondary">
-                    구성항목 · 따로 더하지 않아요
-                  </AppText>
-                  {pv.components.map((c, j) => (
-                    <View key={`${c.label}-${j}`} style={styles.componentRow}>
-                      <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
-                        {c.label}
-                      </AppText>
-                      <AppText variant="caption" color="textSecondary" tabular>
-                        {formatWon(Number(c.amount) || 0)}
-                      </AppText>
-                      <Pressable
-                        onPress={() => setValue(`payments.${i}.components`, pv.components.filter((_, k) => k !== j))}
-                        hitSlop={hitSlop}
-                        accessibilityRole="button"
-                        accessibilityLabel={`구성항목 ${c.label} 삭제`}
-                        testID={`payment-${i}-component-${j}-delete`}>
-                        <Ionicons name="close" size={14} color={colors.textTertiary} />
-                      </Pressable>
-                    </View>
-                  ))}
-                </View>
+              {pv.obligation === 'confirmed' ? (
+                <ComponentsEditor components={pv.components ?? []} total={parseAmount(pv.amount)} onChange={(next) => setValue(`payments.${i}.components`, next)} testID={`payment-${i}-components`} />
               ) : null}
-              <Controller control={control} name={`payments.${i}.frequency`} render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value} onChange={f.onChange} scroll testIDPrefix={`payment-${i}-frequency`} />} />
-              <View style={{ height: spacing.sm }} />
+              <FormLabel label="금액 구분" />
               <Controller control={control} name={`payments.${i}.direction`} render={({ field: f }) => <ChipGroup options={DIRECTION_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-direction`} />} />
+              <View style={{ height: spacing.md }} />
+              <FormLabel label="결제 주기" />
+              <Controller control={control} name={`payments.${i}.frequency`} render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value} onChange={f.onChange} scroll testIDPrefix={`payment-${i}-frequency`} />} />
               <View style={{ height: spacing.md }} />
               {pv.obligation !== 'confirmed' ? (
                 <AppText variant="caption" color="textTertiary">
@@ -600,22 +580,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         <SectionGap />
         <Section title="금액" caption="비워두면 결제 없이 저장돼요" testID="quick-payment">
           {field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
-          {q?.base?.components && q.base.components.length > 0 ? (
-            <View style={[styles.components, { marginTop: 0, marginBottom: spacing.md }]} testID="quick-components">
-              <AppText variant="captionStrong" color="textSecondary">
-                구성항목 · 따로 더하지 않아요
-              </AppText>
-              {q.base.components.map((c, j) => (
-                <View key={`${c.label}-${j}`} style={styles.componentRow}>
-                  <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
-                    {c.label}
-                  </AppText>
-                  <AppText variant="caption" color="textSecondary" tabular>
-                    {formatWon(Number(c.amount) || 0)}
-                  </AppText>
-                </View>
-              ))}
-            </View>
+          {q?.amount?.trim() ? (
+            <ComponentsEditor components={q.components ?? []} total={parseAmount(q.amount)} onChange={(next) => setValue('quick.components', next)} testID="quick-components" />
           ) : null}
           <View style={styles.directionLabel}>
             <FormLabel label="금액 구분" />
@@ -846,6 +812,82 @@ function PlanLine({ plan, income, testID }: { plan: PaymentPlan | null; income: 
         {plan.conflict ? ` · 계약서 ${plan.conflict.installments}회와 달라요 (확인 필요)` : ''}
         {plan.firstNeedsCheck ? ' · 첫 지급일 확인 필요 (당월·익월 지급은 계약서를 확인해 직접 지정해주세요)' : ''}
       </AppText>
+    </View>
+  );
+}
+
+/**
+ * 구성항목 (기본급·수당 등) — 위 금액을 이루는 하위 항목. 따로 일정·지출·수입에 더하지 않는다.
+ * 추가·삭제할 수 있고, 합계가 위 금액과 다르면 알려준다 (금액 자체는 바꾸지 않음).
+ */
+function ComponentsEditor({ components, total, onChange, testID }: { components: { label: string; amount: number }[]; total: number | null; onChange: (next: { label: string; amount: number }[]) => void; testID: string }) {
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState('');
+  const [amountText, setAmountText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const sum = components.reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
+  const add = () => {
+    const amount = parseAmount(amountText);
+    if (!label.trim()) return setError('항목 이름을 입력해주세요');
+    if (amount == null || amount <= 0) return setError('금액을 입력해주세요');
+    onChange([...components, { label: label.trim(), amount }]);
+    setLabel('');
+    setAmountText('');
+    setError(null);
+    setAdding(false);
+  };
+  return (
+    <View style={[styles.components, { marginTop: 0, marginBottom: spacing.md }]} testID={testID}>
+      {components.length > 0 ? (
+        <>
+          <AppText variant="captionStrong" color="textSecondary">
+            구성항목 · 따로 더하지 않아요
+          </AppText>
+          {components.map((c, j) => (
+            <View key={`${c.label}-${j}`} style={styles.componentRow}>
+              <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
+                {c.label}
+              </AppText>
+              <AppText variant="caption" color="textSecondary" tabular>
+                {formatWon(Number(c.amount) || 0)}
+              </AppText>
+              <Pressable onPress={() => onChange(components.filter((_, k) => k !== j))} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={`구성항목 ${c.label} 삭제`} testID={`${testID}-${j}-delete`}>
+                <Ionicons name="close" size={14} color={colors.textTertiary} />
+              </Pressable>
+            </View>
+          ))}
+          <AppText variant="caption" color={total != null && sum !== total ? 'caution' : 'textTertiary'} testID={`${testID}-sum`}>
+            {total == null ? `합계 ${formatWon(sum)}` : sum === total ? `합계 ${formatWon(sum)} · 위 금액과 같아요` : `합계 ${formatWon(sum)} · 위 금액(${formatWon(total)})과 달라요 — 확인해주세요`}
+          </AppText>
+        </>
+      ) : null}
+      {adding ? (
+        <View style={{ gap: spacing.xs, marginTop: components.length > 0 ? spacing.sm : 0 }}>
+          <View style={styles.row2}>
+            <View style={styles.col}>
+              <TextField label="항목 이름" value={label} onChangeText={setLabel} placeholder="예: 기본급" testID={`${testID}-new-label`} />
+            </View>
+            <View style={styles.col}>
+              <TextField label="금액" value={amountText} onChangeText={(t) => setAmountText(formatAmountInput(parseAmount(t)))} keyboardType="number-pad" suffix="원" placeholder="0" testID={`${testID}-new-amount`} />
+            </View>
+          </View>
+          {error ? (
+            <AppText variant="caption" color="caution">
+              {error}
+            </AppText>
+          ) : null}
+          <View style={styles.row2}>
+            <Button label="취소" variant="secondary" size="sm" onPress={() => { setAdding(false); setError(null); }} style={{ flex: 1 }} testID={`${testID}-cancel`} />
+            <Button label="구성항목 추가" size="sm" onPress={add} style={{ flex: 1 }} testID={`${testID}-confirm`} />
+          </View>
+        </View>
+      ) : (
+        <Pressable onPress={() => setAdding(true)} accessibilityRole="button" hitSlop={hitSlop} testID={`${testID}-add`} style={{ marginTop: components.length > 0 ? spacing.sm : 0 }}>
+          <AppText variant="captionStrong" color="primary">
+            + 구성항목 추가 (기본급·수당 등)
+          </AppText>
+        </Pressable>
+      )}
     </View>
   );
 }

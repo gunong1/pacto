@@ -93,6 +93,23 @@ const check = (id, name, ok, detail = '') => {
   check('C', '상세 정보(상대방)가 있으면 수정 화면에서 처음부터 펼침 · 값 유지', (await has('quick-more')) && (await input('field-counterparty').inputValue()) === '넷플릭스코리아' && (await input('quick-amount').inputValue()) === '13,500');
   await page.screenshot({ path: path.join(SHOTS, 'quick-edit-02-more.png'), fullPage: true });
 
+  // C2 구성항목 추가 (기본급·수당) — 금액은 그대로, 따로 더하지 않음
+  await page.click(tid('quick-components-add'));
+  await input('quick-components-new-label').fill('기본 요금');
+  await input('quick-components-new-amount').fill('12000');
+  await page.click(tid('quick-components-confirm'));
+  await page.click(tid('quick-components-add'));
+  await input('quick-components-new-label').fill('부가 요금');
+  await input('quick-components-new-amount').fill('1500');
+  await page.click(tid('quick-components-confirm'));
+  const sumText = await page.locator(tid('quick-components-sum')).innerText();
+  check('C2', '구성항목 추가 → 목록 + 합계 13,500원 · 위 금액과 같아요', sumText.includes('13,500원') && sumText.includes('같아요'), sumText);
+  await page.click(tid('submit-contract'));
+  await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
+  await page.waitForTimeout(400);
+  const coreC = await page.locator(tid('detail-core')).innerText();
+  check('C3', '저장 → 상세에 구성 "기본 요금 12,000원 + 부가 요금 1,500원", 금액은 13,500원 한 건', coreC.includes('기본 요금 12,000원') && coreC.includes('부가 요금 1,500원') && coreC.includes('13,500원'), coreC.replace(/\s+/g, ' ').slice(0, 300));
+
   // D 계약서로 등록한 계약(미리보기 예시 데이터) → 전체 수정 화면
   await toMain();
   await page.click(tid('tab-contracts'));

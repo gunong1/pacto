@@ -89,6 +89,8 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   // 정기 결제는 오늘 적용 중인 금액 (금액 변경 이력 반영 — 지난 회차 금액은 일정에서 그대로)
   const payRow = (p: ContractPayment, emphasis = p.direction !== 'neutral') => {
     add(`pay:${p.id}`, p.label, p.frequency === 'one_time' ? `${money(p)} · ${formatDateKo(p.startsOn)}${oneTimeStatus(p, today)}` : `${money(withAmountAt(p, today))} · ${paymentRule(p)}`, emphasis);
+    // 구성항목 (기본급·수당 등) — 모든 유형 공통, 따로 더하지 않는 표시용
+    if (p.components.length > 0) add(`comp:${p.id}`, `${p.label} 구성`, p.components.map((x) => `${x.label} ${formatWon(x.amount)}`).join(' + '));
     planRows(p);
   };
   // 결제 일정: 첫 결제 · 총/진행/남은 회차 · 마지막 결제 — 입력값이 아니라 계약 기간·회차에서 계산 (PACTO 계산)

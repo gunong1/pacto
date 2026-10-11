@@ -103,3 +103,12 @@ test('첫 결제일 직접 지정 → 그 날짜부터 (진행 회차 기준) / 
   });
   expect(d.payments[0]).toMatchObject({ startsOn: '2026-01-15', dayOfMonth: 15 });
 });
+
+test('구성항목: 불러오기 → 추가·삭제 → 저장 (금액·일정은 그대로, 구성항목만 바뀜)', () => {
+  const d: ContractDraft = { ...EMPTY_DRAFT, title: '근로', contractType: 'employment', startDate: '2026-08-01', payments: [pay({ kind: 'salary', direction: 'income', label: '급여', amount: 1_270_000, dayOfMonth: 31, startsOn: null, components: [{ label: '기본급', amount: 1_200_000 }] })] };
+  expect(draftToQuickForm(d).quick?.components).toEqual([{ label: '기본급', amount: 1_200_000 }]);
+  const out = save(d, (v) => (v.quick!.components = [...v.quick!.components!, { label: '식대·수당', amount: 70_000 }]));
+  expect(out.payments).toHaveLength(1);
+  expect(out.payments[0]).toMatchObject({ label: '급여', amount: 1_270_000, components: [{ label: '기본급', amount: 1_200_000 }, { label: '식대·수당', amount: 70_000 }] });
+  expect(save(d, (v) => (v.quick!.components = [])).payments[0].components).toEqual([]);
+});

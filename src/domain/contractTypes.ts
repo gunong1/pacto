@@ -66,7 +66,7 @@ const LEGACY_TOPIC_LABEL: Record<string, string> = { termination: '해지', pena
 
 /** 결제 의미의 기본 방향 */
 export const defaultDirection = (k: string): Direction => PAYMENT_KIND_MAP.get(k)?.direction ?? 'expense';
-export const DIRECTION_LABEL: Record<Direction, string> = { expense: '지출', income: '수입', neutral: '보증금·중립' };
+export const DIRECTION_LABEL: Record<Direction, string> = { expense: '지출', income: '수입', neutral: '중립·해당 없음' };
 
 /** 지출 합계에 넣는 결제 (보증금처럼 돌려받는 돈 = neutral, 수입 = income 은 제외) */
 export function countsAsSpending(direction: Direction): boolean {
