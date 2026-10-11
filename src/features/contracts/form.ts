@@ -339,7 +339,8 @@ export function draftToQuickForm(d: ContractDraft): ContractFormValues {
       direction: p.direction,
       frequency: p.frequency,
       day: monthly ? String(p.dayOfMonth ?? (p.startsOn ? Number(p.startsOn.slice(8, 10)) : '')) : '',
-      nextDate: monthly ? '' : str(p.startsOn),
+      // 매월도 첫 결제일을 보여준다 (진행 회차 기준). 비어 있으면 계약 시작일을 따라감
+      nextDate: str(p.startsOn),
       base: v.payments[pick],
     },
   };
@@ -362,7 +363,7 @@ export function quickHasDetails(v: ContractFormValues): boolean {
   );
 }
 
-export function quickToPayment(type: ContractType, q: NonNullable<ParsedContractForm['quick']>, today: string = todayInSeoul()): PaymentDraft | null {
+export function quickToPayment(type: ContractType, q: NonNullable<ParsedContractForm['quick']>, today: string = todayInSeoul(), contractStart: string | null = null): PaymentDraft | null {
   const amount = parseAmount(q.amount);
   const monthlyDay = q.frequency === 'monthly' && q.day?.trim() ? Number(q.day) : null;
   const base = q.base ? paymentFromForm(q.base) : null;
@@ -371,12 +372,16 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
     if (amount == null) return null;
     // 수정: 원래 첫 결제일이 없던 결제(= 계약 시작일 기준)는 그대로 두어 시작일을 바꾸면 함께 따라가게 한다.
     // 원래 매월 결제였으면 첫 결제 달은 그대로 두고 날짜(일)만 바꾼다 (지난 결제 기록이 사라지지 않게)
+    // 첫 결제일을 직접 바꾸면 그 날짜, 그대로면 기존 규칙 (결제일만 바꾸면 첫 결제 달은 유지)
+    const firstChanged = !!q.nextDate && q.nextDate !== (base.startsOn ?? '');
     const first = monthlyDay
-      ? base.frequency === 'monthly'
-        ? base.startsOn
-          ? sameMonthDay(base.startsOn, monthlyDay)
-          : null
-        : nextMonthlyDate(today, monthlyDay)
+      ? firstChanged
+        ? q.nextDate!
+        : base.frequency === 'monthly'
+          ? base.startsOn
+            ? sameMonthDay(base.startsOn, monthlyDay)
+            : null
+          : nextMonthlyDate(contractStart ?? today, monthlyDay)
       : q.nextDate || (base.frequency === q.frequency ? base.startsOn : null);
     if (!first && !monthlyDay && !(base.frequency === q.frequency && !base.startsOn)) return null;
     return {
@@ -393,7 +398,8 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
       businessDayRule: oneTime ? 'none' : base.businessDayRule,
     };
   }
-  const first = monthlyDay ? nextMonthlyDate(today, monthlyDay) : q.nextDate;
+  // 매월: 첫 결제일을 입력했으면 그날, 아니면 계약 시작일(없으면 오늘) 이후 첫 결제일 — 진행 회차가 계약 시작부터 맞게
+  const first = monthlyDay ? q.nextDate || nextMonthlyDate(contractStart ?? today, monthlyDay) : q.nextDate;
   if (amount == null || !first) return null;
   const kind = quickPaymentKind(type);
   return {
@@ -441,7 +447,7 @@ export function paymentFromForm(p: PaymentFormValues): PaymentDraft {
 }
 
 export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul()): ContractDraft {
-  const quick = v.quick ? quickToPayment(v.contractType, v.quick, today) : null;
+  const quick = v.quick ? quickToPayment(v.contractType, v.quick, today, nullable(v.startDate)) : null;
   return {
     contractType: v.contractType,
     title: v.title.trim(),

@@ -4,6 +4,7 @@ import { addDays, formatDateKo } from './dates';
 import { FREQUENCY_LABEL } from './labels';
 import { formatWon, formatWonCompact } from './money';
 import { withAmountAt } from './paymentAmount';
+import { paymentPlan, planSummary } from './paymentPlan';
 import { amountPeriods, probationPeriod } from './paymentRules';
 import { expandPayment, isPaymentDayUnknown } from './schedule';
 import { noticeLabelOf } from './noticeKind';
@@ -86,8 +87,21 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   };
   const ofKind = (...kinds: PaymentKind[]) => payments.filter((p) => kinds.includes(p.kind));
   // 정기 결제는 오늘 적용 중인 금액 (금액 변경 이력 반영 — 지난 회차 금액은 일정에서 그대로)
-  const payRow = (p: ContractPayment, emphasis = p.direction !== 'neutral') =>
+  const payRow = (p: ContractPayment, emphasis = p.direction !== 'neutral') => {
     add(`pay:${p.id}`, p.label, p.frequency === 'one_time' ? `${money(p)} · ${formatDateKo(p.startsOn)}${oneTimeStatus(p, today)}` : `${money(withAmountAt(p, today))} · ${paymentRule(p)}`, emphasis);
+    planRows(p);
+  };
+  // 결제 일정: 첫 결제 · 총/진행/남은 회차 · 마지막 결제 — 입력값이 아니라 계약 기간·회차에서 계산 (PACTO 계산)
+  const planRows = (p: ContractPayment) => {
+    const plan = paymentPlan(p, record, today);
+    if (!plan) return;
+    const income = p.direction === 'income';
+    const conflict = plan.conflict ? ` · 계약서 ${plan.conflict.installments}회와 달라요 (확인 필요)` : '';
+    const w = income ? '지급' : '결제';
+    if (plan.first) add(`first:${p.id}`, `첫 ${w}`, formatDateKo(plan.first));
+    add(`plan:${p.id}`, `${w} 회차`, planSummary(plan) + conflict, plan.total != null, 'calculated');
+    if (plan.last) add(`last:${p.id}`, income ? '마지막 지급' : '마지막 결제', formatDateKo(plan.last), false, 'calculated');
+  };
   const dateRow = (kind: string, label: string) => {
     const v = dates.find((x) => x.kind === kind)?.date;
     add(`dk:${kind}`, label, v ? formatDateKo(v) : null);
@@ -106,10 +120,6 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
     const n = terminationNoticeDeadline(c, today);
     // 의미가 불확실하면 이름 대신 "확인 필요"를 함께 보여준다 (계약 수정에서 고를 수 있음)
     add('notice', noticeLabelOf(c.noticeKind, t), `종료 ${c.terminationNoticeDays}일 전까지${n ? ` (${formatDateKo(n.date)})` : ''}${c.noticeKind === 'unknown' ? ' · 확인 필요' : ''}`, !!n && !n.passed);
-  };
-  const progress = (p: ContractPayment) => {
-    const pr = installmentProgress(p, record, today);
-    if (pr) add(`progress:${p.id}`, '남은 회차', `${pr.remaining}회 남음 (${pr.paid}/${pr.total}회 납부)`, true);
   };
 
   switch (t) {
@@ -136,10 +146,7 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
       detailRow('vehiclePrice');
       detailRow('principal', true);
       detailRow('interestRate');
-      for (const p of ofKind('installment')) {
-        payRow(p);
-        progress(p);
-      }
+      for (const p of ofKind('installment')) payRow(p);
       for (const p of payments) payRow(p, false);
       add('maturity', '만기일', c.endDate ? formatDateKo(c.endDate) : null);
       break;
@@ -148,10 +155,7 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
       detailRow('interestRate');
       detailRow('rateType');
       detailRow('repaymentMethod');
-      for (const p of payments) {
-        payRow(p);
-        progress(p);
-      }
+      for (const p of payments) payRow(p);
       add('executed', '대출 실행일', c.startDate ? formatDateKo(c.startDate) : null);
       add('maturity', '만기일', c.endDate ? formatDateKo(c.endDate) : null);
       break;

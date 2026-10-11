@@ -33,7 +33,7 @@ const CONTRACTS = [
     dates: [{ kind: 'move_in', label: '입주일', date: '261101' }],
     core: ['보증금', '2억원', '계약금', '잔금', '입주일', '임대차 기간', '계약 체결일'],
     checks: [
-      { date: '2026-11-01', has: ['임대차 시작 · 입주', '잔금', '180,000,000원', '지출 합계 제외'], not: ['입주일'], total: '₩0', totalHas: '보증금 1억 8,000만원은 돌려받는 돈이라' },
+      { date: '2026-11-01', has: ['임대차 시작 · 입주', '잔금', '180,000,000원', '지출 합계 제외'], not: ['입주일'], total: '₩0', totalHas: '보증금 제외' },
       { date: '2026-09-01', has: ['계약금'], not: ['계약 체결'], total: '₩0' },
       { date: '2028-09-01', has: ['갱신 여부 확인'] },
       { date: '2028-10-31', has: ['계약 만기'] },
@@ -69,9 +69,9 @@ const CONTRACTS = [
     details: [['text', 'detail-vehicleName', '아반떼'], ['text', 'detail-principal', '23000000'], ['text', 'detail-interestRate', '4.9']],
     payments: [
       { kind: 'advance_payment', label: '선수금', amount: '5000000', freq: 'one_time', date: '261020' },
-      { kind: 'installment', label: '할부금', amount: '683000', freq: 'monthly', day: '25', first: '261125', count: '36' },
+      { kind: 'installment', label: '할부금', amount: '683000', freq: 'monthly', day: '25', first: '261125' },
     ],
-    core: ['할부원금', '23,000,000원', '연 4.9%', '할부금', '남은 회차', '36회 남음', '만기일', '다음 결제'],
+    core: ['할부원금', '23,000,000원', '연 4.9%', '할부금', '결제 회차', '총 36회', '36회 남음', '마지막 결제', '2029. 10. 25.', '만기일', '다음 결제'],
     checks: [
       { date: '2026-10-20', has: ['선수금'], total: '₩5,000,000' },
       { date: '2026-11-25', has: ['할부금 1/36회'], total: '₩683,000' },
@@ -87,8 +87,8 @@ const CONTRACTS = [
     start: '261015',
     end: '311015',
     details: [['text', 'detail-principal', '50000000'], ['text', 'detail-interestRate', '5.2'], ['chip', 'detail-repaymentMethod-equal_payment']],
-    payments: [{ kind: 'loan_repayment', label: '월 상환액', amount: '948000', freq: 'monthly', day: '15', first: '261115', count: '60' }],
-    core: ['대출원금', '50,000,000원', '연 5.2%', '원리금균등', '월 상환액', '60회 남음', '대출 실행일', '만기일'],
+    payments: [{ kind: 'loan_repayment', label: '월 상환액', amount: '948000', freq: 'monthly', day: '15', first: '261115' }],
+    core: ['대출원금', '50,000,000원', '연 5.2%', '원리금균등', '월 상환액', '총 60회', '60회 남음', '마지막 결제', '2031. 10. 15.', '대출 실행일', '만기일'],
     checks: [
       { date: '2026-10-15', has: ['대출 실행'], total: '₩0' },
       { date: '2026-11-15', has: ['월 상환액 1/60회'], total: '₩948,000' },
@@ -244,7 +244,7 @@ const CONTRACTS = [
       if (p.date) await input(`payment-${i}-startsOn`).fill(p.date);
       if (p.first) await input(`payment-${i}-startsOn`).fill(p.first);
       if (p.day) await input(`payment-${i}-dayOfMonth`).fill(p.day);
-      if (p.count) await input(`payment-${i}-installmentCount`).fill(p.count);
+      // 총 회차는 입력하지 않는다 — 계약 종료일 기준으로 자동 계산 (결과는 카드 아래 "자동 계산"과 상세 "결제 일정")
       if (p.dir) await page.click(tid(`payment-${i}-direction-${p.dir}`));
     }
     for (const [i, d] of (k.dates ?? []).entries()) {

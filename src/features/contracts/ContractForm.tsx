@@ -38,6 +38,7 @@ import { addMonths, formatDateKo } from '@/domain/dates';
 import { categoryLabel, FREQUENCY_LABEL } from '@/domain/labels';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
 import { NOTICE_KIND_OPTIONS } from '@/domain/noticeKind';
+import { paymentPlan, planSummary, type PaymentPlan } from '@/domain/paymentPlan';
 import { contractSchedule, expandPayment } from '@/domain/schedule';
 import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES, type Confidence } from '@/domain/types';
 import { colors, hitSlop, radius, spacing } from '@/theme';
@@ -161,6 +162,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   const dates = useFieldArray({ control, name: 'dates' });
 
   const values = useWatch({ control }) as ContractFormValues;
+  // 결제별 계산 결과 (빠른 입력 결제가 있으면 맨 앞, 그 뒤로 추가 결제)
+  const plans = usePaymentPlans(values, today)?.plans;
 
   // 빠른 입력: 계약명으로 분야 추천 (확정 아님 · 애매하면 기타 유지 · 직접 고르면 그 값 유지)
   const nameSuggestion = quick ? suggestCategory(values.title ?? '') : null;
@@ -361,12 +364,10 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                     <View style={styles.colNarrow}>
                       {field(`payments.${i}.dayOfMonth`, pv.direction === 'income' ? '지급일' : '결제일', { keyboardType: 'number-pad', suffix: '일', maxLength: 2, testID: `payment-${i}-dayOfMonth`, flagged: flagged?.has(`${path}.dayOfMonth`), hint: hint(`${path}.dayOfMonth`) })}
                     </View>
-                    <View style={styles.col}>{date(`payments.${i}.startsOn`, '첫 결제일', { hint: '비워두면 시작일부터', testID: `payment-${i}-startsOn` })}</View>
+                    <View style={styles.col}>{date(`payments.${i}.startsOn`, pv.direction === 'income' ? '첫 지급일' : '첫 결제일', { hint: '비워두면 시작일부터', testID: `payment-${i}-startsOn` })}</View>
                   </View>
-                  <View style={styles.row2}>
-                    <View style={styles.col}>{date(`payments.${i}.endsOn`, '마지막 결제일 (선택)', { hint: '비워두면 종료일까지', testID: `payment-${i}-endsOn` })}</View>
-                    <View style={styles.colNarrow}>{field(`payments.${i}.installmentCount`, '총 회차', { keyboardType: 'number-pad', suffix: '회', maxLength: 3, testID: `payment-${i}-installmentCount` })}</View>
-                  </View>
+                  {/* 총 회차·마지막 결제일은 입력하지 않고 계약 기간(또는 계약서 회차)으로 계산해 보여준다 */}
+                  <PlanLine plan={plans ? (plans[plans.length - (values.payments?.length ?? 0) + i]?.plan ?? null) : null} income={pv.direction === 'income'} testID={`payment-${i}-plan`} />
                   <FormLabel label={pv.direction === 'income' ? '지급일이 휴일이면' : '결제일이 휴일이면'} />
                   <Controller
                     control={control}
@@ -584,19 +585,33 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           <FormLabel label={income ? '지급 주기' : '결제 주기'} />
           <Controller control={control} name="quick.frequency" render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value ?? 'monthly'} onChange={f.onChange} scroll testIDPrefix="quick-frequency" />} />
           <View style={{ height: spacing.lg }} />
-          {monthly
-            ? field('quick.day', income ? '지급일' : '결제일', {
-                keyboardType: 'number-pad',
-                suffix: '일',
-                maxLength: 2,
-                placeholder: '예: 15',
-                testID: 'quick-day',
-                hint: income ? '매월 몇 일에 받나요?' : '매월 몇 일에 결제되나요?',
-              })
-            : date('quick.nextDate', oneTime ? (income ? '지급 예정일' : '결제 예정일') : income ? '첫 지급일' : '첫 결제일', {
-                testID: 'quick-nextDate',
-                hint: day && !oneTime ? `이날부터 ${FREQUENCY_LABEL[q?.frequency ?? 'monthly']} ${day}일에 ${income ? '받아요' : '결제돼요'}` : undefined,
-              })}
+          {monthly ? (
+            <View style={styles.row2}>
+              <View style={styles.colNarrow}>
+                {field('quick.day', income ? '지급일' : '결제일', {
+                  keyboardType: 'number-pad',
+                  suffix: '일',
+                  maxLength: 2,
+                  placeholder: '예: 15',
+                  testID: 'quick-day',
+                  hint: income ? '매월 몇 일에 받나요?' : '매월 몇 일에 결제되나요?',
+                })}
+              </View>
+              <View style={styles.col}>
+                {date('quick.nextDate', income ? '첫 지급일' : '첫 결제일', {
+                  testID: 'quick-firstDate',
+                  hint: values.startDate ? '비워두면 계약 시작일부터' : '비워두면 오늘 이후부터',
+                })}
+              </View>
+            </View>
+          ) : (
+            date('quick.nextDate', oneTime ? (income ? '지급 예정일' : '결제 예정일') : income ? '첫 지급일' : '첫 결제일', {
+              testID: 'quick-nextDate',
+              hint: day && !oneTime ? `이날부터 ${FREQUENCY_LABEL[q?.frequency ?? 'monthly']} ${day}일에 ${income ? '받아요' : '결제돼요'}` : undefined,
+            })
+          )}
+          {/* 총 회차·마지막 결제일은 종료일(또는 계약서 회차)로 계산 */}
+          {!oneTime && values.quick?.amount?.trim() ? <PlanLine plan={plans?.[0]?.plan ?? null} income={income} testID="quick-plan" /> : null}
         </Section>
 
         <SectionGap />
@@ -762,15 +777,40 @@ function DetailInput({ control, spec, flagged, hint, source }: { control: Contro
 }
 
 /** 저장하면 관리될 결제·일정 미리보기 — 계약 조건이 실제 일정·지출 관리로 이어지는 것을 보여준다. */
-function SchedulePreview({ values, today }: { values: ContractFormValues; today: string }) {
-  const preview = useMemo(() => {
+/** 입력값으로 결제별 일정 요약(첫 결제·총 회차·마지막 결제) 계산 — 폼 미리보기·결제 카드 공통 */
+function usePaymentPlans(values: ContractFormValues, today: string) {
+  return useMemo(() => {
     const parsed = contractFormSchema.safeParse(values);
     if (!parsed.success) return null;
     const record = draftToRecord(formToDraft(parsed.data, today), 'preview', today);
-    const pays = record.payments.map((p) => ({ p, first: expandPayment(p, record.contract, { start: '1900-01-01', end: '2999-12-31' }, record.dates)[0] ?? null }));
+    return { record, plans: record.payments.map((p) => ({ p, plan: paymentPlan(p, record, today) })) };
+  }, [values, today]);
+}
+
+/** 결제 카드 아래 계산 결과: "총 24회 · 10회 진행 · 14회 남음 · 마지막 결제 2027. 12. 15." */
+function PlanLine({ plan, income, testID }: { plan: PaymentPlan | null; income: boolean; testID?: string }) {
+  if (!plan) return null;
+  const parts = [planSummary(plan), plan.last ? `마지막 ${income ? '지급' : '결제'} ${formatDateKo(plan.last)}` : null].filter(Boolean).join(' · ');
+  return (
+    <View style={styles.planLine} testID={testID}>
+      <Badge label="자동 계산" tone="primary" />
+      <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
+        {parts}
+        {plan.conflict ? ` · 계약서 ${plan.conflict.installments}회와 달라요 (확인 필요)` : ''}
+      </AppText>
+    </View>
+  );
+}
+
+function SchedulePreview({ values, today }: { values: ContractFormValues; today: string }) {
+  const computed = usePaymentPlans(values, today);
+  const preview = useMemo(() => {
+    if (!computed) return null;
+    const { record } = computed;
+    const pays = computed.plans.map(({ p, plan }) => ({ p, plan, first: expandPayment(p, record.contract, { start: '1900-01-01', end: '2999-12-31' }, record.dates)[0] ?? null }));
     const items = contractSchedule(record, { start: today, end: addMonths(today, 36) }, today).filter((i) => i.type !== 'payment');
     return { items: items.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6), pays };
-  }, [values, today]);
+  }, [computed, today]);
 
   return (
     <Section title="저장하면 관리되는 결제·일정" testID="schedule-preview">
@@ -784,7 +824,7 @@ function SchedulePreview({ values, today }: { values: ContractFormValues; today:
         </AppText>
       ) : (
         <View style={styles.preview}>
-          {preview.pays.map(({ p, first }) => (
+          {preview.pays.map(({ p, plan, first }) => (
             <PreviewRow
               key={p.id}
               color={EVENT_COLOR.payment}
@@ -792,7 +832,7 @@ function SchedulePreview({ values, today }: { values: ContractFormValues; today:
               sub={[
                 p.frequency === 'one_time' ? '일시불' : `${FREQUENCY_LABEL[p.frequency]}${p.dayOfMonth ? ` ${p.dayOfMonth}일` : ''}`,
                 first ? `${p.frequency === 'one_time' ? '' : '첫 결제 '}${formatDateKo(first.date)}` : null,
-                p.installmentCount ? `총 ${p.installmentCount}회` : null,
+                plan ? (plan.total != null ? `총 ${plan.total}회 · 마지막 ${formatDateKo(plan.last!)}` : '종료일 없이 반복') : null,
                 p.direction === 'neutral' ? '지출 합계 제외' : p.direction === 'income' ? '수입' : null,
               ]
                 .filter(Boolean)
@@ -907,6 +947,7 @@ const styles = StyleSheet.create({
   components: { marginTop: spacing.md, padding: spacing.md, gap: 4, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
   componentRow: { flexDirection: 'row', alignItems: 'center' },
   row2: { flexDirection: 'row', gap: spacing.md },
+  planLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   col: { flex: 1 },
   colNarrow: { width: 110 },
   rowCenter: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

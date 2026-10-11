@@ -1,5 +1,6 @@
 /** 직접 입력(빠른 입력) — 계약명·금액·주기·다음 결제일만으로 저장, 결제 일정이 그 날짜 기준으로 만들어진다 */
 import { EMPTY_DRAFT, draftToRecord } from '@/data/draft';
+import { paymentPlan } from '@/domain/paymentPlan';
 import { expandPayment } from '@/domain/schedule';
 import { contractFormSchema, draftToForm, formToDraft, nextMonthlyDate, quickDirectionAdvice, type ContractFormValues } from '@/features/contracts/form';
 
@@ -112,5 +113,25 @@ describe('금액 구분(지출·수입·중립) — 유형으로 고정하지 �
     const record = draftToRecord(formToDraft(contractFormSchema.parse(base({ title: '중고차 매도', contractType: 'sale' }, { amount: '12,000,000', frequency: 'one_time', nextDate: '2026-11-01', direction: 'income' }))), 'x', '2026-10-09');
     expect(p.direction).toBe('income');
     expect(record.payments[0].direction).toBe('income');
+  });
+});
+
+describe('매월 첫 결제일 → 회차 자동 계산 (총 회차·마지막 결제일은 입력하지 않음)', () => {
+  const plan = (patch: Partial<ContractFormValues>, quick: Partial<NonNullable<ContractFormValues['quick']>>) => {
+    const draft = formToDraft(contractFormSchema.parse(base({ title: '할부', ...patch }, { amount: '300,000', day: '15', ...quick })), TODAY);
+    const record = draftToRecord(draft, 'x', TODAY);
+    return { p: record.payments[0], plan: paymentPlan(record.payments[0], record, TODAY) };
+  };
+  test('첫 결제일 2026-01-15 + 계약 종료일 2027-12-15 → 총 24회 · 9회 진행 · 15회 남음 · 마지막 2027-12-15', () => {
+    const { p, plan: x } = plan({ endDate: '2027-12-15' }, { nextDate: '2026-01-15' });
+    expect(p).toMatchObject({ startsOn: '2026-01-15', dayOfMonth: 15, installmentCount: null, endsOn: null });
+    expect(x).toMatchObject({ total: 24, done: 9, remaining: 15, last: '2027-12-15' });
+  });
+  test('첫 결제일을 비우면 계약 시작일 이후 첫 결제일부터 (시작일이 없으면 오늘 이후)', () => {
+    expect(plan({ startDate: '2026-01-10', endDate: '2027-12-15' }, {}).p.startsOn).toBe('2026-01-15');
+    expect(plan({}, {}).p.startsOn).toBe('2026-10-15');
+  });
+  test('종료일이 없으면 무기한 반복 (총 회차 없음)', () => {
+    expect(plan({}, { nextDate: '2026-01-15' }).plan).toMatchObject({ total: null, done: 9 });
   });
 });

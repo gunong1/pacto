@@ -111,6 +111,9 @@ export function isPaymentDayUnknown(payment: Pick<ContractPayment, 'frequency' |
 }
 
 /** 계약서상 지급일 기준 전개 (휴일 조정·기간별 금액 전) */
+/** 회차로 관리하는 결제 — 계약서에 회차가 없어도 종료일 기준 총 회차를 제목에 표시 */
+const COUNTED_KINDS = new Set<string>(['installment', 'loan_repayment']);
+
 function expandNominal(
   payment: ContractPayment,
   contract: Contract,
@@ -126,9 +129,16 @@ function expandNominal(
 
   const s = parseISODate(start);
   const day = payment.dayOfMonth ?? s.day;
-  const total = payment.installmentCount;
   const step = payment.frequency === 'one_time' ? 0 : FREQUENCY_STEP_MONTHS[payment.frequency];
   const firstIdx = step ? firstOccurrenceIdx(payment) : 0;
+  // 총 회차: 사용자가 입력하지 않고 끝나는 날(결제 마지막일·계약 종료일·계약서 회차·해지일 중 가장 이른 날)까지의 회차 수로 계산
+  let total = payment.installmentCount;
+  if (step && end != null) {
+    const e = parseISODate(end);
+    let endIdx = monthIndex(e.year, e.month);
+    if (dateInMonth(e.year, e.month, day) > end) endIdx -= 1;
+    total = endIdx < firstIdx ? 0 : Math.floor((endIdx - firstIdx) / step) + 1;
+  }
   const make = (date: ISODate): PaymentOccurrence => {
     const d = parseISODate(date);
     const no = step ? Math.round((monthIndex(d.year, d.month) - firstIdx) / step) + 1 : 1;
@@ -143,7 +153,8 @@ function expandNominal(
       kind: payment.kind,
       direction: payment.direction,
       label: payment.label,
-      installment: total != null ? { no, total } : null,
+      // 캘린더·알림 제목의 "n/총회차": 계약서 회차가 있거나 할부·대출 상환처럼 회차로 관리하는 결제만 (월세·급여 등은 제목에 회차를 붙이지 않음)
+      installment: total != null && (payment.installmentCount != null || COUNTED_KINDS.has(payment.kind)) ? { no, total } : null,
       estimated: payment.isVariable,
     };
   };

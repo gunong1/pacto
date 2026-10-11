@@ -17,7 +17,7 @@ const save = (d: ContractDraft, edit: (v: ReturnType<typeof draftToQuickForm>) =
 test('간단한 계약: 금액·금액 구분·주기·결제일이 위쪽에, 상세 정보는 접힘', () => {
   const d: ContractDraft = { ...EMPTY_DRAFT, title: '유튜브 프리미엄', contractType: 'recurring', payments: [pay({})] };
   const v = draftToQuickForm(d);
-  expect(v.quick).toMatchObject({ amount: '14,900', direction: 'expense', frequency: 'monthly', day: '12', nextDate: '' });
+  expect(v.quick).toMatchObject({ amount: '14,900', direction: 'expense', frequency: 'monthly', day: '12', nextDate: '2026-03-12' });
   expect(v.payments).toEqual([]);
   expect(quickHasDetails(v)).toBe(false);
 });
@@ -86,4 +86,12 @@ test('첫 결제일 없이 계약 시작일을 따르던 결제 → 수정해도
   // 일시불도 같음
   const once: ContractDraft = { ...d, contractType: 'one_time', payments: [pay({ frequency: 'one_time', startsOn: null, dayOfMonth: null })] };
   expect(save(once).payments).toEqual(once.payments);
+});
+
+test('매월: 첫 결제일을 바꾸면 그 날짜부터 (진행 회차 기준)', () => {
+  const d = save({ ...EMPTY_DRAFT, title: '대출', contractType: 'loan', payments: [pay({})] }, (v) => {
+    v.quick!.nextDate = '2026-01-15';
+    v.quick!.day = '15';
+  });
+  expect(d.payments[0]).toMatchObject({ startsOn: '2026-01-15', dayOfMonth: 15 });
 });
