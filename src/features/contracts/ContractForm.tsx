@@ -341,7 +341,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
           return (
             <View key={p.key} style={styles.card} testID={`payment-${i}`}>
               <View style={styles.cardHeader}>
-                <AppText variant="body2Strong">결제 {i + 1}</AppText>
+                <AppText variant="body2Strong">금액 {i + 1}</AppText>
                 {pv.obligation !== 'confirmed' ? (
                   <Badge label={`${OBLIGATION_LABEL[pv.obligation]} · 캘린더·지출 제외`} tone="check" />
                 ) : pv.direction === 'neutral' ? (
@@ -398,6 +398,32 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                   {field(`payments.${i}.amount`, '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: `payment-${i}-amount`, flagged: flagged?.has(`${path}.amount`), hint: hint(`${path}.amount`) })}
                 </View>
               </View>
+              {/* 구성항목: 이 금액을 이루는 하위 항목 (기본급·수당 등) — 따로 일정·합계에 넣지 않는다 */}
+              {pv.components && pv.components.length > 0 ? (
+                <View style={styles.components} testID={`payment-${i}-components`}>
+                  <AppText variant="captionStrong" color="textSecondary">
+                    구성항목 · 따로 더하지 않아요
+                  </AppText>
+                  {pv.components.map((c, j) => (
+                    <View key={`${c.label}-${j}`} style={styles.componentRow}>
+                      <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
+                        {c.label}
+                      </AppText>
+                      <AppText variant="caption" color="textSecondary" tabular>
+                        {formatWon(Number(c.amount) || 0)}
+                      </AppText>
+                      <Pressable
+                        onPress={() => setValue(`payments.${i}.components`, pv.components.filter((_, k) => k !== j))}
+                        hitSlop={hitSlop}
+                        accessibilityRole="button"
+                        accessibilityLabel={`구성항목 ${c.label} 삭제`}
+                        testID={`payment-${i}-component-${j}-delete`}>
+                        <Ionicons name="close" size={14} color={colors.textTertiary} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
               <Controller control={control} name={`payments.${i}.frequency`} render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value} onChange={f.onChange} scroll testIDPrefix={`payment-${i}-frequency`} />} />
               <View style={{ height: spacing.sm }} />
               <Controller control={control} name={`payments.${i}.direction`} render={({ field: f }) => <ChipGroup options={DIRECTION_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-direction`} />} />
@@ -432,27 +458,10 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
                   <Controller control={control} name={`payments.${i}.isVariable`} render={({ field: f }) => <SwitchRow label="금액이 매번 달라져요" description="통신비처럼 변동되는 금액은 예상치로 표시" value={f.value} onValueChange={f.onChange} />} />
                 </>
               )}
-              {pv.components && pv.components.length > 0 ? (
-                <View style={styles.components} testID={`payment-${i}-components`}>
-                  <AppText variant="captionStrong" color="textSecondary">
-                    {pv.label || '금액'} 구성 (따로 더하지 않아요)
-                  </AppText>
-                  {pv.components.map((c, j) => (
-                    <View key={`${c.label}-${j}`} style={styles.componentRow}>
-                      <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
-                        {c.label}
-                      </AppText>
-                      <AppText variant="caption" color="textSecondary" tabular>
-                        {formatWon(Number(c.amount) || 0)}
-                      </AppText>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
             </View>
           );
         })}
-        <Button label="+ 결제 추가" variant="secondary" size="md" onPress={() => payments.append(newPayment(profile.paymentKinds[0]))} testID="add-payment" />
+        <Button label="+ 금액 추가" variant="secondary" size="md" onPress={() => payments.append(newPayment(profile.paymentKinds[0]))} testID="add-payment" />
     </>
   );
   const datesBlock = (
@@ -591,6 +600,23 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         <SectionGap />
         <Section title="금액" caption="비워두면 결제 없이 저장돼요" testID="quick-payment">
           {field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
+          {q?.base?.components && q.base.components.length > 0 ? (
+            <View style={[styles.components, { marginTop: 0, marginBottom: spacing.md }]} testID="quick-components">
+              <AppText variant="captionStrong" color="textSecondary">
+                구성항목 · 따로 더하지 않아요
+              </AppText>
+              {q.base.components.map((c, j) => (
+                <View key={`${c.label}-${j}`} style={styles.componentRow}>
+                  <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
+                    {c.label}
+                  </AppText>
+                  <AppText variant="caption" color="textSecondary" tabular>
+                    {formatWon(Number(c.amount) || 0)}
+                  </AppText>
+                </View>
+              ))}
+            </View>
+          ) : null}
           <View style={styles.directionLabel}>
             <FormLabel label="금액 구분" />
             {advice.clear && !directionPicked && q?.direction === advice.direction ? <Badge label="추천" tone="primary" /> : null}
@@ -681,7 +707,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             </Section>
             {detailsBlock}
             <SectionGap />
-            <Section title="추가 결제" caption="위 결제 말고 다른 돈이 있으면 (설치비·보증금 등)" testID="section-payments">
+            <Section title="추가 금액" caption="위 금액 말고 따로 오가는 돈이 있으면 (설치비·보증금 등). 위 금액을 이루는 항목(기본급·수당 등)은 넣지 않아요." testID="section-payments">
               {paymentsBlock}
             </Section>
             <SectionGap />
@@ -731,7 +757,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
       {detailsBlock}
 
       <SectionGap />
-      <Section title="결제" caption="오가는 돈을 넣어주세요. 실제로 내야 하는 '확정 결제'만 캘린더·지출에 들어가요. 양도 수수료·락커비처럼 상황이나 선택에 따라 내는 돈은 조건부·선택형으로." testID="section-payments">
+      <Section title="금액" caption="계약에서 실제로 나가거나 들어오는 돈을 관리해요. 확정된 금액만 캘린더·지출·수입에 들어가요. 합계 금액을 이루는 항목(기본급·수당 등)은 따로 넣지 않고 그 금액의 구성항목으로 보여줘요." testID="section-payments">
         {paymentsBlock}
       </Section>
 

@@ -6,7 +6,7 @@
  * C 같은 날 월세·관리비(지출)와 보증금 잔금(중립) 분리 / D 용역 10,000,000 = 3M + 3M + 4M → 20M 아님
  */
 import { toAppResult } from '../../../supabase/functions/_shared/extraction.ts';
-import { findAggregateTotals } from '../../../supabase/functions/_shared/paymentAggregate';
+import { findAggregateTotals, findRecurringComponents, foldRecurringComponents } from '../../../supabase/functions/_shared/paymentAggregate';
 import { draftToRecord } from '@/data/draft';
 import { toRecord } from '@/data/supabase/rowMapping';
 import { toReviewModel } from '@/features/registration/extraction';
@@ -148,5 +148,47 @@ describe('D. 다른 계약에도 같은 원칙', () => {
       { label: '중개 수수료 잔금', amount: 1000, frequency: 'one_time', obligation: 'optional' },
     ];
     expect(findAggregateTotals(ps).map((p) => p.label)).toEqual(['매매대금']);
+  });
+});
+
+describe('정기 금액의 구성항목 (총액과 구성항목을 중복 계산하지 않음)', () => {
+  const p = (label: string, amount: number, extra: Partial<{ dayOfMonth: number | null; direction: string; frequency: string; obligation: string }> = {}) => ({
+    label,
+    amount,
+    frequency: 'monthly',
+    direction: 'income',
+    dayOfMonth: null as number | null,
+    obligation: 'confirmed',
+    components: [] as { label: string; amount: number }[],
+    ...extra,
+  });
+
+  test('급여 1,270,000(지급일 31) = 기본급 1,200,000 + 식대·수당 70,000 → 급여 한 건 + 구성항목 2개', () => {
+    const out = foldRecurringComponents([p('기본급', 1_200_000), p('식대·수당', 70_000), p('급여', 1_270_000, { dayOfMonth: 31 })]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ label: '급여', amount: 1_270_000, dayOfMonth: 31, components: [{ label: '기본급', amount: 1_200_000 }, { label: '식대·수당', amount: 70_000 }] });
+  });
+  test('총액 이름이 합계를 뜻하면 지급일이 모두 있어도 구성항목으로 (월 임금 = 기본급 + 직책수당)', () => {
+    const out = foldRecurringComponents([p('기본급', 3_000_000, { dayOfMonth: 25 }), p('직책수당', 200_000, { dayOfMonth: 25 }), p('월 임금', 3_200_000, { dayOfMonth: 25 })]);
+    expect(out.map((x) => x.label)).toEqual(['월 임금']);
+  });
+  test('애매하면 그대로: 이름이 합계가 아니고 모두 지급일이 있으면 (월세 500,000 = 관리비 300,000 + 주차비 200,000 우연히 같음)', () => {
+    const list = [p('월세', 500_000, { dayOfMonth: 25, direction: 'expense' }), p('관리비', 300_000, { dayOfMonth: 25, direction: 'expense' }), p('주차비', 200_000, { dayOfMonth: 25, direction: 'expense' })];
+    expect(foldRecurringComponents(list)).toHaveLength(3);
+  });
+  test('금액이 정확히 맞지 않거나, 주기·방향이 다르면 그대로', () => {
+    expect(foldRecurringComponents([p('기본급', 1_200_000), p('수당', 60_000), p('급여', 1_270_000, { dayOfMonth: 31 })])).toHaveLength(3);
+    expect(foldRecurringComponents([p('기본급', 1_200_000), p('상여', 70_000, { frequency: 'yearly' }), p('급여', 1_270_000, { dayOfMonth: 31 })])).toHaveLength(3);
+    expect(foldRecurringComponents([p('기본급', 1_200_000), p('식대', 70_000, { direction: 'expense' }), p('급여', 1_270_000, { dayOfMonth: 31 })])).toHaveLength(3);
+  });
+  test('일회성 총액 규칙(보증금 = 계약금 + 잔금)은 그대로 — 총액은 참고, 나눠 내는 몫이 실제 돈', () => {
+    const once = [p('보증금', 20_000_000, { frequency: 'one_time', direction: 'neutral' }), p('계약금', 2_000_000, { frequency: 'one_time', direction: 'neutral' }), p('잔금', 18_000_000, { frequency: 'one_time', direction: 'neutral' })];
+    expect(foldRecurringComponents(once)).toHaveLength(3);
+    expect(findAggregateTotals(once).map((x) => x.label)).toEqual(['보증금']);
+  });
+  test('캘린더·수입 합계: 구성항목을 빼고 나면 급여 1,270,000 한 건만 일정에', () => {
+    const groups = findRecurringComponents([p('기본급', 1_200_000), p('식대·수당', 70_000), p('급여', 1_270_000, { dayOfMonth: 31 })]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].parts.map((x) => x.label)).toEqual(['기본급', '식대·수당']);
   });
 });

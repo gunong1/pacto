@@ -3,7 +3,7 @@
  * 이 파일은 Supabase 클라이언트를 import하지 않는다.
  */
 import { isNoticeKind } from '@/domain/noticeKind';
-import { AGGREGATE_NOTE, findAggregateTotals } from '../../../supabase/functions/_shared/paymentAggregate';
+import { AGGREGATE_NOTE, findAggregateTotals, foldRecurringComponents } from '../../../supabase/functions/_shared/paymentAggregate';
 import { detailsFromDb } from '@/domain/contractTypes';
 import type {
   AiCheck,
@@ -81,7 +81,9 @@ function toPayment(r: PaymentRow): ContractPayment {
  */
 function markAggregates(payments: ContractPayment[]): ContractPayment[] {
   const totals = new Set(findAggregateTotals(payments));
-  return payments.map((p) => (totals.has(p) ? { ...p, obligation: 'informational', conditionNote: p.conditionNote ?? AGGREGATE_NOTE } : p));
+  const marked = payments.map((p) => (totals.has(p) ? { ...p, obligation: 'informational' as const, conditionNote: p.conditionNote ?? AGGREGATE_NOTE } : p));
+  // 정기 금액의 구성항목(기본급·수당)이 총액(급여)과 함께 저장돼 있으면 구성항목으로 읽는다 (다음에 수정·저장하면 그대로 정리됨)
+  return foldRecurringComponents(marked);
 }
 
 function toDate(r: Row<'contract_dates'>): ContractDate {

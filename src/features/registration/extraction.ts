@@ -1,6 +1,6 @@
 import type { ExtractedDate, ExtractedPayment, ExtractionResult } from '@/data/ai/provider';
 import { isNoticeKind } from '@/domain/noticeKind';
-import { findAggregateTotals } from '../../../supabase/functions/_shared/paymentAggregate';
+import { findAggregateTotals, foldRecurringComponents } from '../../../supabase/functions/_shared/paymentAggregate';
 import { EMPTY_DRAFT } from '@/data/draft';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
@@ -212,7 +212,8 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
   const firstPayment = result.dates.find((d) => d.meaning === 'first_payment');
   // 총액(보증금 등)이 계약금·잔금으로 나눠 함께 왔으면 총액은 합계(참고)로 — 이전 버전 서버 결과도 같은 돈을 두 번 세지 않도록
   const aggregates = findAggregateTotals(result.payments);
-  result.payments.filter((p) => !aggregates.includes(p)).forEach((p, i) => {
+  // 정기 금액의 구성항목(기본급·수당)은 총액(급여)의 구성으로 — 이전 버전 서버 결과도 같은 돈을 두 번 세지 않도록
+  foldRecurringComponents(result.payments.filter((p) => !aggregates.includes(p))).forEach((p, i) => {
     const path = `payments.${i}`;
     let startsOn = p.date;
     if (!startsOn && p.frequency !== 'one_time' && firstPayment) {

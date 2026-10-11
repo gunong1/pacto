@@ -26,7 +26,7 @@ import {
   PAYMENT_KIND_DEFS,
 } from './contractRegistry.ts';
 import { DOCUMENT_CHECK_INSTRUCTIONS, documentCheckJsonSchema } from './documentGate.ts';
-import { findAggregateTotals } from './paymentAggregate.ts';
+import { findAggregateTotals, foldRecurringComponents } from './paymentAggregate.ts';
 import { maskLevel1Deep } from './protection/sensitive.ts';
 
 /**
@@ -840,6 +840,10 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
     payments.splice(payments.indexOf(total), 1);
     references.push({ label: total.label, amount: total.amount, role: 'total' });
   }
+  // 안전장치: 정기 금액의 구성항목(기본급·수당)이 총액(급여)과 함께 따로 결제로 오면 구성항목으로 옮긴다
+  // — 급여 1,270,000 = 기본급 1,200,000 + 식대·수당 70,000 → 실제 수입 일정은 급여 한 건, 기본급·수당은 급여의 구성
+  const folded = foldRecurringComponents(payments);
+  payments.splice(0, payments.length, ...folded);
 
   // 7) 유형별 속성 — 숫자 속성은 계약서에 적힌 경우만 (추정·계산한 연봉 같은 값은 버린다)
   const monthlyAmounts = new Set(payments.filter((p) => p.frequency === 'monthly').map((p) => p.amount));
