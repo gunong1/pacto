@@ -48,9 +48,8 @@ function daysToDeadline() {
     await page.click(tid('first-run-register'));
     await page.click(tid('method-manual'));
     await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
-    await page.click(tid('type-lease'));
+    await page.click(tid('kind-lease')); // 부동산·임대차 → 임대차·부동산
     await input('field-title').fill('주택 월세 임대차계약');
-    await page.click(tid('category-real_estate'));
     await input('field-startDate').fill('261020');
     await input('field-endDate').fill('281019');
     assert((await page.locator(tid('notice-kind')).count()) === 0, '일수를 넣기 전에 의미 선택지가 보임');

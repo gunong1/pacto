@@ -33,9 +33,8 @@ const kst = (n) => {
     await page.goto(BASE + '/register', { waitUntil: 'networkidle' });
     await page.click(tid('method-manual'));
     await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
-    await page.click(tid('type-lease'));
+    await page.click(tid('kind-lease')); // 부동산·임대차 → 임대차·부동산
     await input('field-title').fill(title);
-    await page.click(tid('category-real_estate'));
     await input('field-startDate').fill(start);
     await input('field-endDate').fill(end);
     await page.click(tid('detail-leaseKind-monthly'));

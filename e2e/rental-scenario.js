@@ -40,9 +40,8 @@ const assert = (cond, msg) => {
   await page.click(tid('first-run-register'));
   await page.click(tid('method-manual'));
   await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
-  await page.click(tid('type-recurring'));
+  await page.click(tid('kind-rental')); // 렌탈 → 월 납입형·렌탈 (유형·분야를 따로 고르지 않음)
   await input('field-title').fill('공기청정기 렌탈');
-  await page.click(tid('category-rental'));
   await input('field-contractDate').fill('261005');
   await input('field-startDate').click();
   assert((await input('field-contractDate').inputValue()) === '2026-10-05', '6자리 날짜 자동 변환 실패');

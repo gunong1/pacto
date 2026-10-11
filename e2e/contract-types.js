@@ -223,6 +223,8 @@ const CONTRACTS = [
     await page.click(tid('first-run-register'));
     await page.click(tid('method-manual'));
     await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
+    // 계약 종류는 한 번만 고른다 — 이 시나리오는 내부 유형·분야를 정확히 지정해야 해서 "상세 분류"를 쓴다
+    await page.click(tid('toggle-classification'));
     await page.click(tid(`type-${k.type}`));
     await input('field-title').fill(k.title);
     await page.click(tid(`category-${k.category}`));

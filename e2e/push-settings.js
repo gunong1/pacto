@@ -64,9 +64,8 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.goto(BASE + '/register', { waitUntil: 'networkidle' });
     await page.click(tid('method-manual'));
     await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
-    await page.click(tid('type-lease'));
+    await page.click(tid('kind-lease')); // 부동산·임대차 → 임대차·부동산
     await input('field-title').fill('주택 임대차계약');
-    await page.click(tid('category-real_estate'));
     await input('field-startDate').fill(yymmdd(pay));
     await input('field-endDate').fill(yymmdd(kst(700)));
     await page.click(tid('detail-leaseKind-monthly'));
@@ -120,9 +119,8 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.goto(BASE + '/register', { waitUntil: 'networkidle' });
     await page.click(tid('method-manual'));
     await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
-    await page.click(tid('type-lease'));
+    await page.click(tid('kind-lease')); // 부동산·임대차 → 임대차·부동산
     await input('field-title').fill('단기 임대차');
-    await page.click(tid('category-real_estate'));
     await input('field-startDate').fill(yymmdd(kst(-300)));
     await input('field-endDate').fill(yymmdd(end));
     await page.click(tid('detail-leaseKind-monthly'));

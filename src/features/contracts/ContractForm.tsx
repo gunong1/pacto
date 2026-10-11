@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -14,7 +14,6 @@ import { draftToRecord } from '@/data/draft';
 import type { ContractDraft } from '@/data/repository';
 import {
   dateKindLabel,
-  contractTypeExamples,
   contractTypeLabel,
   profileOf,
   CONTRACT_TYPES,
@@ -33,7 +32,8 @@ import {
   type Direction,
 } from '@/domain/contractTypes';
 import { BUSINESS_DAY_RULE_LABEL } from '@/domain/businessDays';
-import { suggestCategory, withRo } from '@/domain/categorySuggestion';
+import { suggestCategory } from '@/domain/categorySuggestion';
+import { CONTRACT_KINDS, contractKind, kindForCategory, kindOf, type ContractKindDef } from '@/domain/contractKinds';
 import { addMonths, formatDateKo } from '@/domain/dates';
 import { categoryLabel, FREQUENCY_LABEL } from '@/domain/labels';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
@@ -98,6 +98,7 @@ export interface ContractFormProps {
 const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
 const CATEGORY_OPTIONS = CONTRACT_CATEGORIES.map((c) => ({ value: c, label: categoryLabel(c) }));
 const TYPE_OPTIONS = CONTRACT_TYPES.map((t) => ({ value: t, label: contractTypeLabel(t) }));
+const KIND_OPTIONS = CONTRACT_KINDS.map((k) => ({ value: k.code, label: k.label }));
 const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABEL[d] }));
 /** 빠른 입력의 돈 방향 (중립 = 보증금처럼 돌려받는 돈·해당 없음) */
 const QUICK_DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
@@ -147,11 +148,12 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   // 수정 화면: 저장된 상세 정보가 있으면 처음부터 펼친다 / 이미 정해진 분야·금액 구분은 자동으로 바꾸지 않는다
   const editing = mode === 'edit';
   const [more, setMore] = useState(() => quick && editing && quickHasDetails(defaultValues));
-  /** 빠른 입력: 사용자가 분야를 직접 골랐으면 더 이상 추천으로 바꾸지 않는다 */
-  const [categoryPicked, setCategoryPicked] = useState(editing);
+  /** 사용자가 계약 종류를 직접 골랐으면 더 이상 계약명 추천으로 바꾸지 않는다 (수정 화면은 처음부터 고른 상태) */
+  const [kindPicked, setKindPicked] = useState(editing);
   /** 빠른 입력: 금액 구분(지출·수입·중립)을 직접 골랐는지 (고른 뒤에는 유형을 바꿔도 유지) */
   const [directionPicked, setDirectionPicked] = useState(editing);
-  const [categoryOpen, setCategoryOpen] = useState(false);
+  /** "상세 분류" (내부 유형·분야 직접 선택) 펼침 */
+  const [classOpen, setClassOpen] = useState(false);
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),
     defaultValues,
@@ -165,17 +167,6 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   // 결제별 계산 결과 (빠른 입력 결제가 있으면 맨 앞, 그 뒤로 추가 결제)
   const plans = usePaymentPlans(values, today)?.plans;
 
-  // 빠른 입력: 계약명으로 분야 추천 (확정 아님 · 애매하면 기타 유지 · 직접 고르면 그 값 유지)
-  const nameSuggestion = quick ? suggestCategory(values.title ?? '') : null;
-  const suggestedCategory = nameSuggestion?.category ?? 'other';
-  useEffect(() => {
-    if (!quick || categoryPicked) return;
-    if (getValues('category') !== suggestedCategory) setValue('category', suggestedCategory);
-  }, [quick, categoryPicked, suggestedCategory, getValues, setValue]);
-  const pickCategory = (c: ContractFormValues['category']) => {
-    setCategoryPicked(true);
-    setValue('category', c);
-  };
   const type = values.contractType;
   const profile = profileOf(type);
 
@@ -190,22 +181,49 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   };
 
   /** 유형 변경: 결제·날짜는 그대로 두고, 유형별 정보만 새 유형 기준으로 다시 고른다 */
-  const changeType = (next: ContractType) => {
-    const prev = getValues('contractType');
-    if (next === prev) return;
-    const current = getValues('details');
-    const merged: Record<string, DetailValue> = { ...(allDetails ?? {}) };
-    for (const spec of detailFields(prev)) {
-      const v = detailFromInput(spec, current[spec.key] ?? '');
-      if (v !== undefined && v !== null) merged[spec.key] = v;
-    }
-    // 빠른 입력: 주기를 직접 바꾸지 않았다면 새 유형의 기본 주기로
-    if (quick && getValues('quick.frequency') === quickDefaultFrequency(prev)) setValue('quick.frequency', quickDefaultFrequency(next));
-    // 빠른 입력: 금액 구분(지출·수입·중립)을 직접 고르지 않았다면 새 유형의 추천으로 (고른 뒤에는 유지)
-    if (quick && !directionPicked) setValue('quick.direction', quickDirectionAdvice(next).direction);
-    setValue('contractType', next);
-    setValue('details', detailsToForm(next, cleanDetails(next, merged)));
+  const changeType = useCallback(
+    (next: ContractType) => {
+      const prev = getValues('contractType');
+      if (next === prev) return;
+      const current = getValues('details');
+      const merged: Record<string, DetailValue> = { ...(allDetails ?? {}) };
+      for (const spec of detailFields(prev)) {
+        const v = detailFromInput(spec, current[spec.key] ?? '');
+        if (v !== undefined && v !== null) merged[spec.key] = v;
+      }
+      // 빠른 입력: 주기를 직접 바꾸지 않았다면 새 유형의 기본 주기로
+      if (quick && getValues('quick.frequency') === quickDefaultFrequency(prev)) setValue('quick.frequency', quickDefaultFrequency(next));
+      // 빠른 입력: 금액 구분(지출·수입·중립)을 직접 고르지 않았다면 새 유형의 추천으로 (고른 뒤에는 유지)
+      if (quick && !directionPicked) setValue('quick.direction', quickDirectionAdvice(next).direction);
+      setValue('contractType', next);
+      setValue('details', detailsToForm(next, cleanDetails(next, merged)));
+    },
+    [allDetails, quick, directionPicked, getValues, setValue],
+  );
+
+  /** 계약 종류 하나 → 내부 유형·분야를 함께 정한다 */
+  const applyKind = useCallback(
+    (k: Pick<ContractKindDef, 'type' | 'category'>) => {
+      changeType(k.type);
+      if (getValues('category') !== k.category) setValue('category', k.category);
+    },
+    [changeType, getValues, setValue],
+  );
+  const pickKind = (code: string) => {
+    const k = contractKind(code);
+    if (!k) return;
+    setKindPicked(true);
+    applyKind(k);
   };
+
+  // 빠른 입력: 계약명으로 종류 추천 (확정 아님 · 애매하면 추천 없음 · 직접 고르면 그 값 유지)
+  const nameSuggestion = quick ? suggestCategory(values.title ?? '') : null;
+  const suggestedKind = kindForCategory(nameSuggestion?.category);
+  const defaultType = defaultValues.contractType;
+  useEffect(() => {
+    if (!quick || kindPicked) return;
+    applyKind(suggestedKind ?? { type: defaultType, category: 'other' });
+  }, [quick, kindPicked, suggestedKind, defaultType, applyKind]);
 
   const paymentKindOptions = (current: PaymentKind) => {
     const kinds = [...profile.paymentKinds];
@@ -214,6 +232,41 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   };
   const dateKindOptions = profile.dateKinds.map((k) => ({ value: k, label: dateKindLabel(k) }));
 
+  // 계약 종류 (한 번만 고른다). 새 직접 입력은 고르거나 계약명으로 추천되기 전까지 선택 없음
+  const match = kindOf(values.contractType, values.category);
+  const selectedKind = quick && !kindPicked && !suggestedKind ? null : match.kind.code;
+  const kindChooser = (
+    <View testID="kind-chooser">
+      <ChipGroup options={KIND_OPTIONS} value={selectedKind} onChange={pickKind} testIDPrefix="kind" />
+      <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }} testID="kind-hint">
+        {selectedKind
+          ? `${quick && !kindPicked ? '계약명으로 추천했어요 · ' : ''}${match.kind.examples}`
+          : '이 계약이 무엇인지 골라주세요. 계약명을 입력하면 추천해요.'}
+      </AppText>
+      <Pressable onPress={() => setClassOpen((o) => !o)} accessibilityRole="button" accessibilityState={{ expanded: classOpen }} hitSlop={hitSlop} testID="toggle-classification" style={styles.classToggle}>
+        <AppText variant="captionStrong" color="primary">
+          {classOpen ? '− 상세 분류 닫기' : '+ 상세 분류'}
+        </AppText>
+        {!match.exact ? (
+          <AppText variant="caption" color="textSecondary" testID="classification-custom">
+            {contractTypeLabel(values.contractType)} · {categoryLabel(values.category)}
+          </AppText>
+        ) : null}
+      </Pressable>
+      {classOpen ? (
+        <View style={styles.classBox} testID="classification-detail">
+          <AppText variant="caption" color="textTertiary">
+            애매한 계약만 바꿔주세요. 계약 구조는 일정·지출 계산 방식, 분야는 지출 분류에 쓰여요.
+          </AppText>
+          <FormLabel label="계약 구조" flagged={flagged?.has('contractType')} />
+          <ChipGroup options={TYPE_OPTIONS} value={type} onChange={(t) => { setKindPicked(true); changeType(t); }} testIDPrefix="type" />
+          <FormLabel label="분야" flagged={flagged?.has('category')} />
+          <ChipGroup options={CATEGORY_OPTIONS} value={values.category} onChange={(c) => { setKindPicked(true); setValue('category', c); }} testIDPrefix="category" />
+        </View>
+      ) : null}
+    </View>
+  );
+
   const typeBlock = (
     <>
         {typeSuggestion ? (
@@ -221,14 +274,14 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             {categorySuggestion ? (
               <View style={styles.rowCenter}>
                 <AppText variant="captionStrong" testID="category-suggestion">
-                  AI 판단 분야: {categoryLabel(categorySuggestion.value)} · 신뢰도 {CONFIDENCE_LABEL[categorySuggestion.confidence]}
+                  AI 판단 분야: {categoryLabel(categorySuggestion.value)} · 신뢰도 {CONFIDENCE_LABEL[categorySuggestion.confidence]} (상세 분류)
                 </AppText>
                 {flagged?.has('category') ? <Badge label="확인 필요" tone="check" /> : null}
               </View>
             ) : null}
             <View style={styles.rowCenter}>
               <AppText variant="captionStrong">
-                AI 판단 유형: {contractTypeLabel(typeSuggestion.value)} · 신뢰도 {CONFIDENCE_LABEL[typeSuggestion.confidence]}
+                AI 판단 종류: {kindOf(typeSuggestion.value, (categorySuggestion?.value ?? values.category) as typeof values.category).kind.label} · 신뢰도 {CONFIDENCE_LABEL[typeSuggestion.confidence]}
               </AppText>
               {flagged?.has('contractType') ? <Badge label="확인 필요" tone="check" /> : null}
             </View>
@@ -239,18 +292,15 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             ) : null}
             {typeSuggestion.alternatives.length > 0 ? (
               <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
-                다른 가능성: {typeSuggestion.alternatives.map((t) => contractTypeLabel(t)).join(', ')}
+                다른 가능성: {[...new Set(typeSuggestion.alternatives.map((t) => kindOf(t, values.category).kind.label))].join(', ')}
               </AppText>
             ) : null}
             <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
-              유형에 따라 일정·지출·확인할 조건이 다르게 만들어져요. 맞지 않으면 아래에서 바꿔주세요.
+              종류에 따라 일정·지출·확인할 조건이 다르게 만들어져요. 맞지 않으면 아래에서 바꿔주세요.
             </AppText>
           </View>
         ) : null}
-        <ChipGroup options={TYPE_OPTIONS} value={type} onChange={changeType} testIDPrefix="type" />
-        <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }}>
-          {contractTypeExamples(type)}
-        </AppText>
+        {kindChooser}
     </>
   );
   const detailsBlock = (
@@ -532,29 +582,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         {header}
         <Section testID="quick-basic">
           {field('title', '계약명', { placeholder: '예: 유튜브 프리미엄' })}
-          {categoryPicked || nameSuggestion ? (
-            <View style={styles.categoryLine} testID="category-suggestion-line">
-              <AppText variant="caption" color="textSecondary" testID="category-suggestion-text">
-                {categoryPicked ? `분야: ${categoryLabel(values.category)}` : `${withRo(categoryLabel(values.category))} 분류했어요`}
-              </AppText>
-              {!categoryPicked ? <Badge label="추천" tone="primary" /> : null}
-              <Pressable onPress={() => setCategoryOpen((o) => !o)} hitSlop={hitSlop} accessibilityRole="button" testID="category-change">
-                <AppText variant="captionStrong" color="primary">
-                  {categoryOpen ? '닫기' : '변경'}
-                </AppText>
-              </Pressable>
-            </View>
-          ) : null}
-          {categoryOpen ? (
-            <View style={{ marginBottom: spacing.lg }}>
-              <ChipGroup options={CATEGORY_OPTIONS} value={values.category} onChange={(c) => { pickCategory(c); setCategoryOpen(false); }} testIDPrefix="quick-category" />
-            </View>
-          ) : null}
-          <FormLabel label="계약 유형" />
-          <ChipGroup options={TYPE_OPTIONS} value={type} onChange={changeType} testIDPrefix="type" />
-          <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm }}>
-            {contractTypeExamples(type)}
-          </AppText>
+          <FormLabel label="계약 종류" flagged={flagged?.has('contractType') || flagged?.has('category')} />
+          {kindChooser}
         </Section>
 
         <SectionGap />
@@ -648,13 +677,6 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             <Section title="상세 정보">
               {field('counterparty', '계약 상대방', { placeholder: '예: 구글' })}
               {date('contractDate', '계약 체결일', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
-              <FormLabel label="분야" />
-              {!categoryPicked && nameSuggestion ? (
-                <AppText variant="caption" color="textTertiary" style={{ marginBottom: spacing.sm }}>
-                  계약명으로 추천했어요. 맞지 않으면 바꿔주세요.
-                </AppText>
-              ) : null}
-              <ChipGroup options={CATEGORY_OPTIONS} value={values.category} onChange={pickCategory} testIDPrefix="category" />
             </Section>
             {detailsBlock}
             <SectionGap />
@@ -686,16 +708,13 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
     <Screen edges={['bottom']} footer={footer}>
       {header}
 
-      <Section title="계약 유형" caption="돈·날짜·의무가 움직이는 구조예요. 이 유형에 맞게 일정과 지출을 관리해요." testID="section-type">
+      <Section title="계약 종류" caption="이 계약이 무엇인지 한 번만 골라주세요. 종류에 맞게 일정과 지출을 관리해요." testID="section-type">
         {typeBlock}
       </Section>
 
       <SectionGap />
       <Section title="기본 정보">
         {field('title', '계약명', { placeholder: '예: 자동차보험' })}
-        <FormLabel label="분야 (무슨 계약인가요?)" flagged={flagged?.has('category')} />
-        <Controller control={control} name="category" render={({ field: f }) => <ChipGroup options={CATEGORY_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="category" />} />
-        <View style={{ height: spacing.lg }} />
         {field('counterparty', '계약 상대방', { placeholder: '예: 삼성화재' })}
       </Section>
 
@@ -947,6 +966,8 @@ const styles = StyleSheet.create({
   components: { marginTop: spacing.md, padding: spacing.md, gap: 4, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
   componentRow: { flexDirection: 'row', alignItems: 'center' },
   row2: { flexDirection: 'row', gap: spacing.md },
+  classToggle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md, alignSelf: 'flex-start' },
+  classBox: { marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.bgSubtle, gap: spacing.xs },
   planLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   col: { flex: 1 },
   colNarrow: { width: 110 },

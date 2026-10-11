@@ -42,7 +42,8 @@ async function signUp(page, email, password) {
   await page.click(tid('method-manual'));
   await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
   await page.fill(`input${tid('field-title')}`, '헬스장');
-  await page.click(tid('type-recurring'));
+  await page.click(tid('kind-subscription')); // 구독·회원권 → 월 납입형
+  await page.click(tid('toggle-classification'));
   await page.click(tid('category-membership'));
   await page.fill(`input${tid('field-startDate')}`, '260101');
   await page.fill(`input${tid('field-endDate')}`, '20261231');

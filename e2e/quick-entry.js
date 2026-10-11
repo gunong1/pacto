@@ -4,7 +4,7 @@
  * B "유튜브 프리미엄 · 월 14,900원 · 결제일 N일 · 자동갱신 ON"만 입력해 저장 → 상세에 매월 결제로 표시
  * C "+ 상세 정보 추가" → 상대방·체결일·통보기한·주요 날짜·위약금·종료 메모·기타 조건 펼침
  * D 금액만 넣고 날짜를 비우면 저장되지 않고 안내
- * F 분야 추천: 계약명 → "구독으로 분류했어요 [추천] 변경", 애매하면 추천 없음(기타), 직접 고르면 그 값 유지
+ * F 종류 추천: 계약명 → 계약 종류 하나 추천(구독·회원권 …), 애매하면 선택 없음, 직접 고르면 그 값 유지. 유형·분야를 따로 고르지 않음
  * 사용: `npm run web`(mock 모드) 실행 후 `node e2e/quick-entry.js`
  */
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -53,7 +53,7 @@ const kst = (n) => {
   // A
   await openManual();
   await page.screenshot({ path: path.join(SHOTS, 'quick-01-form.png'), fullPage: true });
-  const visible = ['field-title', 'type-recurring', 'quick-amount', 'quick-frequency-monthly', 'quick-day', 'field-startDate', 'field-endDate', 'field-autoRenewal', 'field-memo'];
+  const visible = ['field-title', 'kind-chooser', 'quick-amount', 'quick-frequency-monthly', 'quick-day', 'field-startDate', 'field-endDate', 'field-autoRenewal', 'field-memo'];
   const hidden = ['field-counterparty', 'field-contractDate', 'field-terminationNoticeDays', 'add-date', 'field-penaltyTerms', 'field-earlyTerminationTerms', 'field-totalAmount', 'add-payment'];
   const missing = [];
   for (const id of visible) if (!(await has(id))) missing.push(id);
@@ -61,7 +61,7 @@ const kst = (n) => {
   for (const id of hidden) if (await has(id)) shown.push(id);
   check('A', '기본 화면은 주요·선택 항목만, 상세 정보는 접힘', missing.length === 0 && shown.length === 0, `없음 ${missing} / 보임 ${shown}`);
   // 선택된 유형의 예시 문구가 보인다 (월 납입형: 렌탈 · 통신 · 헬스장 · 구독 …)
-  check('A2', '계약 유형 기본값 = 월 납입형', (await page.locator(tid('quick-basic')).innerText()).includes('헬스장 · 구독'));
+  check('A2', '계약 종류는 처음에 선택 없음 + "이 계약이 무엇인지 골라주세요"', (await page.locator('[data-testid^="kind-"][aria-selected="true"]').count()) === 0 && (await page.locator(tid('quick-basic')).innerText()).includes('이 계약이 무엇인지 골라주세요'));
 
   // B
   const t0 = Date.now();
@@ -112,36 +112,43 @@ const kst = (n) => {
   await page.click(tid('quick-frequency-monthly'));
   check('H2', '분기마다 → "첫 결제일" / 일회성 → "결제 예정일"', q.includes('첫 결제일') && o.includes('결제 예정일') && !q.includes('다음 결제일'));
 
-  // F 분야 추천
+  // F 종류 추천 (계약 종류 하나만 — 유형·분야를 따로 고르지 않음)
   await openManual();
-  const line = async () => ((await has('category-suggestion-text')) ? (await page.locator(tid('category-suggestion-text')).innerText()).trim() : null);
+  const kind = async () => {
+    for (const el of await page.locator('[data-testid^="kind-"][aria-selected="true"]').all()) return (await el.getAttribute('data-testid')).slice(5);
+    return null;
+  };
+  const kindHint = async () => (await page.locator(tid('kind-hint')).innerText()).trim();
+  check('F0', '분야·유형을 따로 고르는 칩이 기본 화면에 없음 (상세 분류에만)', !(await has('category-subscription')) && !(await has('type-recurring')) && (await has('toggle-classification')));
   await input('field-title').fill('넷플릭스');
   await page.waitForTimeout(200);
-  const l1 = await line();
-  check('F1', '넷플릭스 → "구독으로 분류했어요" + 추천', l1 === '구독으로 분류했어요' && (await page.locator(tid('category-suggestion-line')).innerText()).includes('추천'), String(l1));
+  check('F1', '넷플릭스 → 구독·회원권 추천', (await kind()) === 'subscription' && (await kindHint()).includes('추천'), `${await kind()} ${await kindHint()}`);
   await input('field-title').fill('SKT 유튜브 결합');
   await page.waitForTimeout(200);
-  check('F2', '두 분야가 섞이면 추천 안 함 (기타 유지)', (await line()) === null);
-  await input('field-title').fill('헬스장 PT');
+  check('F2', '두 분야가 섞이면 추천 안 함 (선택 없음)', (await kind()) === null, String(await kind()));
+  await input('field-title').fill('삼성화재 자동차보험');
   await page.waitForTimeout(200);
-  check('F3', '헬스장 PT → 회원권으로 분류', (await line()) === '회원권으로 분류했어요', String(await line()));
-  await page.click(tid('category-change'));
-  await page.click(tid('quick-category-education'));
+  check('F3', '자동차보험 → 보험 하나만 (유형·분야 모두 보험)', (await kind()) === 'insurance', String(await kind()));
+  await page.click(tid('kind-education'));
   await page.waitForTimeout(200);
-  check('F4', '변경 → 교육 선택 → "분야: 교육" (추천 표시 없음)', (await line()) === '분야: 교육' && !(await page.locator(tid('category-suggestion-line')).innerText()).includes('추천'), String(await line()));
-  await input('field-title').fill('넷플릭스 헬스');
+  check('F4', '교육 선택 → 추천 표시 없음', (await kind()) === 'education' && !(await kindHint()).includes('추천'), await kindHint());
   await input('field-title').fill('넷플릭스');
   await page.waitForTimeout(200);
-  check('F5', '직접 고른 뒤에는 계약명을 바꿔도 그대로', (await line()) === '분야: 교육', String(await line()));
-  await page.click(tid('toggle-more'));
-  check('F6', '상세 정보에서도 분야 변경 가능', await has('category-subscription'));
-  await page.click(tid('category-subscription'));
+  check('F5', '직접 고른 뒤에는 계약명을 바꿔도 그대로', (await kind()) === 'education', String(await kind()));
+  await page.click(tid('toggle-classification'));
+  check('F6', '+ 상세 분류: 계약 구조·분야를 직접 바꿀 수 있음', (await has('type-recurring')) && (await has('category-membership')));
+  await page.click(tid('category-membership'));
   await page.waitForTimeout(200);
-  check('F7', '상세에서 고른 값이 위 줄에도 반영', (await line()) === '분야: 구독', String(await line()));
+  check('F7', '상세 분류에서 분야 회원권 → 종류 구독·회원권', (await kind()) === 'subscription', String(await kind()));
+  await page.click(tid('category-business'));
+  await page.waitForTimeout(200);
+  const custom = (await has('classification-custom')) ? await page.locator(tid('classification-custom')).innerText() : '';
+  check('F8', '종류 기본값과 다른 조합(월 납입형·사업·거래) → "상세 분류: 월 납입형 · 사업·거래" 표시', custom.includes('월 납입형') && custom.includes('사업·거래'), custom);
+  await page.click(tid('category-membership'));
   await page.click(tid('submit-contract'));
   await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
   const head = await page.locator('body').innerText();
-  check('F8', '저장 → 상세에 분야 구독', head.includes('구독'), head.slice(0, 120));
+  check('F9', '저장 → 상세에 회원권', head.includes('회원권'), head.slice(0, 120));
 
   // G 금액 구분(지출·수입·중립) — 유형으로 고정하지 않음 (추천만, 언제든 변경)
   await openManual();
@@ -151,19 +158,19 @@ const kst = (n) => {
   };
   const payText = () => page.locator(tid('quick-payment')).innerText();
   check('G1', '금액 섹션 제목은 "금액" (내는 돈·받는 돈 고정 아님) · "금액 구분" 3가지', (await payText()).startsWith('금액') && (await payText()).includes('금액 구분') && !(await payText()).includes('돈의 방향') && (await has('quick-direction-expense')) && (await has('quick-direction-income')) && (await has('quick-direction-neutral')));
-  check('G2', '월 납입형 → 지출 추천', (await dir()) === 'expense' && (await payText()).includes('추천'));
-  await page.click(tid('type-employment'));
+  check('G2', '종류 선택 전(월 납입형) → 지출 추천', (await dir()) === 'expense' && (await payText()).includes('추천'));
+  await page.click(tid('kind-employment'));
   await page.waitForTimeout(150);
   check('G3', '근로로 바꾸면 수입 추천', (await dir()) === 'income' && (await payText()).includes('추천') && (await payText()).includes('고용주'));
-  await page.click(tid('type-sale'));
+  await page.click(tid('kind-sale'));
   await page.waitForTimeout(150);
   const saleText = await payText();
   check('G4', '매매 → 지출이 기본이지만 "추천" 표시 없음 · 매수/매도 안내', (await dir()) === 'expense' && !saleText.includes('추천') && saleText.includes('파는(매도)'));
   await page.click(tid('quick-direction-income'));
   await page.waitForTimeout(150);
   check('G5', '매매에서 수입(매도) 선택 → 날짜 이름도 "지급 예정일"', (await dir()) === 'income' && (await payText()).includes('지급 예정일'));
-  await page.click(tid('type-service'));
-  await page.click(tid('type-sale'));
+  await page.click(tid('kind-service'));
+  await page.click(tid('kind-sale'));
   await page.waitForTimeout(150);
   check('G6', '직접 고른 방향은 유형을 바꿔도 유지', (await dir()) === 'income');
   await page.screenshot({ path: path.join(SHOTS, 'quick-02-direction.png'), fullPage: true });

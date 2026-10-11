@@ -54,7 +54,7 @@ const check = (id, name, ok, detail = '') => {
   await page.click(tid('edit-contract'));
   await page.waitForSelector(tid('quick-basic'), { timeout: 10000 });
   await page.waitForTimeout(400);
-  const same = ['field-title', 'type-recurring', 'quick-amount', 'quick-direction-expense', 'quick-frequency-monthly', 'quick-day', 'field-startDate', 'field-endDate', 'field-autoRenewal', 'field-memo', 'toggle-more'];
+  const same = ['field-title', 'kind-chooser', 'quick-amount', 'quick-direction-expense', 'quick-frequency-monthly', 'quick-day', 'field-startDate', 'field-endDate', 'field-autoRenewal', 'field-memo', 'toggle-more'];
   const missing = [];
   for (const id of same) if (!(await has(id))) missing.push(id);
   check('A1', '수정 화면 = 등록과 같은 구성 (계약명·유형·금액·금액 구분·주기·결제일·시작/종료·자동갱신·메모·상세 정보 추가)', missing.length === 0, missing.join(','));
