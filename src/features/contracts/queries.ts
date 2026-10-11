@@ -52,6 +52,13 @@ function useInvalidate() {
   };
 }
 
+/** 저장 실패 안내 — 원인(서버 메시지)을 짧게 붙인다. 계약 내용은 넣지 않는다 */
+export function saveErrorText(error: unknown): string | null {
+  if (!error) return null;
+  const detail = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as { message: unknown }).message) : '';
+  return `저장하지 못했어요. 잠시 후 다시 시도해주세요.${detail ? ` (${detail.slice(0, 120)})` : ''}`;
+}
+
 export function useCreateContract() {
   const invalidate = useInvalidate();
   return useMutation({

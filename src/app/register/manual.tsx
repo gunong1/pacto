@@ -4,7 +4,7 @@ import { AppText } from '@/components/ui/AppText';
 import { EMPTY_DRAFT } from '@/data/draft';
 import { ContractForm, quickDefaultFrequency } from '@/features/contracts/ContractForm';
 import { draftToForm, quickDirectionAdvice } from '@/features/contracts/form';
-import { useCreateContract, useToday } from '@/features/contracts/queries';
+import { saveErrorText, useCreateContract, useToday } from '@/features/contracts/queries';
 import { finishRegistration } from '@/features/registration/finish';
 import { useRegistration } from '@/features/registration/store';
 import { spacing } from '@/theme';
@@ -33,6 +33,7 @@ export default function ManualEntryScreen() {
       }
       submitLabel="계약 저장"
       submitting={create.isPending}
+        submitError={saveErrorText(create.error)}
       onSubmit={(draft) =>
         create.mutate(
           {

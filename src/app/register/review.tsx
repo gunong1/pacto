@@ -16,7 +16,7 @@ import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm } from '@/features/contracts/form';
 import { useProtectWithPassword } from '@/features/documents/useProtectWithPassword';
 import { viewDocument } from '@/features/documents/openDocument';
-import { useCreateContract, useDocumentProtection, useToday } from '@/features/contracts/queries';
+import { saveErrorText, useCreateContract, useDocumentProtection, useToday } from '@/features/contracts/queries';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
 import { overallProtectionCopy } from '@/features/documents/protectionCopy';
 import { noticeDeadlineFor, toReviewModel, type ReferenceRole, type ReviewCheck } from '@/features/registration/extraction';
@@ -249,6 +249,7 @@ export default function ReviewScreen() {
         submitLabel="계약 저장"
         footerNote="저장 후에도 언제든 수정할 수 있어요"
         submitting={create.isPending}
+        submitError={saveErrorText(create.error)}
         onSubmit={(formDraft) =>
           create.mutate(
             {

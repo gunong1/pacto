@@ -9,7 +9,7 @@ import { detectAmountEdits, pastOccurrencesAffected, resolveAmountEdits, type Am
 import { AmountChangeSheet } from '@/features/contracts/AmountChangeSheet';
 import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm, draftToQuickForm } from '@/features/contracts/form';
-import { useContract, useToday, useUpdateContract } from '@/features/contracts/queries';
+import { saveErrorText, useContract, useToday, useUpdateContract } from '@/features/contracts/queries';
 import { colors } from '@/theme';
 
 export default function EditContractScreen() {
@@ -57,6 +57,7 @@ export default function EditContractScreen() {
         today={today}
         submitLabel="수정 완료"
         submitting={update.isPending}
+        submitError={saveErrorText(update.error)}
         onSubmit={submit}
       />
       <AmountChangeSheet

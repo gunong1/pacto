@@ -55,6 +55,8 @@ export interface ContractFormProps {
   /** 폼과 일정 미리보기 아래에 붙는 보조 영역 (예: AI 체크 요약) */
   trailing?: React.ReactNode;
   footerNote?: string;
+  /** 저장 요청이 실패했을 때 보여줄 안내 (서버 오류 등) */
+  submitError?: string | null;
   submitLabel: string;
   submitting?: boolean;
   today: string;
@@ -78,6 +80,8 @@ const QUICK_DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
 /** 빠른 입력의 기본 주기 — 매매·일회성·용역은 일시불, 나머지는 매월 */
 export { quickDefaultFrequency } from './form';
 /** 빠른 입력 화면에 늘 보이는 값 — 이 밖의 오류는 접힌 상세 정보에 있다 */
+/** 갱신·통보 기한 칸 (등록 확인 화면에서는 평소 숨김) */
+const RENEWAL_KEYS: ReadonlySet<string> = new Set(['autoRenewal', 'renewalPeriodMonths', 'terminationNoticeDays', 'noticeKind', 'earlyTerminationTerms', 'penaltyTerms']);
 const QUICK_VISIBLE: ReadonlySet<string> = new Set(['title', 'contractType', 'quick', 'startDate', 'endDate', 'autoRenewal', 'renewalPeriodMonths', 'memo']);
 
 /**
@@ -87,7 +91,7 @@ const QUICK_VISIBLE: ReadonlySet<string> = new Set(['title', 'contractType', 'qu
  * 이 파일은 폼 상태와 섹션 배치만 맡는다. 각 섹션은 formSections/ (계약 종류·유형별 정보·금액·주요 날짜·갱신·미리보기).
  * 폼은 의미를 다시 판단하지 않는다 — 서버 분석 결과(또는 저장된 값)를 보여주고 사용자가 고친 값만 저장한다.
  */
-export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit, variant = 'full', mode = 'create' }: ContractFormProps) {
+export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitError, submitLabel, submitting, today, onSubmit, variant = 'full', mode = 'create' }: ContractFormProps) {
   const quick = variant === 'quick' && !!defaultValues.quick;
   // 수정 화면: 저장된 상세 정보가 있으면 처음부터 펼친다 / 이미 정해진 분야·금액 구분은 자동으로 바꾸지 않는다
   const editing = mode === 'edit';
@@ -97,7 +101,13 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   /** 빠른 입력: 금액 구분(지출·수입·중립)을 직접 골랐는지 (고른 뒤에는 유형을 바꿔도 유지) */
   const [directionPicked, setDirectionPicked] = useState(editing);
   /** 수정 화면(전체 입력): 갱신·통보 기한 펼침 */
-  const [renewalOpen, setRenewalOpen] = useState(false);
+  // 등록 확인 화면: 갱신·통보 기한은 평소 숨긴다 (계약 체크에서 넣기). 단, 자동갱신인데 갱신 주기가 비어 있으면
+  // 저장할 수 없으므로 처음부터 펼쳐 보여준다. 저장할 때 이 칸들에 오류가 있어도 펼친다
+  const renewalNeedsInput = !quick && !editing && defaultValues.autoRenewal && !defaultValues.renewalPeriodMonths.trim();
+  const [renewalOpen, setRenewalOpen] = useState(renewalNeedsInput);
+  const [renewalForced, setRenewalForced] = useState(renewalNeedsInput);
+  /** 저장 버튼을 눌렀는데 입력 확인이 필요한 경우의 안내 (어느 칸인지 모르면 저장이 안 되는 것처럼 보인다) */
+  const [invalidNote, setInvalidNote] = useState<string | null>(null);
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),
     defaultValues,
@@ -188,10 +198,21 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   const renewalBlock = (withSwitch: boolean) => <RenewalSection kit={kit} type={type} hasRenewal={profile.hasRenewal} quick={quick} withSwitch={withSwitch} />;
 
   const submit = handleSubmit(
-    (v) => onSubmit(confirmEdited(formToDraft(v, today), defaultValues, getValues())),
+    (v) => {
+      setInvalidNote(null);
+      onSubmit(confirmEdited(formToDraft(v, today), defaultValues, getValues()));
+    },
     (errors) => {
+      const keys = Object.keys(errors);
       // 빠른 입력: 접힌 상세 정보에 오류가 있으면 펼쳐서 보여준다
-      if (quick && Object.keys(errors).some((k) => !QUICK_VISIBLE.has(k))) setMore(true);
+      if (quick && keys.some((k) => !QUICK_VISIBLE.has(k))) setMore(true);
+      // 전체 입력: 숨겨 둔 갱신·통보 기한에 오류가 있으면 그 칸을 펼친다
+      if (!quick && keys.some((k) => RENEWAL_KEYS.has(k))) {
+        setRenewalForced(true);
+        setRenewalOpen(true);
+      }
+      const first = firstErrorMessage(errors);
+      setInvalidNote(`저장 전에 확인이 필요해요${first ? `: ${first}` : ''}`);
     },
   );
   const footer = (
@@ -199,6 +220,11 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
       {footerNote ? (
         <AppText variant="caption" color="textTertiary" align="center" style={{ marginBottom: spacing.sm }}>
           {footerNote}
+        </AppText>
+      ) : null}
+      {invalidNote || submitError ? (
+        <AppText variant="caption" color="caution" align="center" style={{ marginBottom: spacing.sm }} testID="submit-error">
+          {invalidNote ?? submitError}
         </AppText>
       ) : null}
       <Button label={submitLabel} loading={submitting} onPress={submit} testID="submit-contract" />
@@ -376,7 +402,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
       </Section>
 
       {/* 갱신·통보 기한: 등록 확인 화면에는 두지 않는다 (AI가 찾은 값으로 저장, 확인이 필요하면 계약 체크 카드에서 넣기). 수정 화면은 "+ 상세 정보"에 */}
-      {editing && profile.hasRenewal ? (
+      {(editing || renewalForced) && profile.hasRenewal ? (
         <>
           <SectionGap />
           <View style={styles.moreWrap}>
@@ -416,4 +442,17 @@ function confirmEdited(draft: ContractDraft, before: ContractFormValues, after: 
     if (src === 'inferred' && JSON.stringify(at(before, path) ?? '') !== JSON.stringify(at(after, path) ?? '')) sources[path] = 'user_confirmed';
   }
   return { ...draft, valueSources: sources };
+}
+
+/** 검증 오류 중 첫 번째 안내 문구 (중첩된 결제·날짜 칸 포함) */
+function firstErrorMessage(errors: unknown): string | null {
+  if (!errors || typeof errors !== 'object') return null;
+  const e = errors as { message?: unknown };
+  if (typeof e.message === 'string' && e.message) return e.message;
+  for (const [k, v] of Object.entries(errors)) {
+    if (k === 'ref') continue;
+    const m = firstErrorMessage(v);
+    if (m) return m;
+  }
+  return null;
 }
