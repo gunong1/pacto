@@ -270,6 +270,8 @@ export type AiCheckSuggestion =
       terminationNoticeDays: number;
       autoRenewal: boolean;
       renewalPeriodMonths: number | null;
+      /** 확인이 필요한 기한 — 등록 확인 화면에서 사용자가 "N일 전 넣기"를 골라야 저장 */
+      needsConfirm?: boolean;
     }
   | { kind: 'add_event'; eventType: ContractEventType; title: string; eventDate: ISODate };
 

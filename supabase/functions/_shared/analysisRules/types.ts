@@ -105,7 +105,8 @@ export interface ExtractedCheck {
   amountNote: string | null;
   suggestion:
     | null
-    | { kind: 'set_termination_notice'; terminationNoticeDays: number; autoRenewal: boolean; renewalPeriodMonths: number | null }
+    /** needsConfirm: 확인이 필요한 기한 — 사용자가 "N일 전 넣기"를 골라야 저장 (false면 그대로 캘린더·알림에) */
+    | { kind: 'set_termination_notice'; terminationNoticeDays: number; autoRenewal: boolean; renewalPeriodMonths: number | null; needsConfirm?: boolean }
     | { kind: 'add_event'; eventType: 'custom'; title: string; eventDate: string };
 }
 

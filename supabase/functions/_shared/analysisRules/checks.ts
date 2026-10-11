@@ -5,7 +5,7 @@
  *   - 조건부 주제(중도해지·연체·퇴직 통보·기한이익 상실·중도상환)나 conditional_rule은 날짜를 만들지 않는다
  *   예) topic "early_termination" + related_date → conditional_rule, related_date 제거
  * 규칙 C2 waivedCheck — 목적: 면제된 금액(등록비·설치비 면제 등)을 "면제된 금액" 체크 하나로 보관
- * 규칙 C3 attachSuggestions — 목적: 체크를 일정 관리로 연결 (통보기한 넣기 / 계약서에 명시된 날짜를 캘린더에 추가 제안)
+ * 규칙 C3 attachSuggestions — 목적: 계약서에 명시된 날짜를 캘린더에 추가 제안 (통보기한 연결은 notices.ts)
  * 규칙 C4 conditionalCostsToChecks — 목적: 조건부 비용(위약금·연체료·배상금·양도 수수료 …)은 결제가 아니라 계약 체크 하나에
  *   금액·조건·근거 문장과 함께 보관한다. 같은 주제의 체크가 있으면 그 체크에 금액을 붙이고, 없으면 새 체크를 만든다
  *   예) 결제 "중도해지 위약금 200,000원(조건부)" + 체크 "중도해지 위약금" → 체크 하나(금액 200,000원), 결제 없음
@@ -120,18 +120,12 @@ export function conditionalCostsToChecks(payments: ExtractedPayment[], checks: E
   }
 }
 
-/**
- * 관리로 연결: 자동갱신·통보기한 → 해지 통보기한 일정, 계약서에 명시된 (다른 데서 이미 관리하지 않는) 날짜 → 캘린더 일정 제안
- * @param notice 서버가 확정한 종료일 기준 통보기한 (없으면 null)
- */
-export function attachSuggestions(checks: ExtractedCheck[], dates: readonly ExtractedDate[], notice: number | null, auto: boolean | null, months: number | null): void {
+/** 관리로 연결: 계약서에 명시된 (다른 데서 이미 관리하지 않는) 날짜 → 캘린더 일정 제안. 통보기한 연결은 notices.ts(N3) */
+export function attachSuggestions(checks: ExtractedCheck[], dates: readonly ExtractedDate[]): void {
   const knownDates = new Set(dates.map((d) => d.date));
   for (const c of checks) {
-    if (c.behavior === 'conditional_rule') continue;
-    if ((c.topic === 'auto_renewal' || c.topic === 'notice_deadline') && notice !== null) {
-      c.behavior = 'fixed_event';
-      c.suggestion = { kind: 'set_termination_notice', terminationNoticeDays: notice, autoRenewal: auto ?? c.topic === 'auto_renewal', renewalPeriodMonths: months };
-    } else if (c.relatedDate && !knownDates.has(c.relatedDate)) {
+    if (c.behavior === 'conditional_rule' || c.suggestion) continue;
+    if (c.relatedDate && !knownDates.has(c.relatedDate)) {
       c.behavior = 'fixed_event';
       c.suggestion = { kind: 'add_event', eventType: 'custom', title: c.title, eventDate: c.relatedDate };
     }

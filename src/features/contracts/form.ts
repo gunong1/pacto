@@ -330,7 +330,6 @@ export function draftToQuickForm(d: ContractDraft): ContractFormValues {
   if (pick < 0) return { ...v, quick: { amount: '', direction: quickDirectionAdvice(d.contractType).direction, frequency: quickDefaultFrequency(d.contractType), day: '', nextDate: '' } };
   const p = d.payments[pick];
   const oneTime = p.frequency === 'one_time';
-  const anchor = p.startsOn ?? d.startDate;
   return {
     ...v,
     payments: v.payments.filter((_, i) => i !== pick),

@@ -17,7 +17,7 @@ import {
   type SourceType,
 } from '@/domain/contractTypes';
 import { formatWon } from '@/domain/money';
-import { addDays, diffDays, formatDateKo } from '@/domain/dates';
+import { addDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
 
 /**
@@ -133,13 +133,9 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
   assignDate('startDate', dated.find((d) => d.use === 'start'));
   assignDate('endDate', dated.find((d) => d.use === 'end'));
 
-  // 통보기한 날짜만 있고 일수가 없으면 종료일과의 차이로 계산 (확인 필요)
-  const noticeDate = dated.find((d) => d.use === 'notice');
-  if (noticeDate && draft.terminationNoticeDays == null && draft.endDate && noticeDate.date <= draft.endDate) {
-    draft.terminationNoticeDays = diffDays(noticeDate.date, draft.endDate);
-    flagged.add('terminationNoticeDays');
-    notes.terminationNoticeDays = `계약서의 통보기한 날짜(${noticeDate.date})로 계산했어요.`;
-    quote('terminationNoticeDays', noticeDate.evidence);
+  // 통보기한 — 서버가 확정(일수·신뢰도)한 값 그대로. 날짜만 있던 경우의 일수 계산도 서버가 한다
+  if (draft.terminationNoticeDays != null && result.fields.terminationNoticeDays?.confidence === 'low') {
+    notes.terminationNoticeDays = '계약서에서 확인이 필요한 통보기한이에요. 계약 체크에서 넣을지 골라주세요.';
   }
 
   // 통보기한의 의미 — 서버가 원문보다 강하게 해석하지 않도록 정리한 값. 없거나 불확실하면 unknown + 확인 필요

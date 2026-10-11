@@ -132,18 +132,17 @@ export default function ReviewScreen() {
     const d = uploaded.find((x) => x.id === c.evidenceDocumentId) ?? uploaded[0];
     return d ? withProtection(d) : undefined;
   };
-  // 갱신·통보 기한은 입력칸 없이 AI 값으로 저장한다. 값이 없거나 확인이 필요하면 관련 계약 체크에서 사용자가 넣는다
-  const noticeUnsure = model.draft.terminationNoticeDays == null || model.flagged.has('terminationNoticeDays');
-  const noticeOffers = new Map<number, NoticeOffer>();
-  if (profileOf(model.draft.contractType).hasRenewal && noticeUnsure) {
+  // 갱신·통보 기한은 서버가 정한다: 확정된 기한은 그대로 저장, 확인이 필요하면 관련 계약 체크에 "N일 전 넣기" 제안(needsConfirm)
+  // 화면은 제안을 보여주고 사용자가 고른 일수만 반영한다 (자동갱신 여부를 여기서 추론하지 않음)
+  const noticeOffers = new Map<number, number>();
+  if (profileOf(model.draft.contractType).hasRenewal) {
     model.checks.forEach((c, i) => {
-      const offer = noticeOfferOf(c, model.draft.autoRenewal);
-      if (offer) noticeOffers.set(i, offer);
+      if (c.suggestion?.kind === 'set_termination_notice' && c.suggestion.needsConfirm) noticeOffers.set(i, c.suggestion.terminationNoticeDays);
     });
   }
   const picked = noticePick != null ? noticeOffers.get(noticePick) : undefined;
-  // 확인이 필요한 값은 고르기 전까지 캘린더·알림에 넣지 않는다 (넣을 수 있는 카드가 있을 때)
-  const noticeDays = noticeOffers.size > 0 ? (picked?.days ?? null) : model.draft.terminationNoticeDays;
+  // 확인이 필요한 값은 고르기 전까지 캘린더·알림에 넣지 않는다
+  const noticeDays = noticeOffers.size > 0 ? (picked ?? null) : model.draft.terminationNoticeDays;
   const noticeDate = noticeDeadlineFor(model.draft.endDate, noticeDays);
   // 할인 전(정상가) 금액은 결제액으로 채우지 않는다 — 실제 결제액을 입력해야 저장된다
   const formDefaults = draftToForm(model.draft);
@@ -195,7 +194,7 @@ export default function ReviewScreen() {
                           {noticePick === i ? '저장하면 캘린더와 알림에 추가돼요' : '이 기한을 캘린더·알림에 넣을까요?'}
                         </AppText>
                         <Button
-                          label={noticePick === i ? `✓ ${noticeOffers.get(i)!.days}일 전 넣었어요` : `${noticeOffers.get(i)!.days}일 전 넣기`}
+                          label={noticePick === i ? `✓ ${noticeOffers.get(i)!}일 전 넣었어요` : `${noticeOffers.get(i)!}일 전 넣기`}
                           size="sm"
                           variant={noticePick === i ? 'primary' : 'secondary'}
                           onPress={() => setNoticePick((prev) => (prev === i ? null : i))}
@@ -275,37 +274,11 @@ export default function ReviewScreen() {
 
 const RENEWAL_FIELDS: ReadonlySet<string> = new Set(['autoRenewal', 'renewalPeriodMonths', 'terminationNoticeDays', 'noticeKind', 'earlyTerminationTerms', 'penaltyTerms']);
 
-interface NoticeOffer {
-  days: number;
-  autoRenewal: boolean;
-  renewalPeriodMonths: number | null;
-}
-
-const NOTICE_TOPICS: ReadonlySet<string> = new Set(['notice_deadline', 'auto_renewal', 'renewal_terms']);
-
-/** 계약 체크에서 넣을 수 있는 통보기한 (서버 제안 또는 조건부 의무의 "며칠 전") */
-function noticeOfferOf(c: ReviewCheck, autoRenewal: boolean): NoticeOffer | null {
-  const s = c.suggestion;
-  if (s?.kind === 'set_termination_notice' && s.terminationNoticeDays > 0) {
-    return { days: s.terminationNoticeDays, autoRenewal: autoRenewal || s.autoRenewal, renewalPeriodMonths: s.renewalPeriodMonths };
-  }
-  const days = c.rule?.offsetDays;
-  if (NOTICE_TOPICS.has(c.topic) && days != null && days > 0) {
-    return { days, autoRenewal: autoRenewal || c.topic === 'auto_renewal', renewalPeriodMonths: null };
-  }
-  return null;
-}
-
-/** 저장할 통보기한: 확인이 필요한 값은 사용자가 계약 체크에서 넣은 것만 */
-function withNotice(draft: ContractDraft, needsPick: boolean, picked: NoticeOffer | undefined): ContractDraft {
+/** 저장할 통보기한: 확인이 필요한 값은 사용자가 계약 체크에서 넣은 일수만 (그 외 값은 바꾸지 않음) */
+function withNotice(draft: ContractDraft, needsPick: boolean, picked: number | undefined): ContractDraft {
   if (!needsPick) return draft;
-  if (!picked) return { ...draft, terminationNoticeDays: null, noticeKind: 'unknown' };
-  return {
-    ...draft,
-    terminationNoticeDays: picked.days,
-    autoRenewal: draft.autoRenewal || picked.autoRenewal,
-    renewalPeriodMonths: draft.renewalPeriodMonths ?? picked.renewalPeriodMonths,
-  };
+  if (picked == null) return { ...draft, terminationNoticeDays: null, noticeKind: 'unknown' };
+  return { ...draft, terminationNoticeDays: picked };
 }
 
 /** 결제에 넣지 않은 금액의 종류 표시 */

@@ -12,7 +12,7 @@ import { CATEGORY_CODES, CONTRACT_TYPE_CODES } from './contractRegistry.ts';
 import { attachSuggestions, cleanChecks, conditionalCostsToChecks, waivedCheck } from './analysisRules/checks.ts';
 import { assignDateUses, cleanDates } from './analysisRules/dates.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
-import { resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
+import { noticeSuggestions, resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
 import { buildPayments } from './analysisRules/payments.ts';
 import { totalsToFields } from './analysisRules/paymentRoles.ts';
 import type { AppExtractionResult } from './analysisRules/types.ts';
@@ -67,17 +67,16 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   // 7) 유형별 속성
   const details = buildDetails(output.details, payments);
   // 9) 계약 체크
-  const auto = fields.autoRenewal.value as boolean | null;
-  const months = fields.renewalPeriodMonths.value as number | null;
   const checks = cleanChecks(output.checks as unknown[]);
   // 조건부 비용(위약금·연체료 …)은 결제가 아니라 계약 체크로
   conditionalCostsToChecks(payments, checks);
   waivedCheck(checks, references);
-  // 8) 종료일 기준 통보기한과 그 의미
-  const notice = resolveNoticeDays(fields, checks);
-  fields.noticeKind = resolveNoticeKind(notice, fields.noticeKind, fields.terminationNoticeDays);
-  // 체크 → 일정 관리 제안
-  attachSuggestions(checks, dates, notice, auto, months);
+  // 8) 종료일 기준 통보기한과 그 의미 — 서버가 확정하거나 "확인 필요"로 (자동갱신은 AI 필드만)
+  const notice = resolveNoticeDays(fields, checks, dates);
+  fields.noticeKind = resolveNoticeKind(notice.days, fields.noticeKind, fields.terminationNoticeDays);
+  noticeSuggestions(checks, notice, fields);
+  // 체크 → 캘린더 일정 제안 (계약서에 명시된 날짜)
+  attachSuggestions(checks, dates);
 
   // 강한 보호(Level 1: 주민·외국인등록번호·카드·계좌) 원문이 인용문·설명·값에 남지 않도록 저장·반환 전에 가린다 (의미는 유지)
   return maskLevel1Deep({ category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION });
