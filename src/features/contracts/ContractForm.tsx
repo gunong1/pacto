@@ -100,6 +100,12 @@ const CATEGORY_OPTIONS = CONTRACT_CATEGORIES.map((c) => ({ value: c, label: cate
 const TYPE_OPTIONS = CONTRACT_TYPES.map((t) => ({ value: t, label: contractTypeLabel(t) }));
 const KIND_OPTIONS = CONTRACT_KINDS.map((k) => ({ value: k.code, label: k.label }));
 const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABEL[d] }));
+/** 금액 구분 설명 — 고른 항목이 무슨 뜻인지 */
+const DIRECTION_HINT: Record<Direction, string> = {
+  expense: '지출 = 내가 내는 돈',
+  income: '수입 = 내가 받는 돈 (급여·대금 등)',
+  neutral: '중립·해당 없음 = 보증금처럼 돌려받는 돈 (합계에 넣지 않아요)',
+};
 /** 빠른 입력의 돈 방향 (중립 = 보증금처럼 돌려받는 돈·해당 없음) */
 const QUICK_DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
   { value: 'expense', label: '지출' },
@@ -404,6 +410,9 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
               ) : null}
               <FormLabel label="금액 구분" />
               <Controller control={control} name={`payments.${i}.direction`} render={({ field: f }) => <ChipGroup options={DIRECTION_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-direction`} />} />
+              <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.xs }} testID={`payment-${i}-direction-hint`}>
+                {DIRECTION_HINT[pv.direction]}
+              </AppText>
               <View style={{ height: spacing.md }} />
               <FormLabel label="결제 주기" />
               <Controller control={control} name={`payments.${i}.frequency`} render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value} onChange={f.onChange} scroll testIDPrefix={`payment-${i}-frequency`} />} />
