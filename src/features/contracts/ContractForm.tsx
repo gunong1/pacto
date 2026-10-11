@@ -47,7 +47,9 @@ import {
   detailFromInput,
   detailsToForm,
   formToDraft,
+  quickDefaultFrequency,
   quickDirectionAdvice,
+  quickHasDetails,
   type ContractFormValues,
   type ParsedContractForm,
   type PaymentFormValues,
@@ -88,6 +90,8 @@ export interface ContractFormProps {
    * 나머지는 "상세 정보 추가"를 눌렀을 때 펼친다. defaultValues.quick이 있어야 한다.
    */
   variant?: 'full' | 'quick';
+  /** create: 새로 등록 / edit: 저장된 계약 수정 (같은 화면·같은 입력, 상세 정보가 있으면 처음부터 펼침) */
+  mode?: 'create' | 'edit';
 }
 
 const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
@@ -104,7 +108,7 @@ const FREQUENCY_OPTIONS = PAYMENT_FREQUENCIES.map((f) => ({ value: f, label: FRE
 const ONE_TIME_KINDS: ReadonlySet<PaymentKind> = new Set(['setup_fee', 'deposit', 'advance_payment', 'down_payment', 'interim_payment', 'balance_payment']);
 
 /** 빠른 입력의 기본 주기 — 매매·일회성·용역은 일시불, 나머지는 매월 */
-export const quickDefaultFrequency = (type: ContractType): PaymentFormValues['frequency'] => (type === 'sale' || type === 'one_time' || type === 'service' ? 'one_time' : 'monthly');
+export { quickDefaultFrequency } from './form';
 /** 빠른 입력에서 자동갱신을 켤 때 미리 채우는 갱신 주기 (결제 주기와 같게) */
 const RENEWAL_MONTHS: Record<PaymentFormValues['frequency'], number> = { monthly: 1, bimonthly: 2, quarterly: 3, semiannual: 6, yearly: 12, one_time: 12 };
 /** 빠른 입력 화면에 늘 보이는 값 — 이 밖의 오류는 접힌 상세 정보에 있다 */
@@ -137,13 +141,15 @@ function newPayment(kind: PaymentKind): PaymentFormValues {
  * 공통 틀(유형 → 기본 정보 → 기간 → 유형별 정보 → 결제 목록 → 주요 날짜 → 갱신·해지 → 기타)은 같고,
  * 유형에 따라 날짜 이름·유형별 정보·결제 의미 선택지가 바뀐다. 결제·날짜는 여러 건 추가/수정/삭제할 수 있다.
  */
-export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit, variant = 'full' }: ContractFormProps) {
+export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitLabel, submitting, today, onSubmit, variant = 'full', mode = 'create' }: ContractFormProps) {
   const quick = variant === 'quick' && !!defaultValues.quick;
-  const [more, setMore] = useState(false);
+  // 수정 화면: 저장된 상세 정보가 있으면 처음부터 펼친다 / 이미 정해진 분야·금액 구분은 자동으로 바꾸지 않는다
+  const editing = mode === 'edit';
+  const [more, setMore] = useState(() => quick && editing && quickHasDetails(defaultValues));
   /** 빠른 입력: 사용자가 분야를 직접 골랐으면 더 이상 추천으로 바꾸지 않는다 */
-  const [categoryPicked, setCategoryPicked] = useState(false);
+  const [categoryPicked, setCategoryPicked] = useState(editing);
   /** 빠른 입력: 금액 구분(지출·수입·중립)을 직접 골랐는지 (고른 뒤에는 유형을 바꿔도 유지) */
-  const [directionPicked, setDirectionPicked] = useState(false);
+  const [directionPicked, setDirectionPicked] = useState(editing);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),

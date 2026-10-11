@@ -78,7 +78,8 @@ async function signUp(page, email, password) {
 
   // 수정
   await page.click(tid('edit-contract'));
-  await page.fill(`input${tid('payment-0-amount')}`, '60000');
+  // 직접 입력한 계약은 등록과 같은 화면 — 위쪽 "금액"
+  await page.fill(`input${tid('quick-amount')}`, '60000');
   await page.click(tid('submit-contract'));
   await page.locator(`${tid('contract-detail')} >> text=60,000원`).first().waitFor({ timeout: 15000 });
   log('계약 수정 → 60,000원');

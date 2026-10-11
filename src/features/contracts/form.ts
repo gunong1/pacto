@@ -79,6 +79,11 @@ const quickFormSchema = z.object({
   day: optionalInt(1, 31, '1~31 사이로 입력해주세요').optional(),
   /** 2개월마다·분기·6개월·매년: 첫 결제일 / 일회성: 결제 예정일 */
   nextDate: optionalDate,
+  /**
+   * 수정 화면: 이 금액이 원래 어떤 결제였는지 (이름·종류·종료일·회차 등은 그대로 두고 화면에서 바꾼 값만 덮어쓴다).
+   * 등록 화면에서는 없음
+   */
+  base: paymentFormSchema.optional(),
 });
 
 const dateFormSchema = z.object({
@@ -123,7 +128,9 @@ export const contractFormSchema = z
       const income = q.direction === 'income';
       // 매월은 날짜(일)만, 그 밖의 주기는 날짜 — 해당 칸만 본다
       const monthly = q.frequency === 'monthly';
-      const hasWhen = monthly ? !!q.day?.trim() : !!q.nextDate;
+      // 수정 화면: 원래 첫 결제일 없이(계약 시작일 기준) 같은 주기였던 결제는 날짜를 비워 둬도 된다
+      const inheritsStart = !!q.base && q.base.frequency === q.frequency && !q.base.startsOn.trim();
+      const hasWhen = (monthly ? !!q.day?.trim() : !!q.nextDate) || inheritsStart;
       if (hasAmount && !hasWhen) {
         const label = monthly ? (income ? '지급일' : '결제일') : q.frequency === 'one_time' ? (income ? '지급 예정일' : '결제 예정일') : income ? '첫 지급일' : '첫 결제일';
         ctx.addIssue({ code: 'custom', path: ['quick', monthly ? 'day' : 'nextDate'], message: `${label}을 입력해주세요` });
@@ -300,13 +307,92 @@ export function nextMonthlyDate(today: string, day: number): string {
   return toISODate(yy, mm, Math.min(day, daysInMonth(yy, mm)));
 }
 
+/** 빠른 입력의 기본 주기 — 매매·일회성·용역은 일시불, 나머지는 매월 */
+export const quickDefaultFrequency = (type: ContractType): PaymentFormValues['frequency'] => (type === 'sale' || type === 'one_time' || type === 'service' ? 'one_time' : 'monthly');
+
+/** 같은 해·달의 다른 날 (없는 날은 그 달 말일) */
+function sameMonthDay(date: string, day: number): string {
+  const y = Number(date.slice(0, 4));
+  const m = Number(date.slice(5, 7));
+  return toISODate(y, m, Math.min(day, daysInMonth(y, m)));
+}
+
+/**
+ * 저장된 계약 → 직접 입력(빠른 입력)과 같은 화면의 값 — 수정 화면용.
+ * 대표 결제(첫 정기 결제, 없으면 첫 결제) 하나가 위쪽 "금액"으로, 나머지는 "상세 정보 추가 → 추가 결제"로 간다.
+ */
+export function draftToQuickForm(d: ContractDraft): ContractFormValues {
+  const v = draftToForm(d);
+  const idx = d.payments.findIndex((p) => p.frequency !== 'one_time' && p.obligation === 'confirmed');
+  const pick = idx >= 0 ? idx : d.payments.length > 0 ? 0 : -1;
+  if (pick < 0) return { ...v, quick: { amount: '', direction: quickDirectionAdvice(d.contractType).direction, frequency: quickDefaultFrequency(d.contractType), day: '', nextDate: '' } };
+  const p = d.payments[pick];
+  const monthly = p.frequency === 'monthly';
+  return {
+    ...v,
+    payments: v.payments.filter((_, i) => i !== pick),
+    quick: {
+      amount: formatAmountInput(p.amount),
+      direction: p.direction,
+      frequency: p.frequency,
+      day: monthly ? String(p.dayOfMonth ?? (p.startsOn ? Number(p.startsOn.slice(8, 10)) : '')) : '',
+      nextDate: monthly ? '' : str(p.startsOn),
+      base: v.payments[pick],
+    },
+  };
+}
+
+/** 수정 화면: 상세 정보에 저장된 값이 있으면 처음부터 펼친다 (기존 데이터가 숨지 않게) */
+export function quickHasDetails(v: ContractFormValues): boolean {
+  const filled = (x: string | undefined) => !!x && x.trim() !== '';
+  return (
+    filled(v.counterparty) ||
+    filled(v.contractDate) ||
+    v.payments.length > 0 ||
+    v.dates.length > 0 ||
+    filled(v.terminationNoticeDays) ||
+    filled(v.earlyTerminationTerms) ||
+    filled(v.penaltyTerms) ||
+    filled(v.totalAmount) ||
+    filled(v.depositAmount) ||
+    Object.values(v.details).some((x) => (typeof x === 'string' ? x.trim() !== '' : x === true))
+  );
+}
+
 export function quickToPayment(type: ContractType, q: NonNullable<ParsedContractForm['quick']>, today: string = todayInSeoul()): PaymentDraft | null {
   const amount = parseAmount(q.amount);
   const monthlyDay = q.frequency === 'monthly' && q.day?.trim() ? Number(q.day) : null;
+  const base = q.base ? paymentFromForm(q.base) : null;
+  const oneTime = q.frequency === 'one_time';
+  if (base) {
+    if (amount == null) return null;
+    // 수정: 원래 첫 결제일이 없던 결제(= 계약 시작일 기준)는 그대로 두어 시작일을 바꾸면 함께 따라가게 한다.
+    // 원래 매월 결제였으면 첫 결제 달은 그대로 두고 날짜(일)만 바꾼다 (지난 결제 기록이 사라지지 않게)
+    const first = monthlyDay
+      ? base.frequency === 'monthly'
+        ? base.startsOn
+          ? sameMonthDay(base.startsOn, monthlyDay)
+          : null
+        : nextMonthlyDate(today, monthlyDay)
+      : q.nextDate || (base.frequency === q.frequency ? base.startsOn : null);
+    if (!first && !monthlyDay && !(base.frequency === q.frequency && !base.startsOn)) return null;
+    return {
+      ...base,
+      direction: q.direction,
+      amount,
+      frequency: q.frequency,
+      dayOfMonth: oneTime ? null : (monthlyDay ?? (first ? Number(first.slice(8, 10)) : base.dayOfMonth)),
+      monthOfYear: oneTime || q.frequency === 'monthly' ? null : base.monthOfYear,
+      startsOn: first,
+      endsOn: oneTime ? null : base.endsOn,
+      installmentCount: oneTime ? null : base.installmentCount,
+      isVariable: oneTime ? false : base.isVariable,
+      businessDayRule: oneTime ? 'none' : base.businessDayRule,
+    };
+  }
   const first = monthlyDay ? nextMonthlyDate(today, monthlyDay) : q.nextDate;
   if (amount == null || !first) return null;
   const kind = quickPaymentKind(type);
-  const oneTime = q.frequency === 'one_time';
   return {
     kind,
     direction: q.direction,
@@ -327,6 +413,29 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
   };
 }
 
+
+/** 결제 입력값 → 저장 형식 */
+export function paymentFromForm(p: PaymentFormValues): PaymentDraft {
+  const oneTime = p.frequency === 'one_time';
+  return {
+    kind: p.kind,
+    direction: p.direction,
+    label: p.label.trim(),
+    amount: parseAmount(p.amount) ?? 0,
+    frequency: p.frequency,
+    dayOfMonth: oneTime ? null : intOrNull(p.dayOfMonth),
+    monthOfYear: oneTime ? null : intOrNull(p.monthOfYear),
+    startsOn: nullable(p.startsOn),
+    endsOn: oneTime ? null : nullable(p.endsOn),
+    installmentCount: oneTime ? null : intOrNull(p.installmentCount),
+    isVariable: oneTime ? false : p.isVariable,
+    components: p.components,
+    businessDayRule: oneTime ? 'none' : p.businessDayRule,
+    obligation: p.obligation,
+    conditionNote: p.obligation === 'confirmed' ? null : p.conditionNote.trim() || null,
+  };
+}
+
 export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul()): ContractDraft {
   const quick = v.quick ? quickToPayment(v.contractType, v.quick, today) : null;
   return {
@@ -340,26 +449,7 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
     details: detailsFromForm(v.contractType, v.details),
     payments: [
       ...(quick ? [quick] : []),
-      ...v.payments.map((p): PaymentDraft => {
-      const oneTime = p.frequency === 'one_time';
-      return {
-        kind: p.kind,
-        direction: p.direction,
-        label: p.label.trim(),
-        amount: parseAmount(p.amount) ?? 0,
-        frequency: p.frequency,
-        dayOfMonth: oneTime ? null : intOrNull(p.dayOfMonth),
-        monthOfYear: oneTime ? null : intOrNull(p.monthOfYear),
-        startsOn: nullable(p.startsOn),
-        endsOn: oneTime ? null : nullable(p.endsOn),
-        installmentCount: oneTime ? null : intOrNull(p.installmentCount),
-        isVariable: oneTime ? false : p.isVariable,
-        components: p.components,
-        businessDayRule: oneTime ? 'none' : p.businessDayRule,
-        obligation: p.obligation,
-        conditionNote: p.obligation === 'confirmed' ? null : p.conditionNote.trim() || null,
-      };
-      }),
+      ...v.payments.map(paymentFromForm),
     ],
     dates: v.dates.map((x): DateDraft => ({ kind: x.kind, label: x.label.trim(), date: x.date })),
     totalAmount: parseAmount(v.totalAmount),
