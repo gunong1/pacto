@@ -62,6 +62,27 @@ export function rentalOutput(title: string) {
 }
 
 /**
+ * 통보기한 일수를 필드로 찾지 못한 렌탈 (모든 값은 가짜) — 자동갱신 체크의 조건부 규칙에만 "종료 30일 전"이 있다
+ * → 등록 확인 화면은 기한을 자동 저장하지 않고, 계약 체크 카드에서 "30일 전 넣기"를 고르게 한다.
+ */
+export function rentalNoticeUnsureOutput(title: string) {
+  const base = rentalOutput(title);
+  return {
+    ...base,
+    fields: { ...base.fields, terminationNoticeDays: f(null, 'low') },
+    checks: [
+      check({
+        severity: 'caution', topic: 'auto_renewal', title: '자동갱신', behavior: 'conditional_rule',
+        condition: '계약을 연장하지 않으려는 경우', action: '계약 종료 전 해지 의사 표시', offset_days: 30,
+        description: '계약 종료 전 정해진 기간까지 해지 의사를 표시하지 않으면 자동 연장되는 것으로 보입니다.',
+        evidence_quote: '종료 30일 전까지 별도 의사표시가 없으면 연장됩니다.',
+      }),
+      ...base.checks.slice(1),
+    ],
+  };
+}
+
+/**
  * 할인이 붙은 정수기 렌탈 (모든 값은 가짜) — 월 렌탈료가 "할인전" 금액, 전체회차 할인·특정 회차 면제·등록비/설치비 면제.
  * 모델이 실수한 경우를 일부러 섞는다: 할인전 금액을 actual로, 할인액을 매월 결제로, 면제된 등록비·설치비를 일회성 결제로 보냄
  * → 서버 안전장치가 결제로 확정하지 않아야 한다.
@@ -265,7 +286,7 @@ export function mockDocumentOutput(names: string[]) {
     const out = stampFile(rentalOutput(title) as Record<string, unknown>, main.file);
     return { document_check: check('supporting', 'medium', { ...NO_SIGNALS, parties: true, amounts: true, dates: true }), ...out };
   }
-  const base = /근로/.test(name) ? employmentOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : rentalOutput(title);
+  const base = /근로/.test(name) ? employmentOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : /통보미확인/.test(name) ? rentalNoticeUnsureOutput(title) : rentalOutput(title);
   const out = stampFile(base as Record<string, unknown>, main.file, /출처불명/.test(names.join(' ')));
   // 계약과 무관한 쪽(예: 책상 사진의 가격표)에서 읽힌 값 — 그 쪽을 제외하면 결과에 남으면 안 된다
   for (const junk of pages.filter((p) => p.role === 'non_contract')) {

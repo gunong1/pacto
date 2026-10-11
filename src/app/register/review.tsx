@@ -6,7 +6,9 @@ import { StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Divider, KeyValueRow, Section } from '@/components/ui/layout';
+import type { ContractDraft } from '@/data/repository';
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
+import { profileOf } from '@/domain/contractTypes';
 import { formatWon } from '@/domain/money';
 import { noticeLabelOf } from '@/domain/noticeKind';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
@@ -37,6 +39,8 @@ export default function ReviewScreen() {
   const model = useMemo(() => (extraction ? toReviewModel(extraction, uploaded.map((d) => d.id)) : null), [extraction, uploaded]);
   // 계약 체크에서 "캘린더에 추가"를 고른 항목 (계약서에 명시된 날짜)
   const [addEvents, setAddEvents] = useState<ReadonlySet<number>>(new Set());
+  // 확인이 필요한(또는 못 찾은) 통보기한: 계약 체크 카드에서 "N일 전 넣기"를 고른 항목 (체크 번호)
+  const [noticePick, setNoticePick] = useState<number | null>(null);
   // 저장 후 초안을 비울 때 "초안 없음 → 처음으로" 이동이 일어나지 않도록
   const saved = useRef(false);
 
@@ -48,7 +52,8 @@ export default function ReviewScreen() {
 
   const counts = { caution: 0, check: 0, info: 0 };
   for (const c of model.checks) counts[c.severity] += 1;
-  const lowCount = [...model.flagged].length;
+  // 갱신·통보 기한은 입력칸이 없고 계약 체크에서 확인하므로 개수에서 뺀다
+  const lowCount = [...model.flagged].filter((f) => !RENEWAL_FIELDS.has(f)).length;
 
   const header = (
     <View style={styles.header}>
@@ -127,7 +132,19 @@ export default function ReviewScreen() {
     const d = uploaded.find((x) => x.id === c.evidenceDocumentId) ?? uploaded[0];
     return d ? withProtection(d) : undefined;
   };
-  const noticeDate = noticeDeadlineFor(model.draft.endDate, model.draft.terminationNoticeDays);
+  // 갱신·통보 기한은 입력칸 없이 AI 값으로 저장한다. 값이 없거나 확인이 필요하면 관련 계약 체크에서 사용자가 넣는다
+  const noticeUnsure = model.draft.terminationNoticeDays == null || model.flagged.has('terminationNoticeDays');
+  const noticeOffers = new Map<number, NoticeOffer>();
+  if (profileOf(model.draft.contractType).hasRenewal && noticeUnsure) {
+    model.checks.forEach((c, i) => {
+      const offer = noticeOfferOf(c, model.draft.autoRenewal);
+      if (offer) noticeOffers.set(i, offer);
+    });
+  }
+  const picked = noticePick != null ? noticeOffers.get(noticePick) : undefined;
+  // 확인이 필요한 값은 고르기 전까지 캘린더·알림에 넣지 않는다 (넣을 수 있는 카드가 있을 때)
+  const noticeDays = noticeOffers.size > 0 ? (picked?.days ?? null) : model.draft.terminationNoticeDays;
+  const noticeDate = noticeDeadlineFor(model.draft.endDate, noticeDays);
   // 할인 전(정상가) 금액은 결제액으로 채우지 않는다 — 실제 결제액을 입력해야 저장된다
   const formDefaults = draftToForm(model.draft);
   for (const i of model.blankAmounts) if (formDefaults.payments[i]) formDefaults.payments[i] = { ...formDefaults.payments[i], amount: '' };
@@ -161,14 +178,31 @@ export default function ReviewScreen() {
                   check={c}
                   onOpenOriginal={doc ? () => viewDocument(doc, c.evidencePage) : undefined}
                   deadline={
-                    s?.kind === 'set_termination_notice' && noticeDate
-                      ? { label: noticeLabelOf(model.draft.noticeKind, model.draft.contractType), date: noticeDate }
-                      : s?.kind === 'add_event'
-                        ? { label: s.title, date: s.eventDate }
+                    noticeOffers.has(i)
+                      ? noticePick === i && noticeDate
+                        ? { label: noticeLabelOf(model.draft.noticeKind, model.draft.contractType), date: noticeDate }
                         : null
+                      : s?.kind === 'set_termination_notice' && noticeDate && noticeOffers.size === 0
+                        ? { label: noticeLabelOf(model.draft.noticeKind, model.draft.contractType), date: noticeDate }
+                        : s?.kind === 'add_event'
+                          ? { label: s.title, date: s.eventDate }
+                          : null
                   }
                   action={
-                    s?.kind === 'set_termination_notice' && noticeDate ? (
+                    noticeOffers.has(i) ? (
+                      <View style={{ gap: 6 }} testID={`review-check-${i}-notice`}>
+                        <AppText variant="caption" color="textSecondary">
+                          {noticePick === i ? '저장하면 캘린더와 알림에 추가돼요' : '이 기한을 캘린더·알림에 넣을까요?'}
+                        </AppText>
+                        <Button
+                          label={noticePick === i ? `✓ ${noticeOffers.get(i)!.days}일 전 넣었어요` : `${noticeOffers.get(i)!.days}일 전 넣기`}
+                          size="sm"
+                          variant={noticePick === i ? 'primary' : 'secondary'}
+                          onPress={() => setNoticePick((prev) => (prev === i ? null : i))}
+                          testID={`review-check-${i}-notice-add`}
+                        />
+                      </View>
+                    ) : s?.kind === 'set_termination_notice' && noticeDate && noticeOffers.size === 0 ? (
                       <AppText variant="caption" color="textSecondary">
                         저장하면 캘린더와 알림에 자동으로 추가돼요
                       </AppText>
@@ -216,10 +250,10 @@ export default function ReviewScreen() {
         submitLabel="계약 저장"
         footerNote="저장 후에도 언제든 수정할 수 있어요"
         submitting={create.isPending}
-        onSubmit={(draft) =>
+        onSubmit={(formDraft) =>
           create.mutate(
             {
-              draft,
+              draft: withNotice(formDraft, noticeOffers.size > 0, picked),
               source: 'upload',
               documents: uploaded.map((d) => ({ id: d.id, fileName: d.fileName, mimeType: d.mimeType, sizeBytes: d.sizeBytes, storagePath: d.storagePath, localUri: d.localUri, pageCount: null })),
               aiChecks: model.checks.map((c, i) => ({ ...c, status: addEvents.has(i) ? ('acknowledged' as const) : ('new' as const) })),
@@ -237,6 +271,41 @@ export default function ReviewScreen() {
       />
     </>
   );
+}
+
+const RENEWAL_FIELDS: ReadonlySet<string> = new Set(['autoRenewal', 'renewalPeriodMonths', 'terminationNoticeDays', 'noticeKind', 'earlyTerminationTerms', 'penaltyTerms']);
+
+interface NoticeOffer {
+  days: number;
+  autoRenewal: boolean;
+  renewalPeriodMonths: number | null;
+}
+
+const NOTICE_TOPICS: ReadonlySet<string> = new Set(['notice_deadline', 'auto_renewal', 'renewal_terms']);
+
+/** 계약 체크에서 넣을 수 있는 통보기한 (서버 제안 또는 조건부 의무의 "며칠 전") */
+function noticeOfferOf(c: ReviewCheck, autoRenewal: boolean): NoticeOffer | null {
+  const s = c.suggestion;
+  if (s?.kind === 'set_termination_notice' && s.terminationNoticeDays > 0) {
+    return { days: s.terminationNoticeDays, autoRenewal: autoRenewal || s.autoRenewal, renewalPeriodMonths: s.renewalPeriodMonths };
+  }
+  const days = c.rule?.offsetDays;
+  if (NOTICE_TOPICS.has(c.topic) && days != null && days > 0) {
+    return { days, autoRenewal: autoRenewal || c.topic === 'auto_renewal', renewalPeriodMonths: null };
+  }
+  return null;
+}
+
+/** 저장할 통보기한: 확인이 필요한 값은 사용자가 계약 체크에서 넣은 것만 */
+function withNotice(draft: ContractDraft, needsPick: boolean, picked: NoticeOffer | undefined): ContractDraft {
+  if (!needsPick) return draft;
+  if (!picked) return { ...draft, terminationNoticeDays: null, noticeKind: 'unknown' };
+  return {
+    ...draft,
+    terminationNoticeDays: picked.days,
+    autoRenewal: draft.autoRenewal || picked.autoRenewal,
+    renewalPeriodMonths: draft.renewalPeriodMonths ?? picked.renewalPeriodMonths,
+  };
 }
 
 /** 결제에 넣지 않은 금액의 종류 표시 */

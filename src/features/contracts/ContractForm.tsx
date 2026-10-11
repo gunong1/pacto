@@ -160,6 +160,8 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   const [directionPicked, setDirectionPicked] = useState(editing);
   /** "상세 분류" (내부 유형·분야 직접 선택) 펼침 */
   const [classOpen, setClassOpen] = useState(false);
+  /** 수정 화면(전체 입력): 갱신·통보 기한 펼침 */
+  const [renewalOpen, setRenewalOpen] = useState(false);
   const { control, handleSubmit, setValue, getValues } = useForm<ContractFormValues, unknown, ParsedContractForm>({
     resolver: zodResolver(contractFormSchema),
     defaultValues,
@@ -499,12 +501,15 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         />
     </>
   );
-  /** 통보기한 · 중도해지 · 위약금 (자동갱신 스위치는 withSwitch일 때만 — 빠른 입력은 위쪽에 있다) */
+  /**
+   * 갱신·통보 기한 (자동갱신 스위치는 withSwitch일 때만 — 빠른 입력은 위쪽에 있다).
+   * 날짜를 계산해 캘린더·알림에 넣는 값 중심. 중도해지·위약금 메모는 직접 입력에만 — 계약서 등록은 계약 체크에서 조항을 보여주므로 입력칸을 두지 않는다 (저장된 글은 상세 기록에 유지).
+   */
   const renewalBlock = (withSwitch: boolean) =>
     profile.hasRenewal ? (
-      <Section title="갱신 · 해지">
+      <Section title="갱신 · 통보 기한" caption="종료일 기준 기한을 계산해 캘린더·알림에 넣어요. 조항 내용은 계약 체크에서 확인하세요." testID="section-renewal">
         {withSwitch ? autoRenewalBlock : null}
-        {field('terminationNoticeDays', quick ? '해지·갱신 통보기한 (종료 며칠 전까지)' : '통보·갱신 관련 기한 (종료 며칠 전까지)', { keyboardType: 'number-pad', suffix: '일 전', maxLength: 3 })}
+        {field('terminationNoticeDays', '해지·갱신 통보기한 (종료 며칠 전까지)', { keyboardType: 'number-pad', suffix: '일 전', maxLength: 3 })}
         {values.terminationNoticeDays?.trim() ? (
           <View style={{ marginBottom: spacing.lg }} testID="notice-kind">
             <AppText variant="captionStrong" color="textSecondary">
@@ -518,15 +523,17 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
             <Controller control={control} name="noticeKind" render={({ field: f }) => <RadioGroup options={NOTICE_KIND_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix="notice-kind" />} />
           </View>
         ) : null}
-        {field('earlyTerminationTerms', quick ? '종료·중도해지 관련 메모' : '중도해지 관련 내용', { multiline: true })}
-        {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
+        {quick ? termsFields : null}
       </Section>
-    ) : (
-      <Section title="중도해지 · 위약금">
-        {field('earlyTerminationTerms', type === 'loan' ? '중도상환 관련 내용' : quick ? '종료·중도해지 관련 메모' : '중도해지 관련 내용', { multiline: true })}
-        {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
-      </Section>
-    );
+    ) : quick ? (
+      <Section title="중도해지 · 위약금">{termsFields}</Section>
+    ) : null;
+  const termsFields = (
+    <>
+      {field('earlyTerminationTerms', type === 'loan' ? '중도상환 관련 내용' : '종료·중도해지 관련 메모', { multiline: true })}
+      {field('penaltyTerms', '위약금 관련 내용', { multiline: true })}
+    </>
+  );
   const autoRenewalBlock = (
     <>
       <Controller
@@ -741,8 +748,24 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         {datesBlock}
       </Section>
 
-      <SectionGap />
-      {renewalBlock(true)}
+      {/* 갱신·통보 기한: 등록 확인 화면에는 두지 않는다 (AI가 찾은 값으로 저장, 확인이 필요하면 계약 체크 카드에서 넣기). 수정 화면은 "+ 상세 정보"에 */}
+      {editing && profile.hasRenewal ? (
+        <>
+          <SectionGap />
+          <View style={styles.moreWrap}>
+            <Pressable onPress={() => setRenewalOpen((o) => !o)} accessibilityRole="button" accessibilityState={{ expanded: renewalOpen }} hitSlop={hitSlop} testID="toggle-renewal" style={({ pressed }) => [styles.more, pressed && { backgroundColor: colors.bgSubtle }]}>
+              <Ionicons name={renewalOpen ? 'remove' : 'add'} size={18} color={colors.primary} />
+              <AppText variant="body2Strong" color="primary">
+                상세 정보
+              </AppText>
+              <AppText variant="caption" color="textTertiary">
+                {renewalOpen ? '' : '자동갱신 · 통보 기한'}
+              </AppText>
+            </Pressable>
+          </View>
+          {renewalOpen ? renewalBlock(true) : null}
+        </>
+      ) : null}
 
       <SectionGap />
       <Section title="기타">
