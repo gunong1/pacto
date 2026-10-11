@@ -12,7 +12,7 @@ import { SupabaseContractRepository } from '@/data/supabase/SupabaseContractRepo
 import { SupabaseDocumentStore } from '@/data/supabase/SupabaseDocumentStore';
 import type { PreparedFile } from '@/data/supabase/prepareFile';
 
-import { adminClient, localEnv, newUser, testFetch } from './helpers';
+import { adminClient, localEnv, markNoSensitiveData, newUser, testFetch } from './helpers';
 
 jest.setTimeout(120_000);
 
@@ -29,6 +29,8 @@ async function setup(prefix: string, names: string[]) {
   const files = names.map(photo);
   const uploaded = [];
   for (let i = 0; i < files.length; i++) uploaded.push(await docs.upload(files[i], { sortOrder: i }));
+  // 가짜 사진(픽셀 없음) — 문서 확인 게이트만 검증하므로 "민감정보 없음"으로 표시 (보호 엔진은 step14에서 실제 사진으로)
+  await markNoSensitiveData(uploaded.map((d) => d.id));
   const input = { files, documentIds: uploaded.map((d) => d.id), today: '2026-10-07' };
   return { a, docs, ai, files, uploaded, input };
 }
@@ -39,16 +41,21 @@ const roles = async (ids: string[]) => {
 };
 
 describe('Step 12 — 문서 확인 게이트', () => {
-  test('B. 계약서 사진 → contract · 분석 진행 · 보호 실패(해석할 수 없는 테스트용 사진)는 분석과 별개 상태', async () => {
+  // 2026-10 fail-closed: 예전에는 보호 실패여도 원본으로 분석을 진행했다 → 이제 보호가 끝나지 않으면 분석하지 않는다
+  test('B. 계약서 사진 → 보호 실패면 분석 안 함(원본 fallback 없음) · 보호가 끝나면 contract · 분석 진행', async () => {
     const { docs, ai, uploaded, input } = await setup('gate-b', ['렌탈계약서_1.jpg', '렌탈계약서_2.jpg']);
     for (const d of uploaded) await docs.protect(d.id);
+    const prot = await docs.getProtection(uploaded.map((d) => d.id));
+    // 이 테스트 사진은 픽셀이 없어 보호 실패
+    expect(uploaded.map((d) => [prot[d.id].status, prot[d.id].detail])).toEqual([['failed', 'image_format'], ['failed', 'image_format']]);
+    await expect(ai.analyze(input)).rejects.toThrow('민감정보 보호를 완료하지 못해');
+    expect(await roles(uploaded.map((d) => d.id))).toEqual([[null, false], [null, false]]);
+
+    await markNoSensitiveData(uploaded.map((d) => d.id));
     const out = await ai.analyze(input);
     expect(out.validation).toMatchObject({ role: 'contract', decision: 'proceed' });
     expect(amounts(out.result)).toContain(29_900);
     expect(await roles(uploaded.map((d) => d.id))).toEqual([['contract', false], ['contract', false]]);
-    const prot = await docs.getProtection(uploaded.map((d) => d.id));
-    // 보호 상태와 문서 확인(분석)은 서로 독립 — 이 테스트 사진은 픽셀이 없어 보호는 실패, 분석은 진행
-    expect(uploaded.map((d) => [prot[d.id].status, prot[d.id].detail])).toEqual([['failed', 'image_format'], ['failed', 'image_format']]);
   });
 
   test('C·I. 음식 사진 / 신분증 → 분석 중단 · 결과 없음 · 계약에 연결 불가(서버가 막음)', async () => {

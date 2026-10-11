@@ -1,3 +1,4 @@
+import { PROTECTION_REQUIRED_MESSAGE } from "@/domain/sensitive";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -355,6 +356,19 @@ export default function AnalyzingScreen() {
         setGate({ kind: "locked", reason: "protection" });
         return;
       }
+      // 모든 문서 공통 (fail-closed): 보호 완료(protected)·민감정보 없음(no_sensitive_data)이 아니면 AI 분석을 시작하지 않는다
+      // (보호 실패·읽기 어려움·지원하지 않는 스캔/암호·결과 없음). 서버도 같은 기준으로 거절한다 — 원본을 대신 보내지 않음
+      if (
+        documentStore.mode === "supabase" &&
+        !docs.every(
+          (_, i) =>
+            results[i]?.status === "protected" ||
+            results[i]?.status === "no_sensitive_data",
+        )
+      ) {
+        setGate({ kind: "locked", reason: "protection" });
+        return;
+      }
       // ③ 문서 확인 + 계약 분석 (AI 1회)
       setPhase("analyze");
       setStep(0);
@@ -503,22 +517,54 @@ export default function AnalyzingScreen() {
     );
   }
 
+  if (gate?.kind === "locked" && gate.reason === "protection") {
+    // 민감정보 보호를 마치지 못함 — 자동 분석 없음 (다시 시도 / 문서 다시 등록 / 직접 입력)
+    return (
+      <Shell testID="gate-locked-protection">
+        <Center
+          icon="lock-closed-outline"
+          title="자동 분석을 진행하지 않았어요"
+          body={PROTECTION_REQUIRED_MESSAGE}
+        />
+        <Actions>
+          <Button
+            label="다시 시도"
+            onPress={() => {
+              discardUploads();
+              setGate(null);
+              setStep(0);
+              setPhase("upload");
+              setAttempt((a) => a + 1);
+            }}
+            testID="gate-locked-retry"
+          />
+          <Button
+            label="문서 다시 등록"
+            variant="secondary"
+            onPress={chooseOther}
+            testID="gate-locked-other"
+          />
+          <Button
+            label="직접 입력"
+            variant="secondary"
+            onPress={manual}
+            testID="gate-locked-secondary"
+          />
+        </Actions>
+      </Shell>
+    );
+  }
+
   if (gate?.kind === "locked") {
     const body =
       gate.reason === "unknown"
         ? PDF_PASSWORD_COPY.unknown
-        : gate.reason === "unsupported"
-          ? PDF_PASSWORD_COPY.unsupported
-          : "비밀번호가 설정된 계약서의 민감정보를 가리지 못해 자동 정리를 진행하지 않았어요.\n직접 입력하거나 잠금이 해제된 파일을 다시 등록해주세요.";
+        : PDF_PASSWORD_COPY.unsupported;
     return (
       <Shell testID={`gate-locked-${gate.reason}`}>
         <Center
           icon="lock-closed-outline"
-          title={
-            gate.reason === "protection"
-              ? "자동 정리를 진행하지 않았어요"
-              : PDF_PASSWORD_COPY.title
-          }
+          title={PDF_PASSWORD_COPY.title}
           body={body}
         />
         <Actions>
@@ -528,14 +574,9 @@ export default function AnalyzingScreen() {
             testID="gate-locked-other"
           />
           <Button
-            label={
-              gate.reason === "protection"
-                ? "직접 입력으로 계속하기"
-                : "등록 취소"
-            }
+            label="등록 취소"
             variant="secondary"
             onPress={() => {
-              if (gate.reason === "protection") return manual();
               discardUploads();
               useRegistration.getState().reset();
               router.dismissAll();

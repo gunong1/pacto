@@ -61,6 +61,16 @@ export function adminClient() {
   return createClient<Database>(e.API_URL, e.SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: testFetch } });
 }
 
+/**
+ * 테스트용 가짜 파일(실제 PDF·사진이 아님 — 보호 엔진이 열 수 없음)을 "민감정보 없음"으로 표시 (관리자 권한).
+ * AI 전송 게이트가 fail-closed라 보호가 끝나지 않은 문서는 분석하지 않는다 — 분석 흐름만 검증하는 테스트에서 쓴다.
+ * 보호 엔진 자체는 step11·14·15·16에서 실제 파일로 검증한다.
+ */
+export async function markNoSensitiveData(ids: string[]) {
+  const { error } = await adminClient().from('contract_documents').update({ protection_status: 'no_sensitive_data' } as never).in('id', ids);
+  if (error) throw error;
+}
+
 /** 새 테스트 계정으로 로그인된 클라이언트 */
 export async function newUser(prefix = 'user') {
   const client = anonClient();

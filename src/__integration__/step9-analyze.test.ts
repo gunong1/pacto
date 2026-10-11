@@ -7,7 +7,7 @@ import { SupabaseContractRepository } from '@/data/supabase/SupabaseContractRepo
 import { SupabaseDocumentStore } from '@/data/supabase/SupabaseDocumentStore';
 import type { PreparedFile } from '@/data/supabase/prepareFile';
 
-import { adminClient, newUser } from './helpers';
+import { adminClient, markNoSensitiveData, newUser } from './helpers';
 
 // 로컬 Edge Runtime은 AI_PROVIDER=mock (supabase/functions/.env) — 실제 AI 호출 없이 서버 흐름을 검증
 const PDF = new TextEncoder().encode('%PDF-1.4\n% 테스트\n');
@@ -20,6 +20,8 @@ describe('Step 9 — 서버 계약서 분석 (analyze-contract)', () => {
     const docs = new SupabaseDocumentStore(a.client, prepare, () => randomUUID());
     const ai = new SupabaseAIProvider(a.client);
     const up = await docs.upload(file);
+
+    await markNoSensitiveData([up.id]); // 가짜 PDF — 분석 흐름만 검증
 
     await expect(ai.analyze({ files: [file], documentIds: [up.id], today: '2026-10-05' })).rejects.toBeInstanceOf(AIConsentRequiredError);
 
@@ -49,6 +51,22 @@ describe('Step 9 — 서버 계약서 분석 (analyze-contract)', () => {
     const saved = await repo.create({ draft: { ...EMPTY_DRAFT, title: '정수기' }, source: 'upload', documents: [{ ...up, pageCount: null }], aiChecks: [], analysisJobId: result.jobId });
     const { data: row } = await adminClient().from('contracts').select('analysis_job_id').eq('id', saved.contract.id).single();
     expect(row?.analysis_job_id).toBe(result.jobId);
+  });
+
+  test('민감정보 보호가 끝나지 않은 문서(처리 전·실패)는 분석하지 않는다 — fail-closed, 원본을 대신 보내지 않음', async () => {
+    const a = await newUser('ai-gate');
+    const docs = new SupabaseDocumentStore(a.client, prepare, () => randomUUID());
+    const ai = new SupabaseAIProvider(a.client);
+    await ai.grantConsent();
+    const up = await docs.upload(file);
+    // 처리 전
+    await expect(ai.analyze({ files: [file], documentIds: [up.id], today: '2026-10-05' })).rejects.toThrow('민감정보 보호를 완료하지 못해');
+    // 보호 실패 (가짜 PDF는 열 수 없어 failed)
+    await docs.protect(up.id);
+    await expect(ai.analyze({ files: [file], documentIds: [up.id], today: '2026-10-05' })).rejects.toThrow('민감정보 보호를 완료하지 못해');
+    // 작업 기록도 결과도 만들지 않음
+    const { data: jobs } = await adminClient().from('analysis_jobs').select('id').eq('user_id', a.user.id);
+    expect(jobs).toEqual([]);
   });
 
   test('다른 사람의 계약서 id로는 분석할 수 없다', async () => {

@@ -5,7 +5,7 @@ import { SeverityLabel } from '@/components/pacto';
 import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
 import { checkTopicLabel } from '@/domain/contractTypes';
-import { maskLevel1Text } from '@/domain/sensitive';
+import { maskSensitiveTextForDisplay } from '@/domain/sensitive';
 import { formatDateKo } from '@/domain/dates';
 import { formatWon } from '@/domain/money';
 import { checkHeadline } from '@/domain/checkDisplay';
@@ -52,22 +52,22 @@ export function ContractCheckCard({
         {low ? <Badge label="AI 확신 낮음" tone="check" /> : null}
       </View>
       <AppText variant="body2Strong" style={{ marginTop: 6 }} testID={testID ? `${testID}-title` : undefined}>
-        {head.title}
+        {maskSensitiveTextForDisplay(head.title)}
       </AppText>
       <AppText variant="body2" color="textSecondary" style={{ marginTop: 4 }}>
-        {maskLevel1Text(head.reason)}
+        {maskSensitiveTextForDisplay(head.reason)}
       </AppText>
       {check.behavior === 'conditional_rule' && check.rule ? (
         <View style={styles.rule} testID={testID ? `${testID}-rule` : undefined}>
           <AppText variant="caption" color="textSecondary">
-            <AppText variant="captionStrong">조건</AppText> {check.rule.condition}
+            <AppText variant="captionStrong">조건</AppText> {maskSensitiveTextForDisplay(check.rule.condition)}
           </AppText>
           <AppText variant="caption" color="textSecondary">
-            <AppText variant="captionStrong">할 일</AppText> {check.rule.action}
+            <AppText variant="captionStrong">할 일</AppText> {maskSensitiveTextForDisplay(check.rule.action)}
           </AppText>
           {check.amount != null || check.amountNote ? (
             <AppText variant="caption" color="textSecondary" testID={testID ? `${testID}-amount` : undefined}>
-              <AppText variant="captionStrong">금액</AppText> {[check.amount != null ? formatWon(check.amount) : null, check.amountNote].filter(Boolean).join(' · ')}
+              <AppText variant="captionStrong">금액</AppText> {[check.amount != null ? formatWon(check.amount) : null, check.amountNote ? maskSensitiveTextForDisplay(check.amountNote) : null].filter(Boolean).join(' · ')}
             </AppText>
           ) : null}
           <AppText variant="small" color="textTertiary">
@@ -87,7 +87,7 @@ export function ContractCheckCard({
           </AppText>
           {quoteInline ? (
             <AppText variant="caption" color="textSecondary" style={{ marginTop: 2 }}>
-              “{maskLevel1Text(check.evidenceQuote)}”
+              “{maskSensitiveTextForDisplay(check.evidenceQuote)}”
             </AppText>
           ) : null}
           {onOpenOriginal ? (

@@ -5,6 +5,8 @@
  * 3) 해상도가 너무 낮은 사진 → 업로드 전에 "계약 내용을 읽기 어려워요"
  * 4) 계약서 4장 + 책상 사진 → 3번째 사진 제외 → 확인 화면에 그 사진의 3,000,000원이 없음
  * 5) 직접 촬영(웹에서는 파일 선택으로 대신) → 촬영 목록 · 삭제 · 촬영 완료 → 분석
+ * 6) OCR 실패로 사진 보호를 마치지 못함 → 자동 분석 없이 차단 안내 (fail-closed)
+ * 가짜 OCR 서버(e2e/fakeOcr.js)와 함께 돈다 — 보호가 끝난 사진만 분석하므로
  * 사용: BASE_URL=http://localhost:8082 node e2e/photo-gate.js
  */
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -20,6 +22,7 @@ const check = (id, name, ok, detail = '') => {
 };
 
 (async () => {
+  const ocr = await require('./fakeOcr')();
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
   const errors = [];
@@ -147,15 +150,27 @@ const check = (id, name, ok, detail = '') => {
   await page.click(tid('capture-done'));
   await page.waitForSelector(tid('submit-contract'), { timeout: 40000 });
   check('K4', '촬영 완료 → 같은 등록 흐름(보관 → 문서 확인 → 분석) → 확인 화면', true);
-  const prot = await body();
-  // 이 E2E는 OCR(CLOVA) 없이 실행 — 사진 보호가 끝나지 못하면 "보호됐다"고 하지 않고 실패 안내 (이전 "사진은 지원하지 않아요" 문구 없음)
-  check('P', '사진 계약서: OCR을 쓸 수 없으면 "보호됐다"고 표시하지 않음 (처리 중 문제 안내, 미지원 문구 없음)', !prot.includes('민감정보를 보호했어요') && !prot.includes('사진 문서의 자동 민감정보 가리기는 지원하지 않아요') && prot.includes('민감정보 보호 처리 중 문제가 발생했어요'));
   await shot('07-review-photo');
+  await page.locator(`${tid('register-close')} >> visible=true`).first().click();
+
+  // 6) OCR 실패 → 사진 보호를 마치지 못함 → 자동 분석 없음 (원본을 AI에 보내지 않음)
+  // (예전: 분석은 진행하고 확인 화면에 "민감정보 보호 처리 중 문제가 발생했어요")
+  ocr.failWith = 503;
+  await openAlbum([['계약서_실패.jpg', docs[1]]]);
+  await page.waitForSelector(tid('gate-locked-protection'), { timeout: 40000 });
+  const blocked = await body();
+  check('P', 'OCR 실패 → "민감정보 보호를 완료하지 못해 자동 분석을 진행할 수 없어요" · 다시 시도 / 문서 다시 등록 / 직접 입력 (확인 화면으로 가지 않음)', blocked.includes('민감정보 보호를 완료하지 못해 자동 분석을 진행할 수 없어요') && blocked.includes('다시 시도') && blocked.includes('문서 다시 등록') && blocked.includes('직접 입력') && !blocked.includes('민감정보를 보호했어요'));
+  await shot('08-protection-blocked');
+  ocr.failWith = null;
+  await page.click(tid('gate-locked-retry'));
+  await page.waitForSelector(tid('submit-contract'), { timeout: 40000 });
+  check('P2', '다시 시도 → 보호가 끝나면 분석 진행 → 확인 화면', true);
 
   console.log('\npage errors:', errors.length ? errors : 'none');
   const failed = results.filter((r) => !r.ok);
   require('fs').writeFileSync(path.join(SHOTS, 'photo-gate-results.json'), JSON.stringify(results, null, 2));
   await browser.close();
+  await ocr.close();
   if (failed.length) process.exit(1);
 })().catch((e) => {
   console.error('✘', e.message);

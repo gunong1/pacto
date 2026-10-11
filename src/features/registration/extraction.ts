@@ -16,6 +16,7 @@ import {
 } from '@/domain/contractTypes';
 import { contractKindDef, legacyOf, type ClassificationMeta, type KindClassification } from '@/domain/contractKinds';
 import { formatWon } from '@/domain/money';
+import { maskSensitiveDeep } from '@/domain/sensitive';
 import { addDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
 
@@ -74,7 +75,9 @@ export const discountNote = (base: number) =>
 /**
  * @param documentIds 보관된 원본 id (첨부 순서) — 계약 체크의 근거 파일 번호를 문서 id로 연결한다
  */
-export function toReviewModel(result: ExtractionResult, documentIds: readonly string[] = []): ReviewModel {
+export function toReviewModel(input: ExtractionResult, documentIds: readonly string[] = []): ReviewModel {
+  // 방어선: 서버가 이미 가렸어도(또는 예전 서버 결과여도) 화면 모델에 들어오기 전에 공통 정책으로 다시 가린다 (이미 가린 값은 그대로)
+  const result = maskSensitiveDeep(input);
   const flagged = new Set<string>();
   const evidence: Partial<Record<string, string>> = {};
   const notes: Partial<Record<string, string>> = {};

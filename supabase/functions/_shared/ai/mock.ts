@@ -3,6 +3,7 @@
 // 문서 확인 시나리오 (쪽마다): 음식·강아지·고양이·반려·책상·풍경 → 계약과 무관 / 흐림 → 읽기 어려움 / 특약 → 부속계약 /
 //   영수증 → 일반 영수증 / 신분증 → 신분증 / 견적서 → 관련 자료 / 중복 → 앞쪽과 같은 쪽 / 정보부족 → 계약 신호가 거의 없음 /
 //   출처불명 → 근거 파일 번호가 빠진 값 (제외 시 다시 분석 확인용)
+//   연락처노출 → AI가 근거에 주민번호·전화번호를 그대로 옮긴 렌탈 (저장 전 가림 보안 회귀용, 값은 가짜)
 import { mockDocumentOutput } from './mockFixtures.ts';
 import type { ContractFile, ExtractionProvider } from './types.ts';
 

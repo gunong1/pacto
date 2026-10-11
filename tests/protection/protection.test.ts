@@ -47,7 +47,8 @@ const REPEATED: [string, string][] = [
   ['비상연락처:', '010-1234-9876'], // 가운데 번호 같음
   ['보호자 연락처:', '010-5678-1234'], // 표시되는 끝자리 = 다른 번호의 가린 가운데
 ];
-const REPEATED_VISIBLE = ['4111-', '-1111', '5500-', '010-', '-5678', '-9876', '-1234'];
+// 카드는 끝 4자리만 남긴다 (2026-10 단일 정책 — 앞 4자리도 가림)
+const REPEATED_VISIBLE = ['-1111', '010-', '-5678', '-9876', '-1234'];
 
 /** 파일 안 모든 스트림을 풀어 본 내용 (PDF 구조 분석으로 볼 수 있는 것) */
 async function allStreams(pdf: Uint8Array) {
@@ -80,7 +81,7 @@ describe('A. 근로계약서 — 주민등록번호 자동 가림 · 전화번�
       [
         ['resident_registration_number', 'high', 'masked', '901225-1******', 1],
         ['phone', 'high', 'masked', '010-****-5678', 1],
-        ['email', 'high', 'masked', 'mi****@example.com', 1],
+        ['email', 'high', 'masked', 'm*****@example.com', 1],
       ],
     );
     assert.doesNotMatch(JSON.stringify(result.regions), /1234567|1234-5678|minjun@/);
@@ -173,11 +174,12 @@ describe('사용자 선택 유지 · 확신 낮은 후보', () => {
     assert.ok(!text.includes('1234567'));
   });
 
-  test('필드명 없는 13자리 숫자는 후보(가리지 않음)', async () => {
+  // 2026-10 단일 정책(shouldMaskSensitive): Level 1(주민·외국인·카드·계좌)은 확신이 낮아도 기본으로 가린다 (사용자가 해제 가능)
+  test('필드명 없는 13자리 숫자(확신 낮음)도 Level 1이면 기본으로 가림', async () => {
     const c = await ContractPdf.create();
     await c.page(['참고 9012251234567']);
     const r = await protectPdf(await c.save());
-    assert.deepEqual(r.regions.map((x) => [x.type, x.confidence, x.state]), [['resident_registration_number', 'low', 'candidate']]);
+    assert.deepEqual(r.regions.map((x) => [x.type, x.confidence, x.state]), [['resident_registration_number', 'low', 'masked']]);
     assert.equal(r.status, 'protected');
   });
 });
@@ -238,7 +240,7 @@ describe('글꼴 지원 범위 — 한글 CMap(스캔본으로 잘못 분류하�
       assert.deepEqual(r.regions.map((x) => [x.type, x.maskedPreview]), [
         ['resident_registration_number', '900101-1******'],
         ['phone', '010-****-5678'],
-        ['credit_card', '4111-****-****-1111'],
+        ['credit_card', '****-****-****-1111'],
         ['phone', '010-****-1111'],
       ]);
       assert.ok(r.diagnostics.alignItemCount > 0 && r.diagnostics.alignMatchedCount === r.diagnostics.alignItemCount);

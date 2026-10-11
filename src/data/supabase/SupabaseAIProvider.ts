@@ -1,3 +1,4 @@
+import { PROTECTION_REQUIRED_MESSAGE } from '@/domain/sensitive';
 import { AIConsentRequiredError, AIExtractionError, type AIProvider, type AnalysisChoice, type AnalysisOutcome, type ExtractInput } from '../ai/provider';
 import type { PactoSupabase } from './client';
 
@@ -11,7 +12,7 @@ const MESSAGES: Record<string, string> = {
   not_allowed: '이 파일은 계약서로 확인되지 않아 정리할 수 없어요.',
   password_required: '비밀번호가 설정된 계약서예요. PDF 비밀번호를 입력한 뒤 다시 시도해주세요.',
   invalid_password: '비밀번호가 맞지 않아요.\n다시 확인해주세요.',
-  protection_required: '민감정보 보호를 마치지 못한 암호 PDF는 자동으로 정리하지 않아요. 직접 입력으로 계속할 수 있어요.',
+  protection_required: `${PROTECTION_REQUIRED_MESSAGE} 다시 시도하거나 직접 입력으로 계속할 수 있어요.`,
 };
 
 /** 암호 PDF 비밀번호 — 있을 때만 body에 (주소에는 넣지 않는다) */

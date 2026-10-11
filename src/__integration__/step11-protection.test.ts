@@ -51,7 +51,7 @@ describe('Step 11 — 민감정보 보호', () => {
     expect(prot.regions.map((r) => [r.type, r.state, r.maskedPreview, r.confidence])).toEqual([
       ['resident_registration_number', 'masked', '901225-1******', 'high'],
       ['phone', 'masked', '010-****-5678', 'high'],
-      ['email', 'masked', 'mi****@example.com', 'high'],
+      ['email', 'masked', 'm*****@example.com', 'high'],
     ]);
 
     // 보호본: 원문이 추출되지 않음 (F) · 계약 정보는 그대로

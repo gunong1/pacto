@@ -6,6 +6,7 @@
 // 원문 값·OCR 텍스트는 이 함수 안에서만 다루고 반환·저장·로그에 쓰지 않는다 (반환: 위치·종류·가린 표시값·개수·시간).
 import { checkCoverage, decodeImage, readImageInfo, renderProtectedView, type ImageFormat, type ImageInfo, type RenderedView, type RgbImage } from './imageRedact.ts';
 import { OcrError, type OcrProvider } from './ocrProvider.ts';
+import { defaultRegionState } from './sensitive.ts';
 import { buildText, detectOnTokens, readQuality, type Box, type OcrPage } from './ocrText.ts';
 import type { ProtectedRegion, ProtectionStatus, RegionState } from './protect.ts';
 
@@ -200,7 +201,7 @@ export async function protectImageInput(input: ImageInput, opts: ProtectImageOpt
     const n = (counters.get(d.type) ?? 0) + 1;
     counters.set(d.type, n);
     const key = `p${input.page}:${d.type}:${n}`;
-    const state = opts.prevStates?.get(key) ?? (d.confidence === 'low' ? 'candidate' : 'masked');
+    const state = opts.prevStates?.get(key) ?? defaultRegionState(d);
     regions.push({ key, page: input.page, type: d.type, level: d.level, confidence: d.confidence, state, maskedPreview: d.maskedPreview, contextLabel: d.contextLabel, bbox: f.boxes });
     if (state === 'masked') secrets.push({ value: text.slice(d.start, d.end), email: d.type === 'email' });
   }

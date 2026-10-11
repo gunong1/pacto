@@ -1,5 +1,5 @@
 /* 민감정보 탐지 — 패턴 + 문맥(필드명) + 검증. 원문 값은 가린 표시값으로만 다룬다 */
-import { detectSensitive, maskLevel1Deep, maskLevel1Text } from '../../../supabase/functions/_shared/protection/sensitive.ts';
+import { detectSensitive, maskSensitiveDeep, maskSensitiveText } from '../../../supabase/functions/_shared/protection/sensitive.ts';
 
 const one = (text: string) => detectSensitive(text).map((d) => [d.type, d.confidence, d.maskedPreview]);
 
@@ -20,12 +20,12 @@ describe('탐지·부분 가림 (V1 5종)', () => {
   });
 
   test('카드번호: 필드명·Luhn 검증', () => {
-    expect(one('결제 카드번호 4111-1111-1111-1111')).toEqual([['credit_card', 'high', '4111-****-****-1111']]);
-    expect(one('4111 1111 1111 1111')).toEqual([['credit_card', 'medium', '4111 **** **** 1111']]);
+    expect(one('결제 카드번호 4111-1111-1111-1111')).toEqual([['credit_card', 'high', '****-****-****-1111']]);
+    expect(one('4111 1111 1111 1111')).toEqual([['credit_card', 'medium', '**** **** **** 1111']]);
   });
 
   test('이메일 부분 가림', () => {
-    expect(one('이메일: pacto@example.com')).toEqual([['email', 'high', 'pa***@example.com']]);
+    expect(one('이메일: pacto@example.com')).toEqual([['email', 'high', 'p****@example.com']]);
   });
 });
 
@@ -59,19 +59,21 @@ describe('C·G. 오탐 방지 — 비슷한 숫자 모양', () => {
   });
 });
 
-describe('H 준비. 문장 속 Level 1 재마스킹 (AI 인용문·설명)', () => {
+// 2026-10 민감정보 단일 정책: 문장 가림도 Level 1 + 2(전화·이메일)를 함께 가린다 (보호본과 같은 정책).
+// 카드·계좌는 끝 4자리만 남기는 더 많이 가리는 형식으로 바뀌었다.
+describe('H 준비. 문장 속 민감정보 재마스킹 (AI 인용문·설명)', () => {
   test('의미는 유지하고 값 일부만 가림', () => {
-    expect(maskLevel1Text('근로자 박민준(주민등록번호: 901225-1234567)은 급여를 국민은행 계좌 123456-01-234567로 받는다.')).toBe(
+    expect(maskSensitiveText('근로자 박민준(주민등록번호: 901225-1234567)은 급여를 국민은행 계좌 123456-01-234567로 받는다.')).toBe(
       '근로자 박민준(주민등록번호: 901225-1******)은 급여를 국민은행 계좌 ******-**-**4567로 받는다.',
     );
-    // Level 2(전화·이메일)는 AI 문장에서 그대로 (계약 이해에 필요할 수 있음)
-    expect(maskLevel1Text('연락처 010-1234-5678')).toBe('연락처 010-1234-5678');
-    expect(maskLevel1Text('월 임금 3,600,000원, 매월 25일 지급')).toBe('월 임금 3,600,000원, 매월 25일 지급');
+    // Level 2(전화·이메일)도 가린다 (예전에는 그대로 남겨 화면에 전화번호가 보였다)
+    expect(maskSensitiveText('연락처 010-1234-5678')).toBe('연락처 010-****-5678');
+    expect(maskSensitiveText('월 임금 3,600,000원, 매월 25일 지급')).toBe('월 임금 3,600,000원, 매월 25일 지급');
   });
   test('객체 전체(중첩) 재마스킹, 원본 객체는 그대로', () => {
     const src = { checks: [{ evidenceQuote: '주민등록번호 901225-1234567', n: 1 }], label: '카드번호 4111-1111-1111-1111' };
-    const out = maskLevel1Deep(src);
-    expect(out).toEqual({ checks: [{ evidenceQuote: '주민등록번호 901225-1******', n: 1 }], label: '카드번호 4111-****-****-1111' });
+    const out = maskSensitiveDeep(src);
+    expect(out).toEqual({ checks: [{ evidenceQuote: '주민등록번호 901225-1******', n: 1 }], label: '카드번호 ****-****-****-1111' });
     expect(src.checks[0].evidenceQuote).toContain('1234567');
   });
 });

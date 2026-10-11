@@ -11,7 +11,7 @@ import { buildProtectedView, extractPage, removeGlyphs, type Box, type Glyph, ty
 import { normalizeRotate, pageBoxToUpright, uprightBoxToPage } from './scanGeometry.ts';
 import { assembleProtectedPdf, classifyPage, rawImageBytes } from './scanPdf.ts';
 import type { ScanJob, ScanPageOutcome } from './scanWorker.ts';
-import { detectSensitive, MASK_LEVEL, type DetectionConfidence, type SensitiveType } from './sensitive.ts';
+import { defaultRegionState, detectSensitive, MASK_LEVEL, type DetectionConfidence, type SensitiveType } from './sensitive.ts';
 
 export type ProtectionStatus = 'protected' | 'no_sensitive_data' | 'unreadable' | 'unsupported_scan' | 'failed';
 export type RegionState = 'masked' | 'unmasked' | 'candidate';
@@ -438,7 +438,7 @@ export async function protectPdf(
         const n = ordinal.get(d.type) ?? 0;
         ordinal.set(d.type, n + 1);
         const key = `p${line.page}:${d.type}:${n}`;
-        const defaultState: RegionState = d.confidence === 'low' ? 'candidate' : 'masked';
+        const defaultState: RegionState = defaultRegionState(d); // 공통 가림 정책 (shouldMaskSensitive)
         const state = prevStates.get(key) ?? defaultState;
         const valueGlyphs = line.glyphs.slice(d.start, d.end).filter((g): g is Glyph => !!g);
         const hideGlyphs = [...new Set(d.hide.flatMap(([a, b]) => line.glyphs.slice(a, b)).filter((g): g is Glyph => !!g))];

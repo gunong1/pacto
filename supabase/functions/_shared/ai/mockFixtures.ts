@@ -61,6 +61,23 @@ export function rentalOutput(title: string) {
 }
 
 /**
+ * 보안 회귀 fixture (모든 값은 가짜): AI가 근거·설명에 주민등록번호·전화번호를 그대로 옮긴 출력
+ * → 서버가 저장 전에 공통 가림 정책으로 가려야 한다 (analysis_jobs.result·raw_output, 저장 후 contracts.ai_checks).
+ */
+export const LEAKY_CONTACT_LINE = '임대인 홍길동 / 주민등록번호 800101-1234567 / 010-1234-5678';
+export function rentalLeakyContactOutput(title: string) {
+  const base = rentalOutput(title);
+  return {
+    ...base,
+    fields: { ...base.fields, counterparty: f('홍길동', 'high', LEAKY_CONTACT_LINE) },
+    checks: [
+      ...base.checks,
+      check({ severity: 'check', topic: 'counterparty', title: '임대인 연락처 (010-1234-5678)', description: `임대인 정보: ${LEAKY_CONTACT_LINE}`, evidence_quote: LEAKY_CONTACT_LINE }),
+    ],
+  };
+}
+
+/**
  * 통보기한 일수를 필드로 찾지 못한 렌탈 (모든 값은 가짜) — 자동갱신 체크의 조건부 규칙에만 "종료 30일 전"이 있다
  * → 등록 확인 화면은 기한을 자동 저장하지 않고, 계약 체크 카드에서 "30일 전 넣기"를 고르게 한다.
  */
@@ -282,7 +299,7 @@ export function mockDocumentOutput(names: string[]) {
     const out = stampFile(rentalOutput(title) as Record<string, unknown>, main.file);
     return { document_check: check('supporting', 'medium', { ...NO_SIGNALS, parties: true, amounts: true, dates: true }), ...out };
   }
-  const base = /근로/.test(name) ? employmentOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : /통보미확인/.test(name) ? rentalNoticeUnsureOutput(title) : rentalOutput(title);
+  const base = /근로/.test(name) ? employmentOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : /통보미확인/.test(name) ? rentalNoticeUnsureOutput(title) : /연락처노출/.test(name) ? rentalLeakyContactOutput(title) : rentalOutput(title);
   const out = stampFile(base as Record<string, unknown>, main.file, /출처불명/.test(names.join(' ')));
   // 계약과 무관한 쪽(예: 책상 사진의 가격표)에서 읽힌 값 — 그 쪽을 제외하면 결과에 남으면 안 된다
   for (const junk of pages.filter((p) => p.role === 'non_contract')) {

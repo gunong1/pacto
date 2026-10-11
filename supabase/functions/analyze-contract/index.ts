@@ -4,10 +4,10 @@
 // - 제외한 쪽에서만 근거가 나온 값은 결과에서 지우고, 근거 위치를 알 수 없으면 그 사진을 빼고 다시 분석한다.
 // - AI 처리 동의(profiles.ai_processing_agreed_at)가 없으면 거부 (앱이 동의를 받은 뒤 재시도)
 // - API 키는 Edge Function secret에만 존재. 계약서 내용·추출 결과는 로그에 남기지 않는다 (id·역할·신뢰도·개수·시간만).
-// - 암호 PDF: 원본(암호)을 AI에 보내지 않는다.
-//   보호본이 있으면(protected) 민감정보를 지운 보호본을, 민감정보가 없으면(no_sensitive_data) 요청 body의 비밀번호로
-//   서버 메모리에서만 연 사본을 보낸다 (저장·로그 없음). 보호 처리가 안 된 상태(failed·unreadable·unsupported_scan·
-//   지원하지 않는 암호·처리 전)면 AI를 부르지 않고 protection_required로 거절한다 — 앱이 먼저 안내한다.
+// - AI 전송 게이트 (모든 문서, fail-closed — 규칙은 protection/aiGate.ts 한 곳):
+//   protected → 민감정보를 가린 보호본만 / no_sensitive_data → 원본 (암호 PDF는 요청 body의 비밀번호로 서버 메모리에서만 연 사본, 저장·로그 없음)
+//   failed·unreadable·unsupported_scan·unsupported_encryption·처리 전 → AI를 부르지 않고 protection_required로 거절 (원본 fallback 없음)
+// - AI 원본 응답(raw_output)도 저장 전에 공통 가림 정책으로 가린다 (storableModelOutput)
 import { finalize, FinalizeError, firstPass } from '../_shared/analysis.ts';
 import type { DocumentRole, DocumentValidation, FileKind } from '../_shared/documentGate.ts';
 import { selectProvider } from '../_shared/ai/index.ts';
@@ -29,7 +29,8 @@ import {
 import { corsHeaders, json } from '../_shared/cors.ts';
 import { PROMPT_VERSION } from '../_shared/extraction.ts';
 import { acceptablePassword, decryptPdf, inspectEncryption } from '../_shared/protection/pdfDecrypt.ts';
-import { maskLevel1Deep } from '../_shared/protection/sensitive.ts';
+import { aiInputPlan } from '../_shared/protection/aiGate.ts';
+import { storableModelOutput } from '../_shared/protection/sensitive.ts';
 
 const BUCKET = 'contract-files';
 const MAX_FILES = 10;
@@ -73,27 +74,26 @@ async function filesFor(userId: string, docs: DocumentRow[], passwords: Password
   const files: ContractFile[] = [];
   for (const d of docs) {
     const fileName = d.original_filename ?? `contract.${d.mime_type === 'application/pdf' ? 'pdf' : 'jpg'}`;
-    const original = await downloadObject(BUCKET, d.storage_path);
-    const enc = d.mime_type === 'application/pdf' ? await inspectEncryption(original) : { encrypted: false as const };
-    if (!enc.encrypted) {
+    // 보호 완료면 보호본만 본다 (원본은 읽지 않음). 민감정보 없음이면 원본(암호 PDF면 메모리에서 연 사본)
+    const view = d.protection_status === 'protected' ? (await selectDerivatives(userId, d.id)).find((x) => x.kind === 'protected_view') : undefined;
+    const original = d.protection_status === 'no_sensitive_data' ? await downloadObject(BUCKET, d.storage_path) : null;
+    const enc = original && d.mime_type === 'application/pdf' ? await inspectEncryption(original) : { encrypted: false as const };
+    const plan = aiInputPlan({ protectionStatus: d.protection_status, encrypted: enc.encrypted, hasProtectedView: !!view });
+    if (plan.kind === 'protected_view' && view) {
+      // 보호본 형식: PDF는 PDF, 사진·스캔은 가린 JPEG
+      const mimeType: ContractFile['mimeType'] = view.storage_path.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
+      files.push({ mimeType, fileName, base64: toBase64(await downloadObject(BUCKET, view.storage_path)) });
+    } else if (plan.kind === 'original' && original) {
       files.push({ mimeType: d.mime_type as ContractFile['mimeType'], fileName, base64: toBase64(original) });
-      continue;
-    }
-    if (d.protection_status === 'protected') {
-      const view = (await selectDerivatives(userId, d.id)).find((x) => x.kind === 'protected_view');
-      if (!view) throw new NotReady('protection_required', d.id);
-      files.push({ mimeType: 'application/pdf', fileName, base64: toBase64(await downloadObject(BUCKET, view.storage_path)) });
-      continue;
-    }
-    if (d.protection_status === 'no_sensitive_data') {
+    } else if (plan.kind === 'decrypted_original' && original && enc.encrypted) {
       const r = await decryptPdf(original, passwords.get(d.id) ?? null, enc);
       if (r.kind === 'invalid_password' || r.kind === 'password_required') throw new NotReady(r.kind, d.id);
       if (r.kind !== 'ok') throw new NotReady('protection_required', d.id);
       files.push({ mimeType: 'application/pdf', fileName, base64: toBase64(r.bytes) });
-      continue;
+    } else {
+      // fail-closed: 보호 실패·읽기 어려움·지원하지 않는 스캔/암호·처리 전 — 원본으로 대신 보내지 않고 AI를 부르지 않는다
+      throw new NotReady('protection_required', d.id);
     }
-    // failed · unreadable · unsupported_scan · 지원하지 않는 암호 · 처리 전 — AI를 자동으로 부르지 않는다
-    throw new NotReady('protection_required', d.id);
   }
   return files;
 }
@@ -143,7 +143,7 @@ async function analyze(userId: string, docs: DocumentRow[], provider: Extraction
     }
     const stored: StoredValidation = { ...validation, documentIds: docs.map((d) => d.id), files, ...(carry ? { reanalyzedFrom: carry.from, userConfirmedRole: validation.userConfirmedRole || carry.confirmed } : {}) };
     // 원본 모델 출력은 사용자 선택을 반영할 때만 쓴다 — Level 1 민감정보는 가려서 저장
-    await updateJob(jobId, { status: 'succeeded', model: out.model, result, validation: stored, raw_output: maskLevel1Deep(out.json), completed_at: new Date().toISOString() });
+    await updateJob(jobId, { status: 'succeeded', model: out.model, result, validation: stored, raw_output: storableModelOutput(out.json), completed_at: new Date().toISOString() });
     await linkDocumentsToJob(docs.map((d) => d.id), jobId);
     await recordRoles(userId, docs, validation, pagesOf(out.json), () => stored.userConfirmedRole);
     console.log(`analyze-contract: job=${jobId} role=${validation.role} confidence=${validation.confidence} decision=${validation.decision} files=${docs.length} suspicious=${validation.suspiciousPages.length} signals=${validation.signalCount} ms=${Date.now() - started}`);

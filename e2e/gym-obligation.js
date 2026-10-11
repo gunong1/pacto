@@ -16,7 +16,8 @@ const check = (no, name, ok, detail = '') => {
   results.push({ no, name, ok, detail });
   console.log(ok ? '✔' : '✘', `${no}. ${name}`, detail ? `— ${detail}` : '');
 };
-const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/MediaBox[0 0 200 200]/Parent 2 0 R>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
+// 민감정보 없는 실제 PDF (빈 PDF는 보호를 마치지 못해 분석하지 않음 — fail-closed)
+const PDF = require('./cleanPdf')();
 
 (async () => {
   const browser = await chromium.launch();

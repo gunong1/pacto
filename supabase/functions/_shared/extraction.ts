@@ -23,7 +23,7 @@ import type { AppExtractionResult } from './analysisRules/types.ts';
 import { isObj } from './analysisRules/values.ts';
 import { FIELDS } from './analysisRules/vocabulary.ts';
 import { PROMPT_VERSION } from './extractionPrompt.ts';
-import { maskLevel1Deep } from './protection/sensitive.ts';
+import { maskSensitiveDeep } from './protection/sensitive.ts';
 
 export { CATEGORY_CODES, CONTRACT_KIND_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export { PROMPT_VERSION, extractionInstructions, extractionJsonSchema } from './extractionPrompt.ts';
@@ -89,6 +89,7 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   // 체크 → 캘린더 일정 제안 (계약서에 명시된 날짜)
   attachSuggestions(checks, dates);
 
-  // 강한 보호(Level 1: 주민·외국인등록번호·카드·계좌) 원문이 인용문·설명·값에 남지 않도록 저장·반환 전에 가린다 (의미는 유지)
-  return maskLevel1Deep({ classification, category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION });
+  // 민감정보(Level 1 + 2: 주민·외국인·카드·계좌·전화·이메일) 원문이 인용문·설명·값에 남지 않도록 저장·반환 전에 가린다 (의미는 유지)
+  // 보안 판단은 AI가 아니라 공통 탐지기·가림 정책(protection/sensitive.ts)이 한다
+  return maskSensitiveDeep({ classification, category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION });
 }

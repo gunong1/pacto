@@ -7,7 +7,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
 import { formatDateKo } from '@/domain/dates';
 import type { ImportantScheduleItem } from '@/domain/importantSchedule';
-import { maskLevel1Text } from '@/domain/sensitive';
+import { maskSensitiveTextForDisplay } from '@/domain/sensitive';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
 /**
@@ -59,7 +59,7 @@ export function ImportantScheduleCard({ entry }: { entry: ImportantScheduleItem 
       {evidence && showEvidence ? (
         <View style={styles.quote}>
           <AppText variant="caption" color="textSecondary">
-            “{maskLevel1Text(evidence.quote)}”
+            “{maskSensitiveTextForDisplay(evidence.quote)}”
           </AppText>
           {evidence.page ? (
             <AppText variant="small" color="textTertiary" style={{ marginTop: 2 }}>

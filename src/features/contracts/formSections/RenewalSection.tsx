@@ -10,6 +10,7 @@ import { AppText } from '@/components/ui/AppText';
 import { RadioGroup, SwitchRow } from '@/components/ui/controls';
 import { Section } from '@/components/ui/layout';
 import type { ContractType } from '@/domain/contractTypes';
+import { maskSensitiveTextForDisplay } from '@/domain/sensitive';
 import { NOTICE_KIND_OPTIONS } from '@/domain/noticeKind';
 import { spacing } from '@/theme';
 
@@ -42,7 +43,7 @@ export function AutoRenewalFields({ kit, quick }: { kit: FormKit; quick: boolean
       />
       {flagged?.has('autoRenewal') ? (
         <AppText variant="caption" color="check" style={{ marginBottom: spacing.sm }}>
-          자동갱신 여부를 확인해주세요{evidence?.autoRenewal ? ` — 원문: “${evidence.autoRenewal}”` : ''}
+          자동갱신 여부를 확인해주세요{evidence?.autoRenewal ? ` — 원문: “${maskSensitiveTextForDisplay(evidence.autoRenewal)}”` : ''}
         </AppText>
       ) : null}
       {values.autoRenewal ? field('renewalPeriodMonths', '갱신 주기', { keyboardType: 'number-pad', suffix: '개월', maxLength: 3 }) : null}

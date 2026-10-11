@@ -10,6 +10,7 @@ import { Badge, TextField, type TextFieldProps } from '@/components/ui/controls'
 import { DateField } from '@/components/ui/DateField';
 import type { SourceType } from '@/domain/contractTypes';
 import { formatAmountInput, parseAmount } from '@/domain/money';
+import { maskSensitiveTextForDisplay } from '@/domain/sensitive';
 
 import type { ContractFormValues } from '../form';
 import { styles } from './styles';
@@ -32,7 +33,11 @@ export interface FormKit {
 
 export function formKit(base: Pick<FormKit, 'control' | 'setValue' | 'getValues' | 'values' | 'flagged' | 'evidence'> & { notes?: Partial<Record<string, string>> }): FormKit {
   const { control, flagged, evidence, notes } = base;
-  const hint = (path: string) => notes?.[path] ?? (evidence?.[path] ? `원문: “${evidence[path]}”` : undefined);
+  // 화면 방어선: 안내·원문 근거는 공통 정책으로 가려서 보여준다 (가림 실패 시 원문 대신 "민감정보 보호 확인 필요")
+  const hint = (path: string) => {
+    const text = notes?.[path] ?? (evidence?.[path] ? `원문: “${evidence[path]}”` : undefined);
+    return text == null ? undefined : maskSensitiveTextForDisplay(text);
+  };
   const field: FormKit['field'] = (name, label, extra) => (
     <FormText control={control} name={name} label={label} flagged={flagged?.has(name)} hint={hint(name)} testID={`field-${name}`} {...extra} />
   );

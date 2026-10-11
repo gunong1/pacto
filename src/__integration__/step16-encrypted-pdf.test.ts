@@ -59,15 +59,20 @@ const row = async (id: string) => (await adminClient().from('contract_documents'
 const jobs = async (userId: string) => (await adminClient().from('analysis_jobs').select('id, raw_output').eq('user_id', userId)).data ?? [];
 
 describe('Step 16 — 암호 PDF', () => {
-  test('A. 비밀번호 없는 PDF → 기존과 동일 (accessible · AI에는 원본)', async () => {
+  // 2026-10 단일 정책: 민감정보가 있어 보호한(protected) 문서는 암호 여부와 관계없이 AI에 보호본만 보낸다 (예전: 암호 없는 PDF는 원본)
+  test('A. 비밀번호 없는 PDF → accessible · 보호 완료 → AI에는 보호본 (원본 아님)', async () => {
     const original = fixture('employment');
     const { a, docs, ai, up } = await setup('enc-a', original);
     expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null, access: 'accessible' });
     expect((await row(up.id)).access_status).toBe('accessible');
+    const prot = (await docs.getProtection([up.id]))[up.id];
+    const view = await download(await docs.openUrl({ ...up, protection: prot }, 'protected_view'));
     const out = await ai.analyze({ files: [], documentIds: [up.id], today });
     expect(out.validation.decision).toBe('proceed');
     const [job] = await jobs(a.user.id);
-    expect((job.raw_output as { _mock_input: { sha256: string }[] })._mock_input[0].sha256).toBe(sha(original));
+    const input = (job.raw_output as { _mock_input: { sha256: string }[] })._mock_input[0].sha256;
+    expect(input).toBe(sha(view));
+    expect(input).not.toBe(sha(original));
   });
 
   test('B·E. 비밀번호 PDF: 없음 → password_required(분석 안 함) / 맞음 → 보호본(암호 없음·민감정보 제거) · 원본은 암호 그대로 · AI에는 보호본', async () => {
@@ -77,7 +82,7 @@ describe('Step 16 — 암호 PDF', () => {
     expect(await docs.protect(up.id)).toEqual({ status: 'pending', detail: null, access: 'password_required' });
     expect(await row(up.id)).toEqual({ protection_status: 'pending', protection_detail: null, access_status: 'password_required' });
     // 보호 전에는 AI 분석을 시작하지 않는다 (작업도 만들지 않음)
-    await expect(ai.analyze({ files: [], documentIds: [up.id], today })).rejects.toThrow('민감정보 보호를 마치지 못한');
+    await expect(ai.analyze({ files: [], documentIds: [up.id], today })).rejects.toThrow('민감정보 보호를 완료하지 못해');
     expect(await jobs(a.user.id)).toEqual([]);
 
     expect(await docs.protect(up.id, undefined, { password: PASSWORDS[0] })).toEqual({ status: 'protected', detail: null, access: 'password_required' });

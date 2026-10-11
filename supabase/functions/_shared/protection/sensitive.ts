@@ -3,6 +3,12 @@
 // - 바로 앞의 필드명이 "계약번호·증권번호·고객번호·사업자·차대번호 …"면 개인정보로 보지 않는다.
 // - 필드명 없이 숫자 모양만 맞으면 신뢰도를 낮춘다 (low = 자동으로 가리지 않는 후보).
 // 원문 값은 반환값의 위치(start/end)로만 다루고, 저장·로그에는 가린 표시값(maskedPreview)만 쓴다.
+//
+// 보호 정책은 이 파일 하나 (보안 파이프라인 — 계약 의미 분석과 별개):
+//   탐지 detectSensitive → 가림 여부 shouldMaskSensitive → 텍스트 가림 maskSensitiveText / maskSensitiveDeep
+//   보호본(PDF·스캔·사진)의 기본 가림 상태(defaultRegionState)와 AI 근거·DB 파생 텍스트·화면 표시가 모두 같은 기준을 쓴다.
+//   Level 1(주민·외국인·카드·계좌) + Level 2(전화·이메일) 모두 일반 UI에서 가린다. 원본 보기(사용자 확인 후)만 예외.
+// 표시 형식 (더 많이 가리는 쪽): 800101-1****** · 010-****-5678 · 02-****-5678 · e******@domain.com(앞 1글자 + 같은 길이 *) · ****-****-****-3456 · ***-***-**9012
 
 export const SENSITIVE_TYPES = [
   'resident_registration_number',
@@ -226,8 +232,8 @@ function* cardNumbers(text: string): Generator<Candidate> {
     else if (valid) confidence = m[0].length === 16 ? 'low' : 'medium';
     if (!confidence) continue;
     const pos = digitPositions(text, start, end);
-    // 앞 4자리·뒤 4자리만 남긴다
-    yield { type: 'credit_card', confidence, start, end, hide: toRanges(pos.slice(4, pos.length - 4)), contextLabel: ctx.label };
+    // 뒤 4자리만 남긴다 (****-****-****-3456)
+    yield { type: 'credit_card', confidence, start, end, hide: toRanges(pos.slice(0, pos.length - 4)), contextLabel: ctx.label };
   }
 }
 
@@ -270,7 +276,8 @@ function* emails(text: string): Generator<Candidate> {
   for (const m of text.matchAll(/(?<![\w.%+-])([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![\w-])/g)) {
     const start = m.index!, end = start + m[0].length;
     const ctx = nearestLabel(text, start, 'email');
-    const keep = Math.min(2, m[1].length - 1);
+    // 앞 1글자만 남긴다 (e*****@domain.com)
+    const keep = Math.min(1, m[1].length - 1);
     yield { type: 'email', confidence: 'high', start, end, hide: m[1].length > keep ? [[start + keep, start + m[1].length]] : [], contextLabel: ctx.label };
   }
 }
@@ -293,29 +300,60 @@ export function detectSensitive(text: string): Detection[] {
 }
 
 /**
- * 문장 속 강한 보호(Level 1) 정보를 가린다 — AI 결과의 인용문·설명 등에 쓴다.
- * 의미는 그대로 두고 값의 일부만 *로 바꾼다 (예: "주민등록번호: 901225-1234567" → "주민등록번호: 901225-1******").
- * 확신이 낮은 후보도 가린다 (저장·화면에 원문이 남지 않도록 보수적으로).
+ * 가림 여부 — 보호 정책의 유일한 기준 (보호본 기본 상태 · AI 근거 · DB 파생 텍스트 · 화면 표시 공통).
+ * Level 1은 신뢰도와 관계없이 가린다 (원문이 남지 않도록 보수적으로). Level 2는 신뢰도 낮은 후보만 가리지 않는다.
  */
-export function maskLevel1Text(text: string): string {
-  if (!/\d{6}/.test(text.replace(/[\s-]/g, ''))) return text;
-  const hits = detectSensitive(text).filter((d) => d.level === 1);
+export function shouldMaskSensitive(d: Pick<Detection, 'level' | 'confidence'>): boolean {
+  return d.level === 1 || d.confidence !== 'low';
+}
+
+/** 보호본 영역의 기본 상태 (사용자가 가리기를 해제하기 전) — 텍스트 가림과 같은 기준 */
+export function defaultRegionState(d: Pick<Detection, 'level' | 'confidence'>): 'masked' | 'candidate' {
+  return shouldMaskSensitive(d) ? 'masked' : 'candidate';
+}
+
+/**
+ * 문장 속 민감정보를 가린다 (Level 1 + 2) — 의미는 그대로 두고 값의 일부만 *로 바꾼다.
+ * 이미 가린 값은 탐지되지 않으므로 다시 적용해도 같다 (idempotent).
+ */
+export function maskSensitiveText(text: string): string {
+  if (!/\d{4}|@/.test(text)) return text;
+  const hits = detectSensitive(text).filter(shouldMaskSensitive);
   if (hits.length === 0) return text;
   let out = '';
   for (let i = 0; i < text.length; i++) out += hits.some((h) => h.hide.some(([a, b]) => i >= a && i < b)) ? '*' : text[i];
   return out;
 }
 
-/** 객체·배열 안의 모든 문자열에 maskLevel1Text 적용 (원본을 바꾸지 않고 새 값 반환) */
-export function maskLevel1Deep<T>(value: T): T {
-  if (typeof value === 'string') return maskLevel1Text(value) as T;
-  if (Array.isArray(value)) return value.map((v) => maskLevel1Deep(v)) as T;
+/** 객체·배열 안의 모든 문자열에 maskSensitiveText 적용 (원본을 바꾸지 않고 새 값 반환) — DB에 저장하기 전에 쓴다 */
+export function maskSensitiveDeep<T>(value: T): T {
+  if (typeof value === 'string') return maskSensitiveText(value) as T;
+  if (Array.isArray(value)) return value.map((v) => maskSensitiveDeep(v)) as T;
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = maskLevel1Deep(v);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = maskSensitiveDeep(v);
     return out as T;
   }
   return value;
+}
+
+/** 모델 원본 출력을 저장할 때 (analysis_jobs.raw_output) — 저장 전에 가린다 */
+export const storableModelOutput = <T>(json: T): T => maskSensitiveDeep(json);
+
+/** 화면 방어선이 실패했을 때 원문 대신 보여주는 문구 */
+export const SENSITIVE_DISPLAY_FALLBACK = '민감정보 보호 확인 필요';
+
+/**
+ * 화면 표시 직전 마지막 방어선 (주 보호 수단 아님 — 서버가 저장 전에 이미 가린다).
+ * 예전 데이터·예상하지 못한 서버 실수에도 원문이 바로 보이지 않게 한다. 가리는 중 오류가 나면 원문 대신 안내 문구 (fail-closed).
+ */
+export function maskSensitiveTextForDisplay(value: unknown): string {
+  if (value == null) return '';
+  try {
+    return maskSensitiveText(typeof value === 'string' ? value : String(value));
+  } catch {
+    return SENSITIVE_DISPLAY_FALLBACK;
+  }
 }
 
 /** 로그용 요약 — 종류별 개수만 (값은 절대 포함하지 않는다) */

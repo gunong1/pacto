@@ -141,14 +141,18 @@ const leaks = (text) => SECRETS.filter((s) => text.includes(s));
   // 로그(브라우저 콘솔)에도 원문 없음
   check('L', '앱 로그에 원문 없음', leaks(logs.join('\n')).length === 0);
 
-  // 특수 형식 스캔본(CCITT): 지원하지 않음 (보호됨으로 표시하지 않음) — 일반 스캔 페이지는 OCR로 보호 (step15 통합 테스트)
+  // 특수 형식 스캔본(CCITT): 자동 가리기를 지원하지 않음 → 2026-10 fail-closed: 자동 분석을 하지 않고 안내 (원본을 AI에 보내지 않음)
+  // (예전: 분석은 진행하고 확인 화면 카드에 "지원하지 않는 형식" 표시)
   await page.goto(BASE + '/register', { waitUntil: 'networkidle' });
   const [c2] = await Promise.all([page.waitForEvent('filechooser'), page.click(tid('method-pdf'))]);
   await c2.setFiles({ name: '스캔계약서.pdf', mimeType: 'application/pdf', buffer: scan });
-  await page.waitForSelector(tid('review-protection-0'), { timeout: 40000 });
-  const scanCard = await page.locator(tid('review-protection-0')).innerText();
-  await page.locator(tid('review-protection-0')).screenshot({ path: path.join(SHOTS, 'protection-04-scan-card.png') });
-  check('S2', '특수 형식 스캔본: "자동 가리기를 지원하지 않는 형식의 페이지가 있어요" (보호했어요와 구분, 예전 "스캔된 페이지…" 문구 없음)', scanCard.includes('자동 가리기를 지원하지 않는 형식의 페이지가 있어요') && !scanCard.includes('보호했어요') && !scanCard.includes('스캔된 페이지가 포함'), scanCard.split('\n')[0]);
+  await page.waitForSelector(tid('gate-locked-protection'), { timeout: 40000 });
+  const gate = await page.locator(tid('gate-locked-protection')).innerText();
+  await shot('04-scan-blocked');
+  const actions = await Promise.all(['gate-locked-retry', 'gate-locked-other', 'gate-locked-secondary'].map((id) => page.locator(tid(id)).innerText().catch(() => '')));
+  check('S2', '지원하지 않는 스캔본: "민감정보 보호를 완료하지 못해 자동 분석을 진행할 수 없어요" · 다시 시도 / 문서 다시 등록 / 직접 입력', gate.includes('민감정보 보호를 완료하지 못해 자동 분석을 진행할 수 없어요') && actions.join('|') === '다시 시도|문서 다시 등록|직접 입력', actions.join('|'));
+  const scanJobs = await admin(`/rest/v1/analysis_jobs?select=id&user_id=eq.${userId}`);
+  check('S3', '자동 분석 안 함 (분석 작업이 늘지 않음)', scanJobs.length === jobs.length, `${jobs.length} → ${scanJobs.length}`);
 
   // E: 계약 삭제 → 원본·보호본·기록 정리
   const contractId = contracts[0].id;

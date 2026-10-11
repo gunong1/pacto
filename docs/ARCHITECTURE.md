@@ -1006,7 +1006,7 @@ pacto/
   신호는 모델 판단 + 근거 있는 추출값으로 서버가 다시 센다(모델이 "있다"고 해도 근거 값이 없으면 불인정).
 - **의심 쪽**: 사진은 쪽 선택([N페이지 제외] / [그대로 포함]) 후에만 결과를 보낸다. **제외·계약과 무관·읽기 어려운 쪽에서만 근거가 나온 값은 결과에서 제거**(모델 출력 단계에서 필터 → 앱 형식 변환). 근거 위치를 모르는 값이 있으면 그 사진을 빼고 **다시 분석**(새 작업). 제외한 사진의 보관본은 앱이 지운다.
   PDF는 의심 쪽 번호 안내만(쪽 삭제 없음) — 그 쪽 근거 값은 빼고, 위치를 모르는 값은 "확인 필요"로 낮춘다. 사용자가 "그대로 포함"을 고른 쪽의 값은 유지.
-- **DB**(`20261011000001_document_validation.sql`): `contract_documents.document_role`·`role_confirmed_by_user`(사용자 변경 불가 트리거), 계약이 아니거나 읽을 수 없는 문서는 사용자 확인 없이 계약에 연결 불가(`document_not_contract`). `analysis_jobs.validation`(원문 없음)·`raw_output`(사용자 선택 반영용, Level 1 가림, **앱이 읽지 못함** — 컬럼 권한).
+- **DB**(`20261011000001_document_validation.sql`): `contract_documents.document_role`·`role_confirmed_by_user`(사용자 변경 불가 트리거), 계약이 아니거나 읽을 수 없는 문서는 사용자 확인 없이 계약에 연결 불가(`document_not_contract`). `analysis_jobs.validation`(원문 없음)·`raw_output`(사용자 선택 반영용, Level 1 + 2 가림, **앱이 읽지 못함** — 컬럼 권한).
 - **고아 파일 정리**: `cleanup-orphans`(매시간 pg_cron → pg_net, `x-cleanup-secret`). 계약 미연결 + 생성 24시간 경과 + 그 문서·사용자의 분석 작업이 진행 중 아님 → `claim_orphan_documents`가 행을 지우고(영역·파생본 기록 cascade) 원본·보호 파생본 파일을 Storage API로 삭제. 24시간 지난 미연결 분석 작업 삭제, 남는 작업의 raw_output 비움. 로그는 문서 id·결과·개수만.
 - **사진 마스킹**: 사진은 private 보관·AI 분석·등록 가능, 자동 가리기 미지원(`unsupported_scan`/`image_file` — "사진으로 등록한 계약서" 안내, 보호됨으로 표시하지 않음).
 - **로그**: 작업 id·역할·신뢰도·판정·파일 수·의심 쪽 수·신호 수·시간.
@@ -1069,10 +1069,10 @@ pacto/
   세로쓰기(-V)·한글 외 CMap·내장 CMap 스트림·ToUnicode 없는 Type3 → `failed`/`unsupported_font` (스캔본으로 분류하지 않음). 한글 CMap 데이터는 pdfjs-dist 6.1.200 `cmaps/`(Adobe, BSD-3)를 `_shared/vendor/korean-cmaps.js`로 내장하고 pdf.js 검증에도 같은 데이터를 쓴다.
 - **상태**(`contract_documents.protection_status`): `pending` / `protected` / `no_sensitive_data`("감지되지 않음", 없다고 단정하지 않음) / `unsupported_scan`(사진·스캔본·투명 OCR층 — 텍스트+스캔 혼합 문서는 전체) / `failed`(암호화·해석 불가 글꼴(`unsupported_font`/`undecodable_font`)·위치 불일치(`text_mismatch`)·입력 양식·검증 실패 등). 서버(service_role)만 바꿀 수 있다(트리거).
 - **탐지**(`_shared/protection/sensitive.ts`): 패턴 + 바로 앞 필드명(문맥) + 검증(생년월일·성별 자리·Luhn). 계약번호·증권번호·고객번호·사업자/법인등록번호·차대번호 등 필드명 뒤 숫자는 제외.
-  Level 1(주민·외국인등록번호·카드·계좌) 자동 가림, Level 2(전화·이메일) 부분 가림, Level 3(이름·회사)는 계약 이해에 필요해 표시. 신뢰도: high 가림 / medium 가림 + "확인 필요" / low 가리지 않는 후보.
+  Level 1(주민·외국인등록번호·카드·계좌) 자동 가림, Level 2(전화·이메일) 부분 가림, Level 3(이름·회사)는 계약 이해에 필요해 표시. 신뢰도: high 가림 / medium 가림 + "확인 필요" / low는 Level 2만 가리지 않는 후보 (Level 1은 low여도 가림 — 2026-10 `shouldMaskSensitive`).
 - **저장**(`document_sensitive_regions`): 위치(0~1 bbox)·종류·신뢰도·가림 상태·**이미 가린 표시값**만. 원문 값·해시는 저장하지 않는다. 사용자는 `state`·`user_confirmed`만 변경 가능.
 - **세 가지를 분리**: ① 화면 가리기 = 보호 표시본 ② 공유용 제거 = `redacted_share`(다음 단계) ③ AI 전송 전 제거(다음 단계).
-  별도로 AI 결과(인용문·설명·값)의 Level 1 원문은 서버가 저장·반환 전에 가리고(`maskLevel1Deep`), 앱은 표시 직전에 한 번 더 가린다.
+  별도로 AI 결과(인용문·설명·값)의 민감정보(Level 1 + 2)는 서버가 저장·반환 전에 가리고(`maskSensitiveDeep`), 앱은 표시 직전에 한 번 더 가린다(`maskSensitiveTextForDisplay`).
 - **보기**: 기본 "보호된 계약서 보기". "원본 보기"는 `requireReveal()` 한 곳을 거친다(V1 확인 대화상자, 향후 생체인증·PIN).
 - **삭제**: 계약 삭제·초안 폐기 시 원본 + 파생 파일을 먼저 지우고 행을 지운다(영역·파생본 기록은 cascade). 회원 탈퇴는 사용자 폴더 전체 삭제.
 - **로그**: 문서 id·상태·종류별 개수·시간만.
@@ -1296,7 +1296,7 @@ pacto/
 - **여러 장**: 사진 한 장 = 문서 한 건, 장별 상태. 앱은 동시에 2장씩 처리(로컬 Edge 측정: 3장 동시는 자원 한도 초과가 있었고 2장은 없었음), 요청 실패 시 1번만 다시. 전체 상태는 모든 장이 protected·no_sensitive_data일 때만 완료, 아니면 "일부 페이지의 민감정보 보호를 완료하지 못했어요".
 - **성능 (로컬 Edge Runtime, 가짜 OCR 지연 0.4초)**: 2400×3391 사진 한 장 — 해석 0.13~0.2초(WASM) · 축소·가리기·저장 0.3~0.45초 · 확인 0.06~0.13초. 순수 JS 해석(0.6~1.1초)일 때는 CPU 한도 초과가 잦아 WASM 해석으로 바꿨다. 실제 배포 측정: `scripts/protect-bench.mjs`.
 - **보호본 해상도**: 원본 2400px 보존, 보호본 가로 1600px. 가독성 fixture(`smallprint.jpg`, A4 사진 기준 6·8·10pt 상당)에서 6pt도 1600px에서 읽을 수 있음을 눈으로 확인(테스트가 결과 이미지를 저장할 수 있음: `PHOTO_READABILITY_OUT`).
-- **AI 분석과 독립**: 보호 상태(protection_status)와 문서 역할(document_role)·분석 결과는 따로 관리한다(보호 실패여도 분석은 진행 가능).
+- **AI 분석과의 관계**: 보호 상태(protection_status)와 문서 역할(document_role)은 따로 관리하지만, AI 분석은 보호가 끝난 문서만 한다(2026-10 fail-closed — 아래 "민감정보 보호 파이프라인 단일화").
 - **테스트**: `photo-protection.test.ts`(A~I·K·L·N·가리기 해제·EXIF·가독성, 가짜 OCR이 실제로 픽셀을 읽어 덮인 글자는 못 읽음), `photo-protection-copy.test.ts`(문구·J·동시 처리), `step14-photo-protection`(로컬 Edge + 가짜 CLOVA 서버: A~D·H·N·M·가리기 해제), fixture는 `scripts/fixtures/make-photo-fixtures.py`(모든 값 가짜).
 - **실제 배포 측정 (2026-10-09, Supabase + 실제 CLOVA, fixture lease-a4.jpg 2400×3391 가짜 값, 동시 2장)**: 1장·5장·10장 모두 protected(16/16, 자원 한도 초과·시간 초과 0).
   서버 한 장 평균 약 3.4~3.8초 = CLOVA 1차 1.5~1.8초 + 재-OCR 1.3~1.5초 + 해석 0.16초 + 축소·가리기·저장 0.27초 + 확인 0.07초 → 시간 대부분은 CLOVA 응답. 10장 전체 약 19초. 첫 요청은 함수 시작 시간 때문에 앱에서 약 7초.
@@ -1369,7 +1369,7 @@ pacto/
 - **AI 분석** (`analyze-contract`): 암호 PDF는 원본을 보내지 않는다.
   - `protected` → 보호본 / `no_sensitive_data` → 요청 body의 비밀번호로 서버 메모리 복호화 사본 (보호본이 없으므로)
   - `failed`·`unreadable`·`unsupported_scan`·지원하지 않는 암호·처리 전 → AI를 부르지 않고 `protection_required`(422). 앱이 먼저 안내.
-  - 암호 없는 문서는 기존과 같다 (원본).
+  - 2026-10부터 암호 없는 문서도 같은 규칙 (protected → 보호본, no_sensitive_data → 원본, 그 밖 → 거절). 아래 "민감정보 보호 파이프라인 단일화".
 - **비밀번호**: 앱 등록 화면 메모리(`useRegistration.passwords`)에만 → `protect-document`·`analyze-contract` **POST body**로만. 주소·DB·AsyncStorage·SecureStore·로그·분석 도구에 넣지 않는다. 분석 완료·취소·화면 종료 시 지운다.
 - **원본 보기**: `requireReveal()` → 기기 안 뷰어(pdf.js)가 비밀번호를 요청 → 앱이 입력받아 WebView로만 전달 (서버로 보내지 않음, 기억하지 않음). 보호본은 비밀번호 없이.
 - **민감정보가 없는 암호 PDF**: 보호본(=복호화 사본)을 저장하지 않으므로 계약서를 볼 때마다 원본 비밀번호가 필요하다.
@@ -1392,3 +1392,33 @@ pacto/
   업로드 실패 시 기존 사진·경로 유지, 닉네임 등 다른 변경은 저장. 삭제는 경로를 먼저 비우고 파일 삭제. 회원 탈퇴 시 `delete-account`가 폴더째 삭제.
 - 화면: MY 상단 프로필 영역 → 프로필 편집(사진 선택·변경·삭제, 닉네임, 이메일 읽기 전용, "변경사항 저장").
 - 테스트: `src/__integration__/step17-profile.test.ts`(RLS·Storage 차단·탈퇴 삭제), `e2e/profile.js`.
+
+## 민감정보 보호 파이프라인 단일화 (2026-10-11)
+
+**배경 (실제 사례)**: 등록 확인 "원문"·계약 체크 근거에 임대인 전화번호가 그대로 보였다. 원인 3가지.
+① 문장 가림이 Level 1만 하도록 설계돼 있었다(보호본은 Level 1 + 2). ② 암호 없는 문서는 보호에 실패해도 원본을 AI에 보냈다.
+③ 등록 확인 폼의 "원문" 안내에 화면 방어선이 없었다.
+
+**하나의 정책** (`supabase/functions/_shared/protection/sensitive.ts` — 앱은 `src/domain/sensitive.ts`로 다시 내보냄)
+- 탐지기 `detectSensitive` 하나 · 가림 판단 `shouldMaskSensitive` 하나 (Level 1은 항상, Level 2는 신뢰도 low가 아니면) · 문장 가림 `maskSensitiveText`/`maskSensitiveDeep`.
+- 보호본(PDF·사진 `defaultRegionState`) · AI 결과 저장(`toAppResult` → `maskSensitiveDeep`, `raw_output` → `storableModelOutput`) · 화면(`maskSensitiveTextForDisplay`)이 모두 같은 함수를 쓴다. 전화번호 전용·화면 전용 정규식을 따로 만들지 않는다.
+- 표시 형식 (더 많이 가리는 쪽, 멱등): `800101-1******` · `010-****-5678` · `02-****-5678` · `e******@domain.com`(앞 1글자 + 같은 길이 *) · `****-****-****-3456` · `***-***-**9012`.
+- 민감정보가 아닌 번호(계약번호·고객번호·증권번호·접수번호·사업자번호·중개사 등록번호·제품 일련번호·정책번호)는 탐지기의 제외 문맥 그대로 — 숫자를 모두 가리지 않는다.
+- 보안 판단은 AI가 하지 않는다. 계약과 무관한 쪽도 보호한다.
+
+**AI 전송 게이트 (fail-closed, 모든 문서)** — `protection/aiGate.ts` `aiInputPlan`
+- protected → 보호본만 / no_sensitive_data → 원본(암호 PDF는 메모리 복호화 사본) / failed·unreadable·unsupported_scan·unsupported_encryption·처리 전·보호본 없음 → `protection_required`(422), AI 호출·작업 기록 없음.
+- 원본으로 대신 보내는 fallback 없음. 서버(`analyze-contract`)가 막고, 앱(`register/analyzing.tsx`)도 먼저 막는다:
+  "민감정보 보호를 완료하지 못해 자동 분석을 진행할 수 없어요." + 다시 시도 / 문서 다시 등록 / 직접 입력.
+- 원본 계약서는 기존 `requireReveal()` 흐름으로만 본다.
+
+**화면 방어선**: 등록 확인 모델(`toReviewModel` 입구에서 `maskSensitiveDeep`) · 폼 "원문" 안내(`kit.tsx`·`RenewalSection`) · 계약 체크 카드(제목·이유·조건·근거) · 중요 일정 근거.
+가림 자체가 실패하면 원문 대신 "민감정보 보호 확인 필요".
+
+**기존 데이터 정리 (임시 함수 `sensitive-cleanup-once`)** — 정리가 끝나면 함수 폴더·`config.toml` 항목·배포·테스트(`step24`)를 지운다.
+- service_role 키로만 호출. 1단계 `dry_run`: 표·필드·행 id·유형별 개수 + `planHash`만 (원문 없음). 2단계 `apply`: 같은 `planHash`일 때만 실행.
+- 가리는 대상: AI 파생 텍스트 `contracts.ai_checks`·`classification`, `analysis_jobs.result`·`raw_output`. 원본 파일·보호본·사용자가 입력한 칸은 바꾸지 않는다(`reportOnly`로 개수만).
+- 원문을 백업 표·로그에 복사하지 않는다(로그: 실행 id·행 id·개수·해시). 가림이 멱등이라 중간 실패 시 다시 실행.
+
+**테스트**: `src/domain/__tests__/security/`(유형별·조합·형식·멱등·제외 문맥·단일 정책·화면 실패 / 파이프라인·AI 전송 게이트), 통합 `step23`(AI 근거 → DB·등록 확인·계약 상세 모두 가림), `step24`(정리 함수), `step9`·`step12`(보호 전·실패 시 분석 거절).
+
