@@ -33,7 +33,7 @@ import { maskLevel1Deep } from './protection/sensitive.ts';
  * v7: document_check(문서 역할·쪽별 판정·계약 신호) + 모든 추출값에 근거 파일·쪽
  * v8: 결제 날짜의 출처(date_source) — "계약 당일 지급"처럼 다른 날짜를 기준으로 하는 금액은 그 기준 날짜를 쓰고, 옆 줄 날짜를 옮기지 않는다
  */
-export const PROMPT_VERSION = 'extract-v11';
+export const PROMPT_VERSION = 'extract-v10';
 
 export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export const FREQUENCIES = ['monthly', 'bimonthly', 'quarterly', 'semiannual', 'yearly', 'one_time'] as const;
@@ -295,12 +295,7 @@ export function extractionInstructions(today: string): string {
     '   - "매월 20일"은 정기 결제의 day_of_month=20 (date_source=explicit, date는 첫 결제일이 적혀 있을 때만).',
     '   - 급여·용역 대금 같은 정기 수입의 지급일은 "매월 25일 지급"처럼 적혀 있을 때만 day_of_month. 근로 시작일·계약 시작일의 날짜를 지급일로 쓰지 않습니다(없으면 null). day_of_month를 넣으면 evidence_quote에 지급일 문장을 포함합니다.',
     '   금액마다 payment_obligation을 판단합니다 (아래 원칙).',
-    '   반복 납입금 (가장 중요): 월 렌탈료·월 이용료·월 납입금·월 보험료·월 통신요금·월 구독료·월세·대출 상환금·급여/월급처럼 "월 …료/매월 납부"와 함께 금액이 있으면',
-    '   계약을 정상적으로 유지하는 동안 반드시 내는(받는) 돈입니다 → role=recurring_cashflow, frequency=monthly(적힌 주기), payment_obligation=confirmed. 결제정보 블록에 면제·할인·위약금 문구가 함께 있어도 이 금액은 빼지 않습니다.',
-    '   금액 분류 순서: 금액을 먼저 모두 찾은 뒤 하나씩 → A 계약 유지 중 주기적으로 반드시 냄 = confirmed / B 특정 상황이 생겨야 냄(위약금·연체료·파손·초과 사용) = conditional /',
-    '   C 면제·무료·0원 = reference(면제) / D 할인 전·참고·예상 금액 = 아래 규칙. "위약금일 수도 있다"는 이유로 반복 납입금 후보를 버리지 않습니다.',
     '   할인 (중요): "할인전·할인 전·정상가·프로모션 적용 전"이 붙은 금액은 실제 결제액이 아닙니다 → price_basis=before_discount (실제 결제액을 계산해 넣지 않음).',
-    '   할인전 월 렌탈료도 role=recurring_cashflow·payment_obligation=confirmed로 넣습니다 (reference·informational로 빼지 않음 — 사용자가 실제 결제액을 확인해 입력).',
     '   그 외에는 price_basis=actual. 할인액 자체(예: "전체회차 14,000원 할인")는 결제로 넣지 않고 checks(topic=discount_terms)에 원문 그대로 넣습니다.',
     '   특정 회차 면제·무료(예: "1, 13, 25회차 면제")도 결제를 나누지 말고 checks(topic=discount_terms)에 넣습니다.',
     '   면제된 비용(예: "등록비 100,000원 면제", "설치비 무료")은 role=reference로 넣습니다 (결제 일정 아님).',
@@ -521,16 +516,6 @@ export const WAIVED_CHECK_TITLE = '면제된 금액';
  * "할인 적용 월 렌탈료"·"할인 후 요금"처럼 할인을 적용한 실제 금액은 해당하지 않는다
  */
 const DISCOUNT_ITEM = /(?:할인|감면|캐시백)\s*(?:액|금액|혜택)?\s*\)?$/;
-/**
- * 실제 반복 납입금의 이름 — 계약을 정상적으로 유지하는 동안 주기적으로 반드시 내는(받는) 돈.
- * 모델이 할인전 표기·면제 문구가 섞인 결제정보 블록을 보고 참고 금액으로 빼더라도 결제 후보로 되살린다.
- */
-export const CORE_RECURRING = /렌탈료|렌털료|이용료|사용료|납입금|납부금|납입액|보험료|통신\s*요금|요금제|구독료|월세|임대료|차임|관리비|상환금|상환액|할부금|월\s*급여|월급|임금|급여/;
-const MONTHLY_WORD = /월\s|월\b|매월|매달|월간|^월/;
-/** 반복 납입금으로 볼 수 있는지 — 면제·할인액·조건부(위약·연체 등)·선택 표현이 있으면 아님 */
-export function isCoreRecurring(label: string, said: string): boolean {
-  return CORE_RECURRING.test(label) && !WAIVED.test(said) && !DISCOUNT_ITEM.test(label) && !CONDITIONAL_COST.test(label) && !OPTIONAL_STRONG.test(label);
-}
 const DISCOUNT_APPLIED = /할인\s*(?:적용|후)|적용\s*(?:가|금액|후)/;
 /** 면제된 일회성 비용 (등록비 면제·설치비 무료 등) — 결제가 아님. 정기 결제의 "N회차 면제"는 결제를 그대로 두고 조건으로 */
 const WAIVED = /면제|무료|무상/;
@@ -550,16 +535,6 @@ function obligationOf(p: Record<string, unknown>, label: string, quote: string):
   }
   const condition = text(p.condition, 100);
   return { obligation, conditionNote: obligation === 'confirmed' ? null : condition };
-}
-
-/**
- * 반복 납입금(월 렌탈료·월 이용료…)을 모델이 참고·발생 가능으로 답했어도, 조건 표현("…하는 경우/…시")이 없으면 계약을 유지하는 동안 내는 확정 금액.
- * 조건부·선택형은 그대로 둔다 (조건 표현·선택 표현으로 판단한 것).
- */
-function coreObligation(o: Pick<ExtractedPayment, 'obligation' | 'conditionNote'>, core: boolean, said: string): Pick<ExtractedPayment, 'obligation' | 'conditionNote'> {
-  if (!core || (o.obligation !== 'informational' && o.obligation !== 'potential')) return o;
-  if (/(경우|시에?|때)\s*(?:[^가-힣]|$)/.test(said) && CONDITIONAL_COST.test(said)) return o;
-  return { obligation: 'confirmed', conditionNote: null };
 }
 
 /** 통보기한의 의미 (앱 src/domain/noticeKind.ts와 동일) */
@@ -763,20 +738,14 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
     if (!isObj(p) || payments.length >= 20) continue;
     const amount = toInt(p.amount, 0, MAX_AMOUNT);
     if (amount === null) continue;
-    let role = oneOf(AMOUNT_ROLES, p.role);
+    const role = oneOf(AMOUNT_ROLES, p.role);
     const label = text(p.label, 40) ?? '결제';
-    // 금액 후보를 먼저 버리지 않는다: 월 렌탈료·월 이용료처럼 실제 반복 납입금 이름인데 참고·합계로 왔으면 결제로 되살린다
-    // (할인전 금액도 결제 — 아래에서 price_basis로 "할인 적용 금액 확인 필요" 처리)
-    const saidAll = `${label} ${(quoteOf(p).evidence ?? []).map((e) => e.quote).join(' ')}`;
-    const coreRecurring = isCoreRecurring(label, saidAll) && oneOf(FREQUENCIES, p.frequency) !== 'one_time';
-    if ((role === 'reference' || role === 'total') && coreRecurring) role = 'recurring_cashflow';
     if (role === 'component') {
       pendingComponents.push({ label, amount, partOf: text(p.part_of, 40), direction: oneOf(DIRECTIONS, p.direction), frequency: oneOf(FREQUENCIES, p.frequency) });
       continue;
     }
     if (role === 'total' || role === 'reference') {
-      // 면제·무료로 적힌 참고 금액은 "면제"로 표시 (등록비·설치비 면제)
-      references.push({ label, amount, role: role === 'reference' && WAIVED.test(saidAll) ? 'waived' : role });
+      references.push({ label, amount, role });
       continue;
     }
     // 금액 문구(이름 + 원문)로 할인 전·할인액·면제를 가린다 — 모델이 결제로 보냈어도 결제로 만들지 않는다
@@ -790,8 +759,7 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
       references.push({ label, amount, role: 'discount' });
       continue;
     }
-    // 주기를 빠뜨린 반복 납입금: "월 렌탈료"·"매월 납부"면 매월
-    const frequency = oneOf(FREQUENCIES, p.frequency) ?? (coreRecurring && MONTHLY_WORD.test(saidAll) ? 'monthly' : null);
+    const frequency = oneOf(FREQUENCIES, p.frequency);
     if (frequency === null) continue;
     const oneTime = frequency === 'one_time';
     const kind = oneOf(PAYMENT_KIND_CODES, p.kind) ?? 'other';
@@ -810,7 +778,7 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
       endDate: !oneTime && validDate(p.end_date) ? p.end_date.trim() : null,
       installmentCount: oneTime ? null : toInt(p.installment_count, 1, 600),
       isVariable: p.is_variable === true,
-      ...coreObligation(obligationOf(p, label, quoteOf(p).evidence?.[0]?.quote ?? ''), coreRecurring && frequency !== 'one_time', saidAll),
+      ...obligationOf(p, label, quoteOf(p).evidence?.[0]?.quote ?? ''),
       components: [],
       // 할인 전(정상가) 금액: 실제 결제액이 아니므로 확정하지 않고 사용자 확인을 받는다 (자동으로 빼서 계산하지 않음)
       amountCheck: beforeDiscount ? 'discount_unconfirmed' : null,
