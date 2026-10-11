@@ -3,7 +3,6 @@
  * 이 파일은 Supabase 클라이언트를 import하지 않는다.
  */
 import { isNoticeKind } from '@/domain/noticeKind';
-import { AGGREGATE_NOTE, findAggregateTotals, foldRecurringComponents } from '../../../supabase/functions/_shared/paymentAggregate';
 import { detailsFromDb } from '@/domain/contractTypes';
 import type {
   AiCheck,
@@ -75,17 +74,6 @@ function toPayment(r: PaymentRow): ContractPayment {
     conditionNote: r.condition_note,
     amountChanges: (r.contract_payment_changes ?? []).map(toAmountChange).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1)),
   };
-}
-
-/**
- * 이미 저장된 계약에서 총액(보증금 등)과 그 총액을 나눠 내는 계약금·잔금이 함께 확정 결제로 있으면
- * 총액은 참고 금액(합계)으로 읽는다 — 캘린더·지출·알림에서 같은 돈을 두 번 세지 않도록 (저장값은 바꾸지 않음)
- */
-function markAggregates(payments: ContractPayment[]): ContractPayment[] {
-  const totals = new Set(findAggregateTotals(payments));
-  const marked = payments.map((p) => (totals.has(p) ? { ...p, obligation: 'informational' as const, conditionNote: p.conditionNote ?? AGGREGATE_NOTE } : p));
-  // 정기 금액의 구성항목(기본급·수당)이 총액(급여)과 함께 저장돼 있으면 구성항목으로 읽는다 (다음에 수정·저장하면 그대로 정리됨)
-  return foldRecurringComponents(marked);
 }
 
 function toDate(r: Row<'contract_dates'>): ContractDate {
@@ -203,7 +191,8 @@ export function toRecord(r: ContractRow): ContractRecord {
   const contract = toContract(r);
   return {
     contract,
-    payments: markAggregates([...r.contract_payments].sort((a, b) => a.sort_order - b.sort_order).map(toPayment)),
+    // 저장된 의미 그대로 (읽을 때 다시 판단하지 않는다 — 이전 데이터 정리는 마이그레이션으로 한 번)
+    payments: [...r.contract_payments].sort((a, b) => a.sort_order - b.sort_order).map(toPayment),
     dates: [...r.contract_dates].sort((a, b) => a.date.localeCompare(b.date) || a.sort_order - b.sort_order).map(toDate),
     events: [...r.contract_events].sort((a, b) => a.event_date.localeCompare(b.event_date)).map(toEvent),
     documents: [...r.contract_documents].sort((a, b) => a.sort_order - b.sort_order).map(toDocument),

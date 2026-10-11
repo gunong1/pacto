@@ -12,7 +12,6 @@ import { toRecord } from '@/data/supabase/rowMapping';
 import { toReviewModel } from '@/features/registration/extraction';
 
 import { summarizeCashflows } from '../calendarGroups';
-import { coreInfo, extraCosts } from '../coreInfo';
 import { scheduleForRange } from '../schedule';
 import { monthSpending } from '../spending';
 import type { ContractRecord } from '../types';
@@ -76,13 +75,13 @@ describe('서버 분석 결과', () => {
     expectFixed(r);
   });
 
-  test('이전 버전 서버 결과(총액이 결제에 남아 있음)도 앱 확인 화면에서 합계로', () => {
+  // 리팩터링 F: 앱 확인 화면은 서버 결과를 그대로 옮긴다 (합계 판단을 다시 하지 않음 — 합계 판단은 서버 buildPayments 한 곳).
+  // 이전 기대: 서버가 남긴 총액 결제를 앱이 다시 합계로 바꿈 → 바뀐 기대: 그대로 둔다
+  test('앱 확인 화면은 합계를 다시 판단하지 않는다 (서버 결과 그대로)', () => {
     const result = toAppResult(leaseRaw([]), 'openai');
     result.payments.unshift({ ...result.payments[0], label: '보증금', amount: 20000000, date: null });
     const m = toReviewModel(result, ['doc-1']);
-    expect(m.draft.payments.map((p) => p.label)).toEqual(['계약금', '잔금', '월세', '관리비']);
-    expect(m.references).toContainEqual({ label: '보증금', amount: 20000000, role: 'total' });
-    expectFixed(draftToRecord(m.draft, 'lease', TODAY));
+    expect(m.draft.payments.map((p) => p.label)).toEqual(['보증금', '계약금', '잔금', '월세', '관리비']);
   });
 });
 
@@ -113,13 +112,11 @@ describe('이미 저장된 계약 (보증금·계약금·잔금 3행이 모두 �
     expect(on1020(r).map((c) => c.headline)).toContain('38,000,000원 · 지출 합계 제외');
   });
 
-  test('읽을 때 총액은 참고 금액 → A·B·C 기대값, 핵심 정보에는 보증금 20,000,000원 (추가 비용 목록에는 없음)', () => {
+  // 리팩터링 G: 읽기 단계는 저장된 의미를 그대로 쓴다. 이전 기대: 읽을 때 보증금 행을 참고 금액으로 바꿈
+  // → 바뀐 기대: 읽기는 그대로, 저장 데이터는 일회성 마이그레이션(fold_one_time_totals)으로 한 번 정리 (통합 테스트 step22)
+  test('읽을 때 다시 판단하지 않음 — 저장된 결제 행 그대로', () => {
     const r = stored(rows);
-    expect(r.payments.find((p) => p.label === '보증금')).toMatchObject({ obligation: 'informational', amount: 20000000 });
-    expectFixed(r);
-    expect(coreInfo(r, TODAY).find((x) => x.key === 'deposit')?.value).toMatch(/2,000만원|20,000,000원/);
-    expect(coreInfo(r, TODAY).some((x) => x.key.startsWith('info:'))).toBe(false); // 같은 금액을 두 번 보여주지 않음
-    expect(extraCosts(r)).toEqual([]);
+    expect(r.payments.map((p) => [p.label, p.obligation])).toEqual([['보증금', 'confirmed'], ['계약금', 'confirmed'], ['잔금', 'confirmed'], ['월세', 'confirmed'], ['관리비', 'confirmed']]);
   });
 
   test('몫이 하나뿐이거나 합이 맞지 않으면 건드리지 않음', () => {

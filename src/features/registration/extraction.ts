@@ -1,7 +1,6 @@
 import type { ExtractedDate, ExtractedPayment, ExtractionResult } from '@/data/ai/provider';
 import { isNoticeKind } from '@/domain/noticeKind';
 import { assignDateUses } from '../../../supabase/functions/_shared/analysisRules/dates';
-import { findAggregateTotals, foldRecurringComponents } from '../../../supabase/functions/_shared/paymentAggregate';
 import type { ReferenceRole } from '../../../supabase/functions/_shared/extraction';
 import { EMPTY_DRAFT } from '@/data/draft';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
@@ -21,10 +20,10 @@ import { addDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
 
 /**
- * AI 분석 결과(초안) → 확인 화면 모델.
- * 순서: 분야·유형 → 날짜 의미로 시작·종료·체결일·주요 날짜 → 금액을 결제 목록(의미·방향)으로 → 유형별 속성 → PACTO 계약 체크.
- * 유형은 날짜 이름을 고르는 기준일 뿐, 계약서에 있는 날짜·금액은 버리지 않는다. 계약서에 없는 값은 만들지 않는다.
- * 추출값은 사실이 아니라 사용자가 확인할 초안이다 — 신뢰도가 높지 않은 값은 "확인 필요"로 표시한다.
+ * 서버 분석 결과 → 등록 확인 화면 모델 (변환만).
+ * 계약 의미(확정·조건부·총액·구성항목·참고 금액·결제일·날짜의 쓰임·통보기한·자동갱신)는 서버(supabase/functions/_shared/analysisRules)가
+ * 한 곳에서 정한다. 이 파일은 그 결과를 폼 초안으로 옮기고, 서버가 준 신뢰도·출처·확인 사유를 "확인 필요" 표시와 안내 문구로 바꾼다.
+ * 추출값은 사실이 아니라 사용자가 확인할 초안이다 — 사용자가 고친 값이 항상 우선한다.
  */
 
 
@@ -151,10 +150,8 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
 
   // 5·6) 결제 — 계약서에 있는 돈을 모두 결제 목록으로 (의미·주기·방향)
   const blankAmounts: number[] = [];
-  // 총액(보증금 등)이 계약금·잔금으로 나눠 함께 왔으면 총액은 합계(참고)로 — 이전 버전 서버 결과도 같은 돈을 두 번 세지 않도록
-  const aggregates = findAggregateTotals(result.payments);
-  // 정기 금액의 구성항목(기본급·수당)은 총액(급여)의 구성으로 — 이전 버전 서버 결과도 같은 돈을 두 번 세지 않도록
-  foldRecurringComponents(result.payments.filter((p) => !aggregates.includes(p))).forEach((p, i) => {
+  // 결제 — 서버가 정한 결제(총액·구성항목·참고 금액은 이미 나뉘어 있음)를 그대로 옮긴다
+  result.payments.forEach((p, i) => {
     const path = `payments.${i}`;
     const startsOn = p.date;
     const confirmed = p.obligation === 'confirmed';
@@ -296,7 +293,7 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     typeSuggestion,
     allDetails,
     checks,
-    references: [...(result.references ?? []).map(({ label, amount, role }) => ({ label, amount, role })), ...aggregates.map(({ label, amount }) => ({ label, amount, role: 'total' as const }))],
+    references: draft.referenceAmounts.map((r) => ({ ...r })),
     blankAmounts,
   };
 }

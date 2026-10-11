@@ -77,3 +77,22 @@ test('결제일 없는 기존 정기 지출 → 이전에 보이던 날짜(결�
   const rows = (await admin.from('contract_payments').select('label, day_of_month').eq('contract_id', c.id).order('sort_order')).data!;
   expect(rows).toEqual([{ label: '월 렌탈료', day_of_month: 12 }, { label: '급여', day_of_month: null }]);
 });
+
+// 리팩터링 G: 읽을 때 다시 판단하던 "총액 결제 행"을 일회성 정리 함수(fold_one_time_totals)로 한 번 정리
+test('이미 저장된 보증금·계약금·잔금 3행(모두 확정) → 보증금은 요약 칸으로, 결제 행은 계약금·잔금만', async () => {
+  const a = await newUser('fold-one-time-totals');
+  const repo = new SupabaseContractRepository(a.client, () => '2026-10-11');
+  const one = (label: string, amount: number, startsOn: string): PaymentDraft => ({ ...rent, kind: 'deposit', direction: 'neutral', label, amount, frequency: 'one_time', dayOfMonth: null, startsOn });
+  const draft: ContractDraft = {
+    ...EMPTY_DRAFT, title: '주택 월세 임대차계약서', category: 'real_estate', contractType: 'lease', startDate: '2026-10-20',
+    payments: [one('보증금', 20_000_000, '2026-10-20'), one('계약금', 2_000_000, '2026-10-08'), one('잔금', 18_000_000, '2026-10-20'), { ...rent, kind: 'rent', label: '월세', amount: 850_000, dayOfMonth: 20, startsOn: '2026-10-20' }],
+  };
+  const created = await repo.create({ draft, source: 'upload', documents: [], aiChecks: [] });
+  expect(created.payments).toHaveLength(4); // 읽기는 저장된 그대로
+
+  expect((await adminClient().rpc('fold_one_time_totals' as never)).error).toBeNull();
+  const after = (await repo.get(created.contract.id))!;
+  expect(after.payments.map((p) => p.label)).toEqual(['계약금', '잔금', '월세']);
+  expect(after.contract.depositAmount).toBe(20_000_000);
+  expect(after.contract.referenceAmounts).toEqual([]);
+});
