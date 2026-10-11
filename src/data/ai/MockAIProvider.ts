@@ -59,8 +59,7 @@ export class MockAIProvider implements AIProvider {
     const check = (c: Record<string, unknown>) => ({ confidence: 'high', behavior: 'info', condition: null, action: null, offset_days: null, related_date: null, amount: null, amount_basis: null, evidence_page: 3, evidence_file: 1, ...c });
     const renew = '계약 만료 1개월 전까지 별도 의사표시가 없으면 12개월 단위로 연장된다.';
     const raw = {
-      category: { value: 'rental', confidence: 'high', alternatives: [], reason: '공기청정기 렌탈 계약으로 기재되어 있습니다.' },
-      contract_type: { value: 'recurring', confidence: 'high', alternatives: ['other'], reason: '매월 렌탈료를 내는 계약으로 기재되어 있습니다.' },
+      classification: { kind: 'rental', subtype: 'appliance', domains: ['appliance'], confidence: 'high', alternatives: [], reason: '공기청정기를 빌려 쓰는 렌탈 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
       fields: {
         title: f('공기청정기 렌탈'),
         counterparty: f('클린에어렌탈(주)', 'high', '렌탈회사: 클린에어렌탈 주식회사'),

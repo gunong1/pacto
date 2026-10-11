@@ -1,3 +1,4 @@
+import { EMPTY_CLASSIFICATION, legacyOf } from '@/domain/contractKinds';
 import { paymentKindLabel } from '@/domain/contractTypes';
 import { amountAt } from '@/domain/paymentAmount';
 import type { Contract, ContractDate, ContractPayment, ContractRecord, ISODate } from '@/domain/types';
@@ -6,6 +7,9 @@ import type { ContractDraft, DateDraft, PaymentDraft } from './repository';
 
 export const EMPTY_DRAFT: ContractDraft = {
   title: '',
+  contractKind: null,
+  contractSubtype: null,
+  classification: EMPTY_CLASSIFICATION,
   category: 'other',
   contractType: 'other',
   details: {},
@@ -33,6 +37,9 @@ export function blankContract(id: string, source: Contract['source'], now: strin
   return {
     id,
     title: '',
+    contractKind: null,
+    contractSubtype: null,
+    classification: EMPTY_CLASSIFICATION,
     category: 'other',
     contractType: 'other',
     details: {},
@@ -61,13 +68,23 @@ export function blankContract(id: string, source: Contract['source'], now: strin
   };
 }
 
+/**
+ * 저장할 하위 호환값 (contract_type·category) — 계약 종류가 있으면 레지스트리의 호환값, 없으면(기존 계약) 저장된 값 그대로.
+ * 새 코드는 계약 종류가 있으면 이 두 값을 읽지 않는다 (예전 앱·예전 데이터용).
+ */
+export function legacyFields(draft: Pick<ContractDraft, 'contractKind' | 'contractType' | 'category'>): Pick<Contract, 'contractType' | 'category'> {
+  return draft.contractKind ? legacyOf(draft.contractKind) : { contractType: draft.contractType, category: draft.category };
+}
+
 /** draft의 계약 필드만 Contract에 반영. */
 export function applyDraftToContract(contract: Contract, draft: ContractDraft): Contract {
   return {
     ...contract,
     title: draft.title.trim(),
-    category: draft.category,
-    contractType: draft.contractType,
+    contractKind: draft.contractKind,
+    contractSubtype: draft.contractKind ? draft.contractSubtype : null,
+    classification: { ...draft.classification },
+    ...legacyFields(draft),
     details: draft.details,
     valueSources: draft.valueSources,
     referenceAmounts: draft.referenceAmounts.map((r) => ({ ...r })),
@@ -145,6 +162,9 @@ export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payment
   const { contract } = record;
   return {
     title: contract.title,
+    contractKind: contract.contractKind,
+    contractSubtype: contract.contractSubtype,
+    classification: contract.classification,
     category: contract.category,
     contractType: contract.contractType,
     details: contract.details,

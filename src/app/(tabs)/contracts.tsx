@@ -9,12 +9,12 @@ import { Button } from '@/components/ui/Button';
 import { ChipGroup } from '@/components/ui/controls';
 import { EmptyState, Screen } from '@/components/ui/layout';
 import { daysUntil } from '@/domain/dday';
-import { categoryLabel } from '@/domain/labels';
+import { CONTRACT_KINDS, kindDisplay } from '@/domain/contractKinds';
 import { formatWon } from '@/domain/money';
 import { nextPayment } from '@/domain/schedule';
 import { contractMonthlyPayments } from '@/domain/spending';
 import { currentTerm, deriveStatus } from '@/domain/status';
-import { CONTRACT_CATEGORIES, type ContractCategory, type ContractStatus } from '@/domain/types';
+import type { ContractStatus } from '@/domain/types';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { colors, radius, spacing, typography } from '@/theme';
 
@@ -48,7 +48,8 @@ export default function ContractsScreen() {
   const params = useLocalSearchParams<{ status?: StatusFilter; docs?: string; t?: string }>();
   const { data: records, isLoading } = useContracts();
   const [status, setStatus] = useState<StatusFilter>(params.status ?? 'all');
-  const [category, setCategory] = useState<ContractCategory | 'all'>('all');
+  /** 계약 종류 필터 (종류 이름 — 분류 개편 전 계약은 예전 이름) */
+  const [category, setCategory] = useState<string>('all');
   const [query, setQuery] = useState('');
   const [onlyDocs, setOnlyDocs] = useState(params.docs === '1');
 
@@ -73,7 +74,7 @@ export default function ContractsScreen() {
         return { r, status: s, days: term ? daysUntil(term.termEnd, today) : null, next: nextPayment(r, today), monthly: contractMonthlyPayments(r, today) };
       })
       .filter((x) => matches(status, x.status))
-      .filter((x) => category === 'all' || x.r.contract.category === category)
+      .filter((x) => category === 'all' || kindDisplay(x.r.contract).label === category)
       .filter((x) => !onlyDocs || x.r.documents.length > 0)
       .filter((x) => !q || `${x.r.contract.title} ${x.r.contract.counterparty ?? ''}`.toLowerCase().includes(q))
       .sort((a, b) => {
@@ -85,8 +86,10 @@ export default function ContractsScreen() {
   }, [records, today, status, category, query, onlyDocs]);
 
   const usedCategories = useMemo(() => {
-    const set = new Set(records?.map((r) => r.contract.category));
-    return CONTRACT_CATEGORIES.filter((c) => set.has(c));
+    const set = new Set(records?.map((r) => kindDisplay(r.contract).label));
+    // 계약 종류 순서대로, 그 뒤에 예전 분류 이름(예: 자동차)
+    const order = CONTRACT_KINDS.map((k) => k.label);
+    return [...set].sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
   }, [records]);
 
   return (
@@ -108,7 +111,7 @@ export default function ContractsScreen() {
         <ChipGroup options={STATUS_FILTERS} value={status} onChange={setStatus} scroll testIDPrefix="filter-status" />
         <View style={{ height: spacing.sm }} />
         <ChipGroup
-          options={[{ value: 'all' as const, label: '모든 종류' }, ...usedCategories.map((c) => ({ value: c, label: categoryLabel(c) }))]}
+          options={[{ value: 'all', label: '모든 종류' }, ...usedCategories.map((c) => ({ value: c, label: c }))]}
           value={category}
           onChange={setCategory}
           scroll

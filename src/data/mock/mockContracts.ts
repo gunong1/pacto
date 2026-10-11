@@ -1,3 +1,4 @@
+import { EMPTY_CLASSIFICATION } from '@/domain/contractKinds';
 import { defaultTypeForCategory } from '@/domain/contractTypes';
 import type { Contract, ContractPayment, ContractRecord } from '@/domain/types';
 
@@ -10,6 +11,10 @@ const NOW = '2026-09-01T00:00:00.000Z';
 
 function contract(partial: Partial<Contract> & Pick<Contract, 'id' | 'title' | 'category'>): Contract {
   return {
+    // 화면 확인용 예시 계약은 분류 개편 전 데이터처럼 계약 종류 없이 (기존 표시 호환 경로)
+    contractKind: null,
+    contractSubtype: null,
+    classification: EMPTY_CLASSIFICATION,
     contractType: defaultTypeForCategory(partial.category),
     details: {},
     valueSources: {},

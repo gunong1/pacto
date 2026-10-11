@@ -10,8 +10,8 @@ import { Badge, ChipGroup } from '@/components/ui/controls';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import type { ContractDraft } from '@/data/repository';
 import { profileOf, detailFields, cleanDetails, type ContractType, type DetailValue, type Direction } from '@/domain/contractTypes';
-import { suggestCategory } from '@/domain/categorySuggestion';
-import { contractKind, kindForCategory, kindOf, type ContractKindDef } from '@/domain/contractKinds';
+import { suggestKind } from '@/domain/categorySuggestion';
+import { canRegisterKind, contractKindDef, isSubtypeOf, kindDisplay, legacyOf, type KindClassification } from '@/domain/contractKinds';
 import { FREQUENCY_LABEL } from '@/domain/labels';
 import { parseAmount } from '@/domain/money';
 import { colors, hitSlop, spacing } from '@/theme';
@@ -20,6 +20,7 @@ import {
   contractFormSchema,
   detailFromInput,
   detailsToForm,
+  formProfile,
   formToDraft,
   quickDefaultFrequency,
   quickDirectionAdvice,
@@ -30,13 +31,12 @@ import {
 import { DatesList } from './formSections/DatesSection';
 import { DetailsSection } from './formSections/DetailsSection';
 import { formKit, FormLabel } from './formSections/kit';
-import { KindChooser, TypeSuggestionBox, type CategorySuggestionView, type TypeSuggestionView } from './formSections/KindSection';
+import { AiKindJudgment, KindChooser } from './formSections/KindSection';
 import { ComponentsEditor, CustomFirstDate, FREQUENCY_OPTIONS, PaymentsList, PlanLine } from './formSections/PaymentsSection';
 import { AutoRenewalFields, RenewalSection } from './formSections/RenewalSection';
 import { SchedulePreview, usePaymentPlans } from './formSections/SchedulePreview';
 import { styles } from './formSections/styles';
 
-export type { TypeSuggestionView } from './formSections/KindSection';
 
 export interface ContractFormProps {
   defaultValues: ContractFormValues;
@@ -46,9 +46,8 @@ export interface ContractFormProps {
   evidence?: Partial<Record<string, string>>;
   /** 경로별 안내 (왜 확인이 필요한지) */
   notes?: Partial<Record<string, string>>;
-  /** AI의 분야·유형 판단 (확인 화면) — 확정하지 않고 사용자가 바꿀 수 있다 */
-  typeSuggestion?: TypeSuggestionView;
-  categorySuggestion?: CategorySuggestionView;
+  /** AI의 계약 종류 판단 (확인 화면) — 한 줄로 보여주고 사용자가 바꿀 수 있다. 신뢰도 낮음이면 골라야 최종 등록 */
+  classification?: KindClassification;
   /** 모든 유형의 상세 속성 추출값 — 유형을 바꾸면 새 유형에 맞는 값만 다시 고른다 */
   allDetails?: Record<string, DetailValue>;
   header?: React.ReactNode;
@@ -82,7 +81,7 @@ export { quickDefaultFrequency } from './form';
 /** 빠른 입력 화면에 늘 보이는 값 — 이 밖의 오류는 접힌 상세 정보에 있다 */
 /** 갱신·통보 기한 칸 (등록 확인 화면에서는 평소 숨김) */
 const RENEWAL_KEYS: ReadonlySet<string> = new Set(['autoRenewal', 'renewalPeriodMonths', 'terminationNoticeDays', 'noticeKind', 'earlyTerminationTerms', 'penaltyTerms']);
-const QUICK_VISIBLE: ReadonlySet<string> = new Set(['title', 'contractType', 'quick', 'startDate', 'endDate', 'autoRenewal', 'renewalPeriodMonths', 'memo']);
+const QUICK_VISIBLE: ReadonlySet<string> = new Set(['title', 'contractKind', 'contractType', 'quick', 'startDate', 'endDate', 'autoRenewal', 'renewalPeriodMonths', 'memo']);
 
 /**
  * 계약 확인/수정 폼 — AI 등록 확인, 직접 입력, 수정에서 공용.
@@ -91,7 +90,9 @@ const QUICK_VISIBLE: ReadonlySet<string> = new Set(['title', 'contractType', 'qu
  * 이 파일은 폼 상태와 섹션 배치만 맡는다. 각 섹션은 formSections/ (계약 종류·유형별 정보·금액·주요 날짜·갱신·미리보기).
  * 폼은 의미를 다시 판단하지 않는다 — 서버 분석 결과(또는 저장된 값)를 보여주고 사용자가 고친 값만 저장한다.
  */
-export function ContractForm({ defaultValues, flagged, evidence, notes, typeSuggestion, categorySuggestion, allDetails, header, trailing, footerNote, submitError, submitLabel, submitting, today, onSubmit, variant = 'full', mode = 'create' }: ContractFormProps) {
+export function ContractForm({ defaultValues: initialValues, flagged, evidence, notes, classification, allDetails, header, trailing, footerNote, submitError, submitLabel, submitting, today, onSubmit, variant = 'full', mode = 'create' }: ContractFormProps) {
+  // 신뢰도 낮음: AI가 고른 종류를 미리 선택하지 않는다 (후보 중에서 사용자가 골라야 최종 등록)
+  const defaultValues = classification?.confidence === 'low' ? { ...initialValues, contractKind: '', contractSubtype: '' } : initialValues;
   const quick = variant === 'quick' && !!defaultValues.quick;
   // 수정 화면: 저장된 상세 정보가 있으면 처음부터 펼친다 / 이미 정해진 분야·금액 구분은 자동으로 바꾸지 않는다
   const editing = mode === 'edit';
@@ -121,75 +122,73 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
   // 결제별 계산 결과 (빠른 입력 결제가 있으면 맨 앞, 그 뒤로 추가 결제)
   const plans = usePaymentPlans(values, today)?.plans;
 
-  const type = values.contractType;
+  // 관리 프로필 (화면 이름·유형별 속성·결제 의미 선택지) — 계약 종류 기준. 결제 일정은 입력한 결제에서 만든다
+  const type = formProfile(values);
   const profile = profileOf(type);
 
   const kit = formKit({ control, setValue, getValues, values, flagged, evidence, notes });
   const { field, amount, date } = kit;
 
-  /** 유형 변경: 결제·날짜는 그대로 두고, 유형별 정보만 새 유형 기준으로 다시 고른다 */
-  const changeType = useCallback(
-    (next: ContractType) => {
-      const prev = getValues('contractType');
-      if (next === prev) return;
+  /**
+   * 계약 종류 변경: 결제·날짜는 그대로 두고, 유형별 정보만 새 관리 프로필 기준으로 다시 고른다.
+   * source: 사용자가 고름(user) / 계약명 추천 그대로(suggested). 하위 호환값은 저장할 때 레지스트리 값으로
+   */
+  const changeKind = useCallback(
+    (next: string | null, source: 'user' | 'suggested') => {
+      const prevKind = getValues('contractKind');
+      if ((next ?? '') === prevKind) return;
+      const prev = formProfile({ contractKind: prevKind, contractType: getValues('contractType') });
+      const nextProfile = next ? (contractKindDef(next)!.profile as ContractType) : prev;
       const current = getValues('details');
       const merged: Record<string, DetailValue> = { ...(allDetails ?? {}) };
       for (const spec of detailFields(prev)) {
         const v = detailFromInput(spec, current[spec.key] ?? '');
         if (v !== undefined && v !== null) merged[spec.key] = v;
       }
-      // 빠른 입력: 주기를 직접 바꾸지 않았다면 새 유형의 기본 주기로
-      if (quick && getValues('quick.frequency') === quickDefaultFrequency(prev)) setValue('quick.frequency', quickDefaultFrequency(next));
-      // 빠른 입력: 금액 구분(지출·수입·중립)을 직접 고르지 않았다면 새 유형의 추천으로 (고른 뒤에는 유지)
-      if (quick && !directionPicked) setValue('quick.direction', quickDirectionAdvice(next).direction);
-      setValue('contractType', next);
-      setValue('details', detailsToForm(next, cleanDetails(next, merged)));
+      // 빠른 입력: 주기를 직접 바꾸지 않았다면 새 종류의 기본 주기로 (결제 방식은 사용자가 정함 — 처음 값만 제안)
+      if (quick && getValues('quick.frequency') === quickDefaultFrequency(prev)) setValue('quick.frequency', quickDefaultFrequency(nextProfile));
+      // 빠른 입력: 금액 구분(지출·수입·중립)을 직접 고르지 않았다면 새 종류의 추천으로 (고른 뒤에는 유지)
+      if (quick && !directionPicked) setValue('quick.direction', quickDirectionAdvice(nextProfile).direction);
+      setValue('contractKind', next ?? '');
+      if (next) {
+        const legacy = legacyOf(next);
+        setValue('contractType', legacy.contractType);
+        setValue('category', legacy.category);
+      }
+      if (!next || !isSubtypeOf(next, getValues('contractSubtype'))) setValue('contractSubtype', '');
+      setValue('classification', { ...getValues('classification'), source });
+      setValue('details', detailsToForm(nextProfile, cleanDetails(nextProfile, merged)));
     },
     [allDetails, quick, directionPicked, getValues, setValue],
   );
-
-  /** 계약 종류 하나 → 내부 유형·분야를 함께 정한다 */
-  const applyKind = useCallback(
-    (k: Pick<ContractKindDef, 'type' | 'category'>) => {
-      changeType(k.type);
-      if (getValues('category') !== k.category) setValue('category', k.category);
-    },
-    [changeType, getValues, setValue],
-  );
   const pickKind = (code: string) => {
-    const k = contractKind(code);
-    if (!k) return;
+    if (!contractKindDef(code)) return;
     setKindPicked(true);
-    applyKind(k);
+    changeKind(code, 'user');
   };
 
-  // 빠른 입력: 계약명으로 종류 추천 (확정 아님 · 애매하면 추천 없음 · 직접 고르면 그 값 유지)
-  const nameSuggestion = quick ? suggestCategory(values.title ?? '') : null;
-  const suggestedKind = kindForCategory(nameSuggestion?.category);
-  const defaultType = defaultValues.contractType;
+  // 빠른 입력: 계약명으로 종류 추천 (AI 분류 아님 · 확정 아님 · 애매하면 추천 없음 · 직접 고르면 그 값 유지)
+  const nameSuggestion = quick ? suggestKind(values.title ?? '') : null;
+  const suggestedKind = nameSuggestion?.kind ?? null;
   useEffect(() => {
     if (!quick || kindPicked) return;
-    applyKind(suggestedKind ?? { type: defaultType, category: 'other' });
-  }, [quick, kindPicked, suggestedKind, defaultType, applyKind]);
+    changeKind(suggestedKind, 'suggested');
+  }, [quick, kindPicked, suggestedKind, changeKind]);
 
-  // 계약 종류 (한 번만 고른다). 새 직접 입력은 고르거나 계약명으로 추천되기 전까지 선택 없음
-  const match = kindOf(values.contractType, values.category);
-  const selectedKind = quick && !kindPicked && !suggestedKind ? null : match.kind.code;
+  // 계약 종류 (한 번만 고른다). 분류 개편 전 계약은 예전 표시 이름을 안내만 하고, 고르면 새 분류로
+  const selectedKind = values.contractKind || null;
+  const legacy = kindDisplay({ contractKind: null, contractSubtype: null, contractType: values.contractType, category: values.category });
   const kindChooser = (
     <KindChooser
-      type={type}
-      category={values.category}
-      selectedKind={selectedKind}
-      recommended={quick && !kindPicked}
-      flagged={flagged}
+      kind={selectedKind}
+      subtype={values.contractSubtype || null}
+      legacyLabel={!selectedKind && editing && (defaultValues.contractKind ?? '') === '' ? legacy.label : null}
+      recommended={quick && !kindPicked && !!selectedKind}
       onPickKind={pickKind}
-      onPickType={(t) => {
+      onPickSubtype={(sub) => {
         setKindPicked(true);
-        changeType(t);
-      }}
-      onPickCategory={(c) => {
-        setKindPicked(true);
-        setValue('category', c);
+        setValue('contractSubtype', sub ?? '');
+        setValue('classification', { ...getValues('classification'), source: 'user' });
       }}
     />
   );
@@ -199,8 +198,15 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
 
   const submit = handleSubmit(
     (v) => {
+      // 신뢰도 낮음: 사용자가 계약 종류를 골라야 최종 등록 (임의로 확정하지 않음)
+      if (classification && !canRegisterKind(classification, v.contractKind || null)) {
+        setInvalidNote('계약 종류를 확인해주세요 — AI가 확신하지 못해 후보 중에서 골라야 등록돼요');
+        return;
+      }
       setInvalidNote(null);
-      onSubmit(confirmEdited(formToDraft(v, today), defaultValues, getValues()));
+      // 새 계약은 종류를 고르지 않았으면 기타 (분류 개편 전 계약을 수정할 때는 종류 없이 그대로)
+      const parsed = !v.contractKind && !editing ? { ...v, contractKind: 'other', ...legacyOf('other') } : v;
+      onSubmit(confirmEdited(formToDraft(parsed, today), defaultValues, getValues()));
     },
     (errors) => {
       const keys = Object.keys(errors);
@@ -241,7 +247,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
         {header}
         <Section testID="quick-basic">
           {field('title', '계약명', { placeholder: '예: 유튜브 프리미엄' })}
-          <FormLabel label="계약 종류" flagged={flagged?.has('contractType') || flagged?.has('category')} />
+          <FormLabel label="계약 종류" flagged={flagged?.has('contractKind')} />
           {kindChooser}
         </Section>
 
@@ -370,7 +376,7 @@ export function ContractForm({ defaultValues, flagged, evidence, notes, typeSugg
       {header}
 
       <Section title="계약 종류" caption="이 계약이 무엇인지 한 번만 골라주세요. 종류에 맞게 일정과 지출을 관리해요." testID="section-type">
-        {typeSuggestion ? <TypeSuggestionBox typeSuggestion={typeSuggestion} categorySuggestion={categorySuggestion} category={values.category} flagged={flagged} /> : null}
+        {classification ? <AiKindJudgment classification={classification} picked={selectedKind} flagged={flagged?.has('contractKind')} onPick={pickKind} /> : null}
         {kindChooser}
       </Section>
 

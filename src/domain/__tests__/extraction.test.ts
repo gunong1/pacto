@@ -17,10 +17,11 @@ import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
 import { toReviewModel } from '@/features/registration/extraction';
 
+import { answer } from './golden/classificationFixtures';
+
 const TODAY = '2026-10-06';
 const q = (quote: string | null = null) => ({ evidence_quote: quote });
 const f = (value: unknown, confidence = 'high', quote: string | null = null) => ({ value, confidence, ...q(quote) });
-const cls = (value: string, confidence = 'high', alternatives: string[] = [], reason = '') => ({ value, confidence, alternatives, reason });
 const date = (d: string, meaning: string, label: string, confidence = 'high') => ({ date: d, meaning, label, confidence, ...q() });
 const pay = (p: Record<string, unknown>) => ({ direction: 'expense', day_of_month: null, date: null, end_date: null, installment_count: null, is_variable: false, optional: false, confidence: 'high', ...q(), ...p });
 const det = (key: string, v: string | number | boolean, confidence = 'high', source_type = 'explicit') => ({
@@ -34,12 +35,14 @@ const det = (key: string, v: string | number | boolean, confidence = 'high', sou
 });
 const check = (c: Record<string, unknown>) => ({ severity: 'check', topic: 'other', title: '조항', description: '기재되어 있습니다.', confidence: 'high', related_date: null, evidence_quote: '원문', evidence_page: 1, evidence_file: 1, ...c });
 
-function output(o: { category?: unknown; type?: unknown; fields?: Record<string, unknown>; dates?: unknown[]; payments?: unknown[]; details?: unknown[]; checks?: unknown[] }) {
+/** AI의 계약 종류 답 (v13 classification) */
+const k = (kind: string, o: { subtype?: string | null; confidence?: 'high' | 'medium' | 'low'; alternatives?: string[]; reason?: string } = {}) => answer({ kind, subtype: o.subtype ?? null, confidence: o.confidence, alternatives: o.alternatives, reason: o.reason });
+
+function output(o: { kind?: unknown; fields?: Record<string, unknown>; dates?: unknown[]; payments?: unknown[]; details?: unknown[]; checks?: unknown[] }) {
   const fields: Record<string, unknown> = {};
   for (const k of Object.keys(FIELDS)) fields[k] = f(null, 'low');
   return {
-    category: o.category ?? cls('other'),
-    contract_type: o.type ?? cls('other'),
+    classification: o.kind ?? k('other'),
     fields: { ...fields, ...o.fields },
     dates: o.dates ?? [],
     payments: o.payments ?? [],
@@ -52,8 +55,7 @@ const titlesOn = (m: ReturnType<typeof review>, d: string) => scheduleForRange([
 
 /** 사용자가 올린 샘플 렌탈 계약서 */
 const rental = () => ({
-  category: cls('rental'),
-  type: cls('recurring', 'high', [], '매월 렌탈료를 내는 계약입니다.'),
+  kind: k('rental', { subtype: 'appliance', reason: '공기청정기를 빌려 쓰는 렌탈 계약입니다.' }),
   fields: { title: f('공기청정기 렌탈 계약서'), counterparty: f('클린에어코리아 주식회사', 'high', '업체명 클린에어코리아 주식회사'), autoRenewal: f(true), renewalPeriodMonths: f(12), terminationNoticeDays: f(30) },
   dates: [date('2026-10-05', 'contract_signed', '계약 체결일'), date('2026-10-12', 'contract_start', '계약 기간 시작'), date('2029-10-11', 'contract_end', '계약 기간 종료')],
   payments: [pay({ kind: 'recurring_fee', label: '월 렌탈료', amount: 29900, frequency: 'monthly', day_of_month: 12 }), pay({ kind: 'setup_fee', label: '초기 설치비', amount: 20000, frequency: 'one_time' })],
@@ -66,9 +68,10 @@ const rental = () => ({
 
 describe('분석 v4 — 서버 스키마·프롬프트', () => {
   test('프롬프트 버전 · 분석 순서 · 표현 규칙', () => {
-    expect(PROMPT_VERSION).toBe('extract-v12');
+    // 분류 개편: v13 — 계약 종류 하나(classification)만 판단 (분야·관리 구조를 따로 고르지 않음)
+    expect(PROMPT_VERSION).toBe('extract-v13');
     const ins = extractionInstructions(TODAY);
-    for (const s of ['1) category', '2) contract_type', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다']) expect(ins).toContain(s);
+    for (const s of ['1·2) classification', '결제 주기', 'domains', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다']) expect(ins).toContain(s);
   });
 
   test('strict 요건: 모든 객체가 required = 전체 속성, additionalProperties false', () => {
@@ -106,8 +109,7 @@ describe('분석 v4 — 서버 스키마·프롬프트', () => {
   test('형식이 틀린 값은 버리거나 낮춤 · 금지 표현은 중립 문장 · 같은 결제 중복 제거 · 근거 없는 체크는 신뢰도 low', () => {
     const r = toAppResult(
       output({
-        category: cls('nope'),
-        type: cls('weird', 'high', ['loan', 'loan', 'nope'], '위험한 계약입니다'),
+        kind: { kind: 'weird', subtype: 'none', domains: [], confidence: 'high', alternatives: ['loan', 'loan', 'nope'], reason: '위험한 계약입니다', secondary_elements: [] },
         fields: { renewalPeriodMonths: f(999) },
         dates: [date('2026-02-30', 'contract_start', 'x'), date('2026-03-01', 'bogus', '기타')],
         payments: [
@@ -120,8 +122,9 @@ describe('분석 v4 — 서버 스키마·프롬프트', () => {
       }),
       'openai',
     );
-    expect(r.category).toMatchObject({ value: 'other', confidence: 'low' });
-    expect(r.contractType).toMatchObject({ value: 'other', confidence: 'low', alternatives: ['loan'], reason: '계약서 내용을 바탕으로 분류했어요.' });
+    // 분류 개편: 모르는 종류는 기타 + low (다른 종류로 임의 변환하지 않음), 다른 후보는 정해진 값만
+    expect(r.classification).toMatchObject({ kind: 'other', confidence: 'low', alternatives: ['loan'], reason: '계약서 내용을 바탕으로 분류했어요.' });
+    expect(r.category).toMatchObject({ value: 'other' });
     expect(r.fields.renewalPeriodMonths).toMatchObject({ value: null, confidence: 'low' });
     // 출처를 모르면 추정으로 · 리팩터링 D: 서버가 날짜의 쓰임(주요 날짜·기타)을 정해 함께 준다
     expect(r.dates).toEqual([{ date: '2026-03-01', meaning: 'other', label: '기타', confidence: 'high', sourceType: 'inferred', use: 'key', keyKind: 'other' }]);
@@ -140,7 +143,8 @@ describe('분석 v4 — 서버 스키마·프롬프트', () => {
     const r = toAppResult(out.json, 'mock');
     expect(r.payments).toHaveLength(2);
     expect(r.category.value).toBe('rental');
-    expect(r.checks[0]).toMatchObject({ topic: 'auto_renewal', evidencePage: 1, evidenceFileIndex: 0, suggestion: { kind: 'set_termination_notice' } });
+    // 분류 개편(계약 정보 ↔ 체크): 자동갱신 + 해지 통보기한은 통보기한 할 일 체크 하나로 (이전 기대: 주제 auto_renewal) — 원문 근거는 유지
+    expect(r.checks[0]).toMatchObject({ topic: 'notice_deadline', semanticKey: 'termination_notice', evidencePage: 1, evidenceFileIndex: 0, suggestion: { kind: 'set_termination_notice' } });
   });
 
   test('OpenAI 요청: PDF는 input_file, 사진은 input_image, strict json_schema, store:false', () => {
@@ -170,7 +174,7 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
       ['setup_fee', 'expense', 20_000, null, null],
     ]);
     expect(m.flagged.has('payments.1.startsOn')).toBe(true);
-    expect(m.flagged.has('category') || m.flagged.has('contractType')).toBe(false);
+    expect(m.flagged.has('contractKind')).toBe(false);
     expect(m.draft.details).toEqual({ commitmentMonths: 36, ownershipTransferTerms: '계약 종료 후 전액 납부 완료 시 이전' });
     expect(titlesOn(m, '2026-10-12')).toEqual(['월 렌탈료', '이용 시작', '초기 설치비'].sort());
     expect(monthSpending([draftToRecord(m.draft, 'x', TODAY)], { year: 2026, month: 10 }).total).toBe(49_900);
@@ -178,7 +182,8 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
 
   test('PACTO 계약 체크: 원문 근거(문서 id·쪽·문장) 연결, 자동갱신 → 해지 통보기한 일정 제안, 금지 표현 없음', () => {
     const m = review(rental(), ['doc-a', 'doc-b']);
-    expect(m.checks[0]).toMatchObject({ severity: 'caution', topic: 'auto_renewal', evidenceDocumentId: 'doc-a', evidencePage: 1, confidence: 'high', suggestion: { kind: 'set_termination_notice', terminationNoticeDays: 30 } });
+    // 분류 개편: 자동갱신 체크 → 통보기한 할 일 체크 하나 (이전 기대: 주제 auto_renewal)
+    expect(m.checks[0]).toMatchObject({ severity: 'caution', topic: 'notice_deadline', evidenceDocumentId: 'doc-a', evidencePage: 1, confidence: 'high', suggestion: { kind: 'set_termination_notice', terminationNoticeDays: 30 } });
     for (const c of m.checks) expect(findBannedPhrases(c.title + c.description)).toEqual([]);
   });
 
@@ -191,16 +196,15 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
   });
 
   test('분야·유형 신뢰도가 높지 않으면 확인 필요 + 다른 가능성 (자동차 분야 · 할부?)', () => {
-    const m = review({ category: cls('vehicle', 'high'), type: cls('installment', 'medium', ['recurring', 'sale'], '할부원금과 월 납입금이 있습니다.') });
-    expect(m.flagged.has('contractType')).toBe(true);
-    expect(m.flagged.has('category')).toBe(false);
-    expect(m.typeSuggestion).toMatchObject({ value: 'installment', confidence: 'medium', alternatives: ['recurring', 'sale'] });
+    // 분류 개편: 분야·유형 두 값 대신 계약 종류 하나 (자동차는 종류가 아니라 대상)
+    const m = review({ kind: k('installment', { subtype: 'vehicle', confidence: 'medium', alternatives: ['rental', 'sale'], reason: '할부원금과 월 납입금이 있습니다.' }) });
+    expect(m.flagged.has('contractKind')).toBe(true);
+    expect(m.classification).toMatchObject({ kind: 'installment', subtype: 'vehicle', confidence: 'medium', alternatives: ['rental', 'sale'] });
   });
 
   test('근로계약: 급여는 수입, 근로 시작일·입사일·급여일, 유형별 속성, 기간 없는 계약은 종료일 없음', () => {
     const m = review({
-      category: cls('employment'),
-      type: cls('employment'),
+      kind: k('employment'),
       fields: { title: f('근로계약서'), counterparty: f('PACTO 주식회사') },
       dates: [date('2026-10-20', 'contract_signed', '작성일'), date('2026-11-02', 'contract_start', '근로 개시일'), date('2026-11-02', 'hire', '입사일')],
       payments: [pay({ kind: 'salary', direction: 'income', label: '월 급여', amount: 3_500_000, frequency: 'monthly', day_of_month: 25 })],
@@ -220,8 +224,7 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
 
   test('용역(프리랜서): 대금은 수입, 납기·검수일은 주요 날짜', () => {
     const m = review({
-      category: cls('service'),
-      type: cls('service'),
+      kind: k('service'),
       fields: { title: f('디자인 용역 계약서'), counterparty: f('발주사') },
       dates: [date('2026-10-15', 'contract_start', '착수일'), date('2026-12-31', 'contract_end', '계약 종료'), date('2026-12-15', 'delivery', '납기'), date('2026-12-22', 'inspection', '검수')],
       payments: [
@@ -238,8 +241,7 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
 
   test('매매: 계약금·중도금·잔금 각각, 인도·소유권 이전일, 완료일 → 종료', () => {
     const m = review({
-      category: cls('sale'),
-      type: cls('sale'),
+      kind: k('sale'),
       fields: { title: f('부동산 매매계약서'), counterparty: f('매도인'), totalAmount: f(200_000_000) },
       dates: [date('2026-10-10', 'contract_signed', '계약일'), date('2027-01-31', 'handover', '인도일'), date('2027-02-05', 'ownership_transfer', '소유권 이전'), date('2027-02-05', 'completion', '완료')],
       payments: [
@@ -256,8 +258,7 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
 
   test('전세: 보증금 계약금·잔금은 neutral(지출 제외), 입주일, 금리 같은 다른 유형 속성은 보관만', () => {
     const m = review({
-      category: cls('real_estate'),
-      type: cls('lease'),
+      kind: k('lease'),
       fields: { title: f('전세계약서'), counterparty: f('김임대'), depositAmount: f(200_000_000) },
       dates: [date('2026-09-01', 'contract_signed', '계약일'), date('2026-11-01', 'contract_start', '시작'), date('2028-10-31', 'contract_end', '종료'), date('2026-11-01', 'balance_due', '잔금일'), date('2026-11-01', 'move_in', '입주일')],
       payments: [
@@ -284,8 +285,7 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
 
 describe('헬스장 샘플 계약서: 락커 이용료(선택, 결제일 없음 · 월 이용료와 함께 청구)', () => {
   const gym = (lockerTwice = false) => ({
-    category: cls('membership'),
-    type: cls('recurring'),
+    kind: k('subscription_membership', { subtype: 'fitness_membership' }),
     fields: { title: f('헬스장 회원권 이용 계약서'), counterparty: f('바디핏 피트니스 둔산점'), autoRenewal: f(true), renewalPeriodMonths: f(1), terminationNoticeDays: f(7) },
     dates: [date('2026-11-01', 'contract_signed', '계약 체결일'), date('2026-11-03', 'service_start', '이용 시작일'), date('2027-11-02', 'contract_end', '이용 종료일')],
     payments: [
@@ -344,8 +344,8 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
     expect(resign).toMatchObject({ behavior: 'conditional_rule', relatedDate: null, suggestion: null, rule: { offsetDays: 30 } });
     expect(m.checks.find((c) => c.topic === 'probation')!.suggestion).toBeNull();
     expect(m.checks.every((c) => c.suggestion === null)).toBe(true);
-    // 계약 체크 분류: 급여일은 핵심 정보, 나머지 7개는 확인 필요, 주의 필요 없음
-    expect(m.checks.map((c) => c.severity)).toEqual(['info', 'check', 'check', 'check', 'check', 'check', 'check', 'check']);
+    // 분류 개편(계약 정보 ↔ 체크): 급여일은 사실이라 체크가 아니라 결제(급여·지급일)에만 — 이전 기대: info 체크 1개 + 확인 필요 7개
+    expect(m.checks.map((c) => c.severity)).toEqual(['check', 'check', 'check', 'check', 'check', 'check', 'check']);
     expect(m.checks.map((c) => c.topic)).toEqual(expect.arrayContaining(['work_change', 'fixed_overtime', 'probation', 'resignation_notice', 'renewal_terms', 'confidentiality', 'asset_return']));
   });
 
@@ -365,8 +365,7 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
     const resignQuote = '근로자가 퇴직하고자 하는 경우 30일 전에 회사에 통보하여야 한다.';
     const r = toAppResult(
       output({
-        category: cls('employment'),
-        type: cls('employment'),
+        kind: k('employment'),
         fields: { counterparty: f('주식회사 네오링크'), autoRenewal: f(false), terminationNoticeDays: f(30, 'medium', resignQuote) },
         dates: [date('2026-10-01', 'contract_start', '근로 시작'), date('2027-09-30', 'contract_end', '근로 종료')],
         payments: [
@@ -396,7 +395,8 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
   test('자동갱신 계약의 종료일 기준 통보기한은 유지 (조건부 규칙과 일수가 달라도)', () => {
     const r = toAppResult(output({ ...rental(), checks: [...rental().checks, check({ topic: 'early_termination', behavior: 'conditional_rule', offset_days: 30 })] }), 'openai');
     expect(r.fields.terminationNoticeDays.value).toBe(30);
-    expect(r.checks.find((c) => c.topic === 'auto_renewal')!.suggestion).toMatchObject({ kind: 'set_termination_notice', terminationNoticeDays: 30 });
+    // 분류 개편: 자동갱신 체크는 통보기한 할 일 체크로 합쳐짐 (이전: 주제 auto_renewal)
+    expect(r.checks.find((c) => c.semanticKey === 'termination_notice')!.suggestion).toMatchObject({ kind: 'set_termination_notice', terminationNoticeDays: 30 });
   });
 
   test('합계·참고 금액은 결제가 아니라 참고로', () => {
@@ -467,8 +467,7 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
   test('잘못된 출력(모두 확정 결제 · 1년권을 월납으로)도 서버 안전장치가 바로잡음', () => {
     const r = toAppResult(
       output({
-        category: cls('membership'),
-        type: cls('recurring'),
+        kind: k('subscription_membership', { subtype: 'fitness_membership' }),
         fields: { title: f('헬스장 1년권'), counterparty: f('바디핏 피트니스') },
         dates: [date('2026-10-06', 'contract_signed', '계약일'), date('2026-10-10', 'service_start', '이용 시작일'), date('2027-10-09', 'contract_end', '이용 종료일')],
         payments: [
@@ -537,7 +536,7 @@ describe('H. AI가 주민등록번호·계좌번호를 인용해도 저장·표�
     const quote = '근로자 박민준(주민등록번호 901225-1234567)의 급여는 국민은행 계좌 123456-01-234567로 지급한다.';
     const r = toAppResult(
       output({
-        type: cls('employment'),
+        kind: k('employment'),
         fields: { counterparty: f('주식회사 네오링크', 'high', quote) },
         details: [{ ...det('employee_name', '박민준'), evidence_quote: quote }],
         checks: [check({ topic: 'wage', title: '급여 지급', description: `${quote} 확인이 필요한 조건입니다.`, evidence_quote: quote })],
@@ -549,7 +548,7 @@ describe('H. AI가 주민등록번호·계좌번호를 인용해도 저장·표�
     expect(json).not.toContain('123456-01-2');
     expect(r.checks[0].evidenceQuote).toBe('근로자 박민준(주민등록번호 901225-1******)의 급여는 국민은행 계좌 ******-**-**4567로 지급한다.');
     expect(r.details.employee_name.value).toBe('박민준');
-    const m = review({ type: cls('employment'), fields: { counterparty: f('주식회사 네오링크', 'high', quote) }, details: [{ ...det('employee_name', '박민준'), evidence_quote: quote }] });
+    const m = review({ kind: k('employment'), fields: { counterparty: f('주식회사 네오링크', 'high', quote) }, details: [{ ...det('employee_name', '박민준'), evidence_quote: quote }] });
     expect(JSON.stringify([m.evidence, m.notes, m.checks])).not.toContain('1234567');
     expect(m.evidence.counterparty).toContain('901225-1******');
   });

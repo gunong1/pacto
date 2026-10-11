@@ -1,46 +1,30 @@
-/** 계약 종류 하나 → 내부 유형·분야 (사용자는 한 번만 고른다) */
+/**
+ * 계약 종류 (contract_kind) — 분류 개편 후 기준값. 이전 테스트는 "종류 → 내부 유형·분야" 변환을 검사했다.
+ * 바뀐 기대: 종류는 13개(자동차는 대상이라 없음), 내부 유형·분야는 하위 호환값일 뿐 종류를 다시 정하지 않는다.
+ */
 import { CONTRACT_CATEGORIES, CONTRACT_TYPES } from '../contractTypes';
-import { CONTRACT_KINDS, contractKind, kindForCategory, kindOf } from '../contractKinds';
+import { CONTRACT_KINDS, kindDisplay, legacyKindLabel, legacyOf, profileKeyOf } from '../contractKinds';
 
-test('요청한 14개 종류, 순서대로', () => {
-  expect(CONTRACT_KINDS.map((k) => k.label)).toEqual(['근로', '부동산·임대차', '대출', '보험', '자동차', '통신', '구독·회원권', '렌탈', '할부', '매매', '용역·프리랜서', '교육', '사업·거래', '기타']);
+test('13개 종류, 순서대로 (자동차 없음)', () => {
+  expect(CONTRACT_KINDS.map((k) => k.label)).toEqual(['근로', '부동산·임대차', '대출', '보험', '통신', '구독·회원권', '렌탈', '할부', '매매', '용역·프리랜서', '교육', '사업·거래', '기타']);
 });
 
-test.each([
-  ['insurance', 'insurance', 'insurance'],
-  ['loan', 'loan', 'finance'],
-  ['lease', 'lease', 'real_estate'],
-  ['subscription', 'recurring', 'subscription'],
-  ['vehicle', 'recurring', 'vehicle'],
-  ['installment', 'installment', 'vehicle'],
-  ['employment', 'employment', 'employment'],
-])('%s → contract_type %s · category %s', (code, type, category) => {
-  expect(contractKind(code)).toMatchObject({ type, category });
-});
-
-test('모든 종류의 내부 값은 기존 유형·분야 코드 (DB 구조 그대로)', () => {
+test('하위 호환값·관리 프로필은 기존 유형·분야 코드 (DB 구조 그대로)', () => {
   for (const k of CONTRACT_KINDS) {
-    expect(CONTRACT_TYPES).toContain(k.type);
-    expect(CONTRACT_CATEGORIES).toContain(k.category);
+    expect(CONTRACT_TYPES).toContain(k.legacy.type);
+    expect(CONTRACT_CATEGORIES).toContain(k.legacy.category);
+    expect(CONTRACT_TYPES).toContain(k.profile);
   }
+  expect(legacyOf('subscription_membership')).toEqual({ contractType: 'recurring', category: 'subscription' });
 });
 
-test('저장된 값 → 종류 (기본값과 같으면 그대로, 다르면 "상세 분류"로 정한 값)', () => {
-  expect(kindOf('insurance', 'insurance')).toMatchObject({ kind: { code: 'insurance' }, exact: true });
-  expect(kindOf('recurring', 'membership')).toMatchObject({ kind: { code: 'subscription' }, exact: true });
-  // 물품 할부 (분야 금융) → 할부, 상세 분류
-  expect(kindOf('installment', 'finance')).toMatchObject({ kind: { code: 'installment' }, exact: false });
-  // 일회성 공사 계약 → 기타, 상세 분류
-  expect(kindOf('one_time', 'other')).toMatchObject({ kind: { code: 'other' }, exact: false });
-  // 월 납입형 + 부동산(관리 용역 등) → 분야 기준 부동산·임대차, 상세 분류
-  expect(kindOf('recurring', 'real_estate')).toMatchObject({ kind: { code: 'lease' }, exact: false });
-  // 모든 유형·분야 조합이 종류 하나로 보인다
-  for (const t of CONTRACT_TYPES) for (const c of CONTRACT_CATEGORIES) expect(kindOf(t, c).kind).toBeDefined();
-});
-
-test('계약명 추천 분야 → 종류', () => {
-  expect(kindForCategory('membership')?.code).toBe('subscription');
-  expect(kindForCategory('insurance')?.code).toBe('insurance');
-  expect(kindForCategory('other')).toBeNull();
-  expect(kindForCategory(null)).toBeNull();
+test('계약 종류가 있으면 종류로 표시·프로필, 없으면(기존 계약) 예전 이름', () => {
+  expect(kindDisplay({ contractKind: 'insurance', contractSubtype: 'auto', contractType: 'insurance', category: 'insurance' })).toEqual({ label: '보험', subtypeLabel: '자동차보험', legacy: false });
+  expect(profileKeyOf({ contractKind: 'rental', contractType: 'other' })).toBe('recurring');
+  expect(profileKeyOf({ contractKind: null, contractType: 'loan' })).toBe('loan');
+  // 예전 화면 이름 그대로 (모든 유형·분야 조합이 이름 하나로 보인다)
+  expect(legacyKindLabel('recurring', 'vehicle')).toBe('자동차');
+  expect(legacyKindLabel('installment', 'finance')).toBe('할부');
+  expect(legacyKindLabel('one_time', 'other')).toBe('기타');
+  for (const t of CONTRACT_TYPES) for (const c of CONTRACT_CATEGORIES) expect(legacyKindLabel(t, c)).toBeTruthy();
 });

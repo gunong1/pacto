@@ -12,9 +12,10 @@ import { Divider, EmptyState, KeyValueRow, Screen, Section, SectionGap } from '@
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
 import { addDays, addMonths, formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
-import { contractTypeLabel, isConfirmedPayment } from '@/domain/contractTypes';
+import { kindDisplay, profileKeyOf } from '@/domain/contractKinds';
+import { isConfirmedPayment } from '@/domain/contractTypes';
 import { coreInfo, extraCosts, otherDetails, type ExtraCostRow } from '@/domain/coreInfo';
-import { categoryLabel, EVENT_TYPE_LABEL } from '@/domain/labels';
+import { EVENT_TYPE_LABEL } from '@/domain/labels';
 import { formatWon } from '@/domain/money';
 import { noticeLabelOf } from '@/domain/noticeKind';
 import { contractSchedule, isPaymentDayUnknown, nextPayment } from '@/domain/schedule';
@@ -146,7 +147,7 @@ export default function ContractDetailScreen() {
             <CategoryIcon category={c.category} size={44} />
             <View style={{ flex: 1 }}>
               <AppText variant="caption" color="textTertiary">
-                {[categoryLabel(c.category), contractTypeLabel(c.contractType), c.counterparty].filter(Boolean).join(' · ')}
+                {[kindDisplay(c).label, kindDisplay(c).subtypeLabel, c.counterparty].filter(Boolean).join(' · ')}
               </AppText>
               <AppText variant="title2" testID="detail-title">
                 {c.title}
@@ -247,7 +248,7 @@ export default function ContractDetailScreen() {
         <SectionGap />
 
         {/* 유형별 핵심 정보 — 공통 틀은 같고 유형(월 납입형·임대차·할부·대출·보험·일회성)에 따라 항목이 다르다 */}
-        <Section title="핵심 정보" caption={contractTypeLabel(c.contractType)} testID="detail-core">
+        <Section title="핵심 정보" caption={kindDisplay(c).label} testID="detail-core">
           {live && view.next ? (
             <View style={styles.nextPay} testID="detail-next-payment">
               <View style={{ flex: 1 }}>
@@ -354,7 +355,7 @@ export default function ContractDetailScreen() {
         {/* 기록성 정보 */}
         <Section title="계약 조건 · 기록">
           {c.contractDate ? <KeyValueRow label="계약 체결일" value={formatDateKo(c.contractDate)} testID="detail-contract-date" /> : null}
-          {c.earlyTerminationTerms ? <KeyValueRow label={c.contractType === 'loan' ? '중도상환' : '중도해지'} value={c.earlyTerminationTerms} /> : null}
+          {c.earlyTerminationTerms ? <KeyValueRow label={profileKeyOf(c) === 'loan' ? '중도상환' : '중도해지'} value={c.earlyTerminationTerms} /> : null}
           {c.penaltyTerms ? <KeyValueRow label="위약금" value={c.penaltyTerms} /> : null}
           {view.other.map((row) => (
             <KeyValueRow key={row.key} label={row.label} value={row.value} />
@@ -522,9 +523,9 @@ function AiSection({
           const deadline =
             s?.kind === 'set_termination_notice'
               ? applied && notice
-                ? { label: noticeLabelOf(c.noticeKind, c.contractType), date: notice.date }
+                ? { label: noticeLabelOf(c.noticeKind, profileKeyOf(c)), date: notice.date }
                 : c.endDate
-                  ? { label: noticeLabelOf(c.noticeKind, c.contractType), date: addDays(c.endDate, -s.terminationNoticeDays) }
+                  ? { label: noticeLabelOf(c.noticeKind, profileKeyOf(c)), date: addDays(c.endDate, -s.terminationNoticeDays) }
                   : null
               : s?.kind === 'add_event'
                 ? { label: s.title, date: s.eventDate }
@@ -535,6 +536,8 @@ function AiSection({
               <ContractCheckCard
                 testID={`check-${x.id}`}
                 check={x}
+                contract={c}
+                today={today}
                 deadline={deadline}
                 onOpenOriginal={doc ? () => viewDocument(doc, x.evidencePage) : undefined}
                 action={

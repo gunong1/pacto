@@ -18,8 +18,7 @@ const assert = (cond, msg) => {
 const CONTRACTS = [
   {
     name: '전세',
-    type: 'lease',
-    category: 'real_estate',
+    kind: 'lease',
     title: '전세계약',
     start: '261101',
     end: '281031',
@@ -41,8 +40,7 @@ const CONTRACTS = [
   },
   {
     name: '월세',
-    type: 'lease',
-    category: 'real_estate',
+    kind: 'lease',
     title: '월세계약',
     start: '261101',
     end: '281031',
@@ -61,8 +59,8 @@ const CONTRACTS = [
   },
   {
     name: '자동차 할부',
-    type: 'installment',
-    category: 'vehicle',
+    kind: 'installment',
+    subtype: 'vehicle',
     title: '자동차 할부',
     start: '261020',
     end: '291025',
@@ -81,8 +79,7 @@ const CONTRACTS = [
   },
   {
     name: '대출',
-    type: 'loan',
-    category: 'finance',
+    kind: 'loan',
     title: '신용대출',
     start: '261015',
     end: '311015',
@@ -97,8 +94,7 @@ const CONTRACTS = [
   },
   {
     name: '연납 보험',
-    type: 'insurance',
-    category: 'insurance',
+    kind: 'insurance',
     title: '자동차보험',
     start: '261201',
     end: '271130',
@@ -116,28 +112,27 @@ const CONTRACTS = [
   },
   {
     name: '일회성(계약금·중도금·잔금)',
-    type: 'one_time',
-    category: 'business',
+    // 분류 개편: "일회성"은 결제 방식이라 계약 종류가 아니다 — 공사는 업무를 수행해 주는 계약(용역, 나는 발주자)
+    kind: 'service',
     title: '인테리어 공사',
     start: '261010',
     end: '261220',
-    details: [['text', 'detail-subject', '아파트 인테리어']],
+    details: [['chip', 'detail-userRole-client'], ['text', 'detail-workScope', '아파트 인테리어']],
     payments: [
       { kind: 'down_payment', label: '계약금', amount: '3000000', freq: 'one_time', date: '261010' },
       { kind: 'interim_payment', label: '중도금', amount: '5000000', freq: 'one_time', date: '261115' },
       { kind: 'balance_payment', label: '잔금', amount: '2000000', freq: 'one_time', date: '261220' },
     ],
-    core: ['계약 대상', '아파트 인테리어', '계약금', '중도금', '잔금', '계약 완료일'],
+    core: ['나의 역할', '발주자', '업무 내용', '아파트 인테리어', '계약금', '중도금', '잔금', '업무 기간'],
     checks: [
       { date: '2026-10-10', has: ['계약금'], total: '₩3,000,000' },
       { date: '2026-11-15', has: ['중도금'], total: '₩5,000,000' },
-      { date: '2026-12-20', has: ['잔금', '계약 완료'], total: '₩2,000,000' },
+      { date: '2026-12-20', has: ['잔금', '업무 종료'], total: '₩2,000,000' },
     ],
   },
   {
     name: '근로계약',
-    type: 'employment',
-    category: 'employment',
+    kind: 'employment',
     title: '근로계약서',
     start: '261102',
     end: '271101',
@@ -155,8 +150,7 @@ const CONTRACTS = [
   },
   {
     name: '용역(프리랜서)',
-    type: 'service',
-    category: 'service',
+    kind: 'service',
     title: '앱 디자인 용역',
     start: '261015',
     end: '261231',
@@ -175,8 +169,7 @@ const CONTRACTS = [
   },
   {
     name: '매매',
-    type: 'sale',
-    category: 'sale',
+    kind: 'sale',
     title: '아파트 매매계약',
     start: '',
     end: '270205',
@@ -224,11 +217,13 @@ const CONTRACTS = [
     await page.click(tid('first-run-register'));
     await page.click(tid('method-manual'));
     await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
-    // 계약 종류는 한 번만 고른다 — 이 시나리오는 내부 유형·분야를 정확히 지정해야 해서 "상세 분류"를 쓴다
-    await page.click(tid('toggle-classification'));
-    await page.click(tid(`type-${k.type}`));
+    // 계약 종류는 한 번만 고른다 (13개) — 상세 분류는 선택 사항 ("+ 상세 분류")
     await input('field-title').fill(k.title);
-    await page.click(tid(`category-${k.category}`));
+    await page.click(tid(`kind-${k.kind}`));
+    if (k.subtype) {
+      await page.click(tid('toggle-classification'));
+      await page.click(tid(`subtype-${k.subtype}`));
+    }
     if (k.start) await input('field-startDate').fill(k.start);
     await input('field-endDate').fill(k.end);
     if (k.signed) await input('field-contractDate').fill(k.signed);

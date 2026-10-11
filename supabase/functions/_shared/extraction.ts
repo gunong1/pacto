@@ -4,11 +4,15 @@
 // 구조
 //   extractionPrompt.ts   모델 스키마·지시문 (PROMPT_VERSION)
 //   analysisRules/        의미별 정리 규칙 (각 파일 머리에 규칙 이름·목적·입력·출력·예·테스트)
-//     vocabulary · values · keywords · fields · dates · payments(paymentRoles · paymentObligation · paymentDates) · checks · notices
+//     vocabulary · values · keywords · classification · fields · dates · payments(paymentRoles · paymentObligation · paymentDates)
+//     · checks · checkScope · notices · renewal
 //   extraction.ts         규칙을 정해진 순서로 적용 (이 파일)
 //
-// 분석 순서: 1 분야 → 2 구조 → 3·4 날짜 → 5·6 금액 → 7 유형별 속성 → 8 종료·갱신·통보 → 9 계약 체크
-import { CATEGORY_CODES, CONTRACT_TYPE_CODES } from './contractRegistry.ts';
+// 분석 순서: 1 계약 종류(본질) → 3·4 날짜 → 5·6 금액(종류와 독립) → 7 유형별 속성 → 8 종료·갱신·통보 → 9 계약 체크(행동·위험만)
+// "무슨 계약인가"(classification)와 "돈이 어떻게 움직이는가"(payments)는 서로의 결과를 쓰지 않는다.
+import { contractKindDef } from './contractRegistry.ts';
+import { cleanClassification, legacyClassifications } from './analysisRules/classification.ts';
+import { assignSemanticKeys, deadlineChecks, dropPlainFacts, mergeSameMeaning } from './analysisRules/checkScope.ts';
 import { attachSuggestions, cleanChecks, conditionalCostsToChecks, waivedCheck } from './analysisRules/checks.ts';
 import { assignDateUses, cleanDates } from './analysisRules/dates.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
@@ -16,12 +20,12 @@ import { noticeSuggestions, resolveNoticeDays, resolveNoticeKind } from './analy
 import { buildPayments } from './analysisRules/payments.ts';
 import { totalsToFields } from './analysisRules/paymentRoles.ts';
 import type { AppExtractionResult } from './analysisRules/types.ts';
-import { classify, isObj } from './analysisRules/values.ts';
+import { isObj } from './analysisRules/values.ts';
 import { FIELDS } from './analysisRules/vocabulary.ts';
 import { PROMPT_VERSION } from './extractionPrompt.ts';
 import { maskLevel1Deep } from './protection/sensitive.ts';
 
-export { CATEGORY_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
+export { CATEGORY_CODES, CONTRACT_KIND_CODES, CONTRACT_TYPE_CODES, PAYMENT_KIND_CODES } from './contractRegistry.ts';
 export { PROMPT_VERSION, extractionInstructions, extractionJsonSchema } from './extractionPrompt.ts';
 export { BANNED_PHRASES, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUENCIES, NOTICE_KIND_CODES, type DateSource } from './analysisRules/vocabulary.ts';
 export { DATE_ANCHORS, isRecurringPaymentDay } from './analysisRules/dates.ts';
@@ -50,11 +54,13 @@ export function normalizeModelOutput(output: unknown): unknown {
 /** 모델 출력(JSON) → 검증된 앱 형식. 구조가 틀리면 예외. 형식이 틀린 항목은 버리거나 low로 낮춘다. */
 export function toAppResult(raw: unknown, provider: string): AppExtractionResult {
   const output = normalizeModelOutput(raw);
-  if (!isObj(output) || !isObj(output.fields) || !Array.isArray(output.checks) || !isObj(output.contract_type)) throw new Error('invalid_output_shape');
+  if (!isObj(output) || !isObj(output.fields) || !Array.isArray(output.checks) || !isObj(output.classification)) throw new Error('invalid_output_shape');
 
-  // 1·2) 분야·유형
-  const category = classify(output.category, CATEGORY_CODES, 'other');
-  const contractType = classify(output.contract_type, CONTRACT_TYPE_CODES, 'other');
+  // 1) 계약 종류 — AI가 본질로 판단한 값을 형식·명백한 모순만 검증 (결제·단어로 다시 판단하지 않음)
+  const classification = cleanClassification(output.classification);
+  const { category, contractType } = legacyClassifications(classification);
+  /** 관리 프로필 (화면 이름·날짜 우선순위 묶음) — 결제 방식이 아님 */
+  const profile = contractKindDef(classification.kind)!.profile;
   // 8) 공통 필드
   const fields = cleanFields(output.fields as Record<string, unknown>);
   // 3·4) 날짜
@@ -63,21 +69,26 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   const { payments, references, totals } = buildPayments(output.payments, dates);
   totalsToFields(totals, fields, references);
   // 3·4) 날짜의 쓰임 (체결·시작·종료·통보·주요 날짜·결제 정보) — 서버가 정하고 앱은 옮기기만
-  assignDateUses(dates, contractType.value, payments);
+  assignDateUses(dates, profile, payments);
   // 7) 유형별 속성
   const details = buildDetails(output.details, payments);
   // 9) 계약 체크
-  const checks = cleanChecks(output.checks as unknown[]);
+  let checks = cleanChecks(output.checks as unknown[]);
   // 조건부 비용(위약금·연체료 …)은 결제가 아니라 계약 체크로
   conditionalCostsToChecks(payments, checks);
   waivedCheck(checks, references);
   // 8) 종료일 기준 통보기한과 그 의미 — 서버가 확정하거나 "확인 필요"로 (자동갱신은 AI 필드만)
   const notice = resolveNoticeDays(fields, checks, dates);
   fields.noticeKind = resolveNoticeKind(notice.days, fields.noticeKind, fields.terminationNoticeDays);
+  // 9) 계약 정보(사실) ↔ 계약 체크(할 일·위험) — 의미 키로 묶고, 사실만 있는 체크는 빼고, 기한은 할 일 체크 하나로
+  assignSemanticKeys(checks, (fields.noticeKind.value as string | null) ?? null);
+  checks = mergeSameMeaning(checks);
+  checks = dropPlainFacts(checks, { details, payments });
+  checks = deadlineChecks(checks, { fields, dates, noticeDays: notice.days });
   noticeSuggestions(checks, notice, fields);
   // 체크 → 캘린더 일정 제안 (계약서에 명시된 날짜)
   attachSuggestions(checks, dates);
 
   // 강한 보호(Level 1: 주민·외국인등록번호·카드·계좌) 원문이 인용문·설명·값에 남지 않도록 저장·반환 전에 가린다 (의미는 유지)
-  return maskLevel1Deep({ category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION });
+  return maskLevel1Deep({ classification, category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION });
 }

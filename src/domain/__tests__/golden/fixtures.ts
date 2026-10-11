@@ -10,6 +10,8 @@
  * - 반복 결제일을 날짜(dates)로도 답함 (주요 날짜가 되면 안 됨)
  */
 
+import { answer } from './classificationFixtures';
+
 const q = (quote: string | null) => ({ evidence_quote: quote, evidence_page: quote ? 1 : null, evidence_file: quote ? 1 : null });
 const f = (value: unknown, confidence = 'high', quote: string | null = null) => ({ value, confidence, ...q(quote) });
 const date = (d: string, meaning: string, label: string, quote: string) => ({ date: d, meaning, label, confidence: 'high', source_type: 'explicit', ...q(quote) });
@@ -44,7 +46,6 @@ const check = (c: Record<string, unknown>) => ({
   evidence_file: 1,
   ...c,
 });
-const classification = (value: string, reason: string) => ({ value, confidence: 'high', alternatives: [], reason });
 const noFields = {
   title: f(null, 'low'),
   counterparty: f(null, 'low'),
@@ -63,8 +64,7 @@ export function rental() {
   const rent = '월 렌탈료 31,900원(할인전 45,900원)은 매월 15일 자동이체되며, 연체 시 연체료가 부과됩니다.';
   const waived = '면제 : 등록비(100,000원), 설치비(30,000원)';
   return {
-    category: classification('rental', '정수기 렌탈 계약으로 기재되어 있습니다.'),
-    contract_type: classification('recurring', '매월 렌탈료를 내는 계약입니다.'),
+    classification: answer({ kind: 'rental', subtype: 'appliance', domains: ['appliance'], reason: '정수기 렌탈 계약으로 기재되어 있습니다.' }),
     fields: {
       ...noFields,
       title: f('정수기 렌탈 계약'),
@@ -107,8 +107,7 @@ export function employment(payday: number | null) {
   const income = (label: string, amount: number, kind: string, day: number | null) =>
     pay({ kind, direction: 'income', label, amount, frequency: 'monthly', day_of_month: day, ...q(wage) });
   return {
-    category: classification('employment', '근로계약서로 기재되어 있습니다.'),
-    contract_type: classification('employment', '근로 계약입니다.'),
+    classification: answer({ kind: 'employment', subtype: 'full_time', domains: [], reason: '근로계약서로 기재되어 있습니다.' }),
     fields: { ...noFields, title: f('근로계약서'), counterparty: f('가짜상사(주)', 'high', '사업주: 가짜상사 주식회사') },
     dates: [
       date('2026-07-20', 'contract_start', '근로 시작일', '근로개시일: 2026년 7월 20일'),
@@ -125,8 +124,7 @@ export function employment(payday: number | null) {
 /** 3. 월세 — 보증금 5천만(계약금 1천만 + 잔금 4천만), 월세 70만 + 관리비 7만(수도 등 포함), 입주일 = 시작일, 월세 지급일을 날짜로도 답함 */
 export function lease() {
   return {
-    category: classification('real_estate', '주택 월세 임대차계약서로 기재되어 있습니다.'),
-    contract_type: classification('lease', '임대차 계약입니다.'),
+    classification: answer({ kind: 'lease', subtype: 'housing', domains: ['real_estate'], reason: '주택 월세 임대차계약서로 기재되어 있습니다.' }),
     fields: {
       ...noFields,
       title: f('주택 월세 임대차계약서'),
@@ -162,8 +160,7 @@ export function lease() {
 export function carInsurance() {
   const premium = '보험료 1,200,000원 (특약 포함, 일시납 2026.10.20 납입)';
   return {
-    category: classification('insurance', '자동차보험 계약입니다.'),
-    contract_type: classification('insurance', '보험 계약입니다.'),
+    classification: answer({ kind: 'insurance', subtype: 'auto', domains: ['vehicle'], reason: '자동차보험 계약입니다.' }),
     fields: { ...noFields, title: f('자동차보험'), counterparty: f('가짜손해보험(주)', 'high', '보험회사: 가짜손해보험'), autoRenewal: f(false, 'high', '보험기간 만료 시 재가입하여야 합니다.') },
     dates: [
       date('2026-10-20', 'coverage_start', '보험 시작일', '보험기간 2026.10.20 ~ 2027.10.20'),
@@ -182,8 +179,7 @@ export function carInsurance() {
 export function loan() {
   const repay = '매월 25일 원리금 312,000원을 36회 상환합니다 (연체 시 지연배상금 부과).';
   return {
-    category: classification('finance', '신용대출 약정서입니다.'),
-    contract_type: classification('loan', '대출 계약입니다.'),
+    classification: answer({ kind: 'loan', subtype: 'credit', domains: [], reason: '신용대출 약정서입니다.' }),
     fields: { ...noFields, title: f('신용대출 약정서'), counterparty: f('가짜은행', 'high', '대출기관: 가짜은행') },
     dates: [
       date('2026-09-25', 'loan_execution', '대출 실행일', '대출 실행일 2026년 9월 25일'),
@@ -204,8 +200,7 @@ export function loan() {
 /** 6. 구독·회원권 — 월 이용료 59,000원("이용 시 매월 10일") + 락커 선택(결제일 없음) + 가입비 면제 + 양도 수수료(조건부) */
 export function membership() {
   return {
-    category: classification('membership', '헬스장 회원권 계약입니다.'),
-    contract_type: classification('recurring', '매월 이용료를 내는 계약입니다.'),
+    classification: answer({ kind: 'subscription_membership', subtype: 'fitness_membership', domains: [], reason: '헬스장 회원권 계약입니다.' }),
     fields: {
       ...noFields,
       title: f('헬스장 회원권'),
@@ -227,8 +222,7 @@ export function membership() {
 /** 7. 서비스(용역) — 총 계약금액 9,000,000원을 실제 돈으로 답함 = 착수금 3,000,000 + 잔금 6,000,000 (받는 돈), 납기일 */
 export function service() {
   return {
-    category: classification('service', '웹사이트 제작 용역 계약입니다.'),
-    contract_type: classification('service', '용역 계약입니다.'),
+    classification: answer({ kind: 'service', subtype: 'development', domains: [], reason: '웹사이트 제작 용역 계약입니다.' }),
     fields: { ...noFields, title: f('웹사이트 제작 용역 계약'), counterparty: f('가짜디자인(주)', 'high', '발주자: 가짜디자인 주식회사'), totalAmount: f(9_000_000, 'high', '총 계약금액 9,000,000원') },
     dates: [
       date('2026-10-14', 'contract_signed', '계약일', '계약일 2026년 10월 14일'),

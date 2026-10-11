@@ -31,14 +31,16 @@ describe('Step 9 — 서버 계약서 분석 (analyze-contract)', () => {
     expect(result.fields.title?.value).toBe('정수기_렌탈계약서');
     expect(result.category).toMatchObject({ value: 'rental', confidence: 'high' });
     expect(result.contractType).toMatchObject({ value: 'recurring', confidence: 'high' });
-    expect(result.checks[0]).toMatchObject({ topic: 'auto_renewal', evidenceFileIndex: 0 });
+    // 분류 개편: 계약 종류(기준값)가 함께 온다 · 자동갱신 + 해지 통보기한은 통보기한 할 일 체크 하나로 (이전 기대: 주제 auto_renewal)
+    expect(result.classification).toMatchObject({ kind: 'rental', subtype: 'appliance', confidence: 'high' });
+    expect(result.checks[0]).toMatchObject({ topic: 'notice_deadline', semanticKey: 'termination_notice', evidenceFileIndex: 0 });
     expect(result.payments.map((p) => [p.kind, p.amount])).toEqual([['recurring_fee', 29900], ['setup_fee', 20000]]);
     expect(result.checks[0].suggestion).toMatchObject({ kind: 'set_termination_notice', terminationNoticeDays: 30 });
     expect(result.jobId).toBeTruthy();
 
     // 작업 기록: 사용자는 조회만 가능, 상태 succeeded
     const { data: job } = await a.client.from('analysis_jobs').select('status, provider, prompt_version').eq('id', result.jobId!).single();
-    expect(job).toEqual({ status: 'succeeded', provider: 'mock', prompt_version: 'extract-v12' });
+    expect(job).toEqual({ status: 'succeeded', provider: 'mock', prompt_version: 'extract-v13' }); // 분류 개편: 지시문 v13
     // 사용자는 작업을 직접 만들 수 없음 (서버 전용)
     const forged = await a.client.from('analysis_jobs').insert({ status: 'succeeded', provider: 'mock', result: {} });
     expect(forged.error).not.toBeNull();

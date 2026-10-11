@@ -32,9 +32,11 @@ describe('1. 렌탈 — 월 렌탈료 31,900원 (같은 문장에 할인전·연
   test('시작·종료', () => expect([o.startDate, o.endDate]).toEqual(['2026-10-12', '2029-10-11']));
   test('주요 날짜: 설치일 (시작일과 같은 날이어도 의미는 보존)', () => expect(o.keyDates).toEqual([{ kind: 'installation', label: '설치일', date: '2026-10-12' }]));
   // 리팩터링 전: 위약금 금액이 체크에 없음 (조건부 결제로 따로 저장) → 리팩터링 C에서 고침
-  test('계약 체크: 자동갱신 · 중도해지 위약금(200,000원) · 연체료 · 면제된 금액', () => {
+  // 분류 개편(계약 정보 ↔ 체크): 자동갱신 + 해지 통보기한은 "해지 여부 결정·통보" 할 일 체크 하나로 (자동 연장된다는 이유를 함께).
+  //   이전 기대: 자동갱신 체크(주제 auto_renewal) 따로 → 바뀐 기대: 통보기한 체크 하나 (자동갱신은 계약 정보에 사실로)
+  test('계약 체크: 해지 여부 결정·통보(자동갱신 포함) · 중도해지 위약금(200,000원) · 연체료 · 면제된 금액', () => {
     expect(o.checks).toEqual([
-      { topic: 'auto_renewal', title: '자동갱신', amount: null },
+      { topic: 'notice_deadline', title: '해지 여부 결정·통보', amount: null },
       { topic: 'early_termination', title: '중도해지 위약금', amount: 200000 },
       { topic: 'overdue', title: '연체료', amount: null },
       { topic: 'discount_terms', title: '면제된 금액', amount: null },
@@ -172,7 +174,12 @@ describe('5. 대출 — 월 원리금 312,000원 36회 (같은 문장에 "연체
 
 describe('6. 구독·회원권 — 월 이용료("이용 시 매월 10일") + 락커(선택, 결제일 없음) + 가입비 면제 + 양도 수수료', () => {
   const o = observe(F.membership());
-  test('유형·분야', () => expect([o.type, o.category]).toEqual(['recurring', 'membership']));
+  // 분류 개편: 계약 종류 = 구독·회원권 (헬스장은 상세 분류 fitness_membership). 하위 호환 분야값은 레지스트리 값 하나(subscription)
+  //   이전 기대: 분야 membership (AI가 분야를 따로 고름) → 바뀐 기대: subscription (AI는 종류만, 호환값은 레지스트리)
+  test('계약 종류·호환값', () => {
+    expect(o.record.contract).toMatchObject({ contractKind: 'subscription_membership', contractSubtype: 'fitness_membership' });
+    expect([o.type, o.category]).toEqual(['recurring', 'subscription']);
+  });
   // 리팩터링 전: 락커 이용료가 월 이용료의 결제일(10일)을 빌려옴 → 리팩터링 D에서 고침
   test('확정 금액: 월 이용료 59,000원 매월 10일 + 락커 이용료(선택, 결제일 없음)', () => {
     expect(o.payments).toEqual([pay('월 이용료', 59000, 'expense', 'monthly', 10), pay('락커 이용료', 5000, 'expense', 'monthly', null, { obligation: 'optional' })]);

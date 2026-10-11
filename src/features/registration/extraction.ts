@@ -9,12 +9,12 @@ import {
   cleanDetails,
   detailFields,
   profileOf,
-  type ContractCategory,
   type ContractDateKind,
   type ContractType,
   type DetailValue,
   type SourceType,
 } from '@/domain/contractTypes';
+import { contractKindDef, legacyOf, type ClassificationMeta, type KindClassification } from '@/domain/contractKinds';
 import { formatWon } from '@/domain/money';
 import { addDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
@@ -38,26 +38,19 @@ const DATE_ANCHOR_COPY: Partial<Record<NonNullable<ExtractedPayment['dateSource'
 
 export const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '높음', medium: '보통', low: '낮음' };
 
-export interface Suggestion<T extends string> {
-  value: T;
-  confidence: Confidence;
-  alternatives: T[];
-  reason: string | null;
-}
-
 /** 저장할 계약 체크 (id·계약 id·상태는 저장소가 채움) */
 export type ReviewCheck = Omit<AiCheck, 'id' | 'contractId' | 'status'>;
 
 export interface ReviewModel {
   draft: ContractDraft;
-  /** "확인 필요" 표시 경로: 'category', 'contractType', 'startDate', 'payments.1.startsOn', 'details.interestRate', 'dates.0' … */
+  /** "확인 필요" 표시 경로: 'contractKind', 'startDate', 'payments.1.startsOn', 'details.interestRate', 'dates.0' … */
   flagged: Set<string>;
   /** 경로별 원문 근거(첫 번째) */
   evidence: Partial<Record<string, string>>;
   /** 경로별 안내 (왜 확인이 필요한지) */
   notes: Partial<Record<string, string>>;
-  categorySuggestion: Suggestion<ContractCategory>;
-  typeSuggestion: Suggestion<ContractType>;
+  /** AI의 계약 종류 판단 (확인 화면 한 줄 표시 · 신뢰도 낮음이면 사용자가 골라야 최종 등록) */
+  classification: KindClassification;
   /** 모든 유형의 상세 속성 추출값 — 사용자가 유형을 바꾸면 새 유형에 맞는 값만 다시 고른다 */
   allDetails: Record<string, DetailValue>;
   /** PACTO 계약 체크 (원문 근거 문서 id 연결) */
@@ -102,15 +95,25 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     }
   };
 
-  // 1·2) 분야·유형 — 확정하지 않고 사용자가 바꿀 수 있게 제안으로
-  const type = result.contractType.value;
-  const typeSuggestion: Suggestion<ContractType> = { ...result.contractType, alternatives: [...result.contractType.alternatives] };
-  const categorySuggestion: Suggestion<ContractCategory> = { ...result.category, alternatives: [...result.category.alternatives] };
-  uncertain('contractType', result.contractType.confidence);
-  uncertain('category', result.category.confidence);
+  // 1) 계약 종류 — 서버가 검증한 AI 판단 그대로 (앱이 다시 분류하지 않음). 사용자가 바꿀 수 있다
+  const c = result.classification;
+  const classification: KindClassification = { kind: c.kind, subtype: c.subtype, confidence: c.confidence, alternatives: [...c.alternatives], reason: c.reason };
+  uncertain('contractKind', c.confidence);
+  const ev = c.evidence?.[0];
+  const meta: ClassificationMeta = {
+    confidence: c.confidence,
+    alternatives: [...c.alternatives],
+    reason: c.reason,
+    evidence: ev ? { quote: ev.quote, page: ev.page ?? null, fileIndex: ev.file ? ev.file - 1 : null } : null,
+    secondaryElements: c.secondaryElements.map((x) => ({ ...x })),
+    domains: [...c.domains],
+    source: 'ai',
+  };
+  /** 관리 프로필 (화면 이름·유형별 속성 묶음) — 결제 방식이 아님 */
+  const type = (contractKindDef(c.kind)?.profile ?? 'other') as ContractType;
 
   // 공통 필드
-  const draft: ContractDraft = { ...EMPTY_DRAFT, category: result.category.value, contractType: type, payments: [], dates: [] };
+  const draft: ContractDraft = { ...EMPTY_DRAFT, contractKind: c.kind, contractSubtype: c.subtype, classification: meta, ...legacyOf(c.kind), payments: [], dates: [] };
   for (const [key, f] of Object.entries(result.fields)) {
     if (!f) continue;
     if (f.value != null) (draft as unknown as Record<string, unknown>)[key] = f.value;
@@ -281,6 +284,9 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     rule: c.rule,
     amount: c.amount ?? null,
     amountNote: c.amountNote ?? null,
+    semanticKey: c.semanticKey ?? null,
+    derivedFrom: c.derivedFrom ?? null,
+    userAction: c.userAction ?? null,
     suggestion: c.suggestion,
   }));
 
@@ -289,8 +295,7 @@ export function toReviewModel(result: ExtractionResult, documentIds: readonly st
     flagged,
     evidence,
     notes,
-    categorySuggestion,
-    typeSuggestion,
+    classification,
     allDetails,
     checks,
     references: draft.referenceAmounts.map((r) => ({ ...r })),

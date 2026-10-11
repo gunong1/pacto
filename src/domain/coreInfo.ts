@@ -1,3 +1,4 @@
+import { detailFieldsFor, profileKeyOf } from './contractKinds';
 import { BUSINESS_DAY_RULE_LABEL } from './businessDays';
 import { detailFields, isConfirmedPayment, OBLIGATION_LABEL, profileOf, type PaymentKind, type PaymentObligation, type SourceType } from './contractTypes';
 import { addDays, formatDateKo } from './dates';
@@ -51,7 +52,7 @@ export function installmentProgress(p: ContractPayment, record: ContractRecord, 
 }
 
 function detailText(record: ContractRecord, key: string): string | null {
-  const spec = detailFields(record.contract.contractType).find((f) => f.key === key);
+  const spec = detailFieldsFor(record.contract).find((f) => f.key === key);
   const v = record.contract.details[key];
   if (!spec || v == null) return null;
   if (spec.input === 'amount') return formatWon(v as number);
@@ -66,7 +67,8 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   const { contract: c, dates } = record;
   // 핵심 정보의 결제는 지급 의무·시점이 확정된 것만 — 선택형·조건부 비용은 extraCosts()로 따로
   const payments = record.payments.filter(isConfirmedPayment);
-  const t = c.contractType;
+  // 관리 프로필(화면 이름·유형별 속성) — 계약 종류 기준 (기존 계약은 저장된 유형)
+  const t = profileKeyOf(c);
   const profile = profileOf(t);
   const d = c.details;
   const rows: CoreInfoRow[] = [];
@@ -302,7 +304,7 @@ export function extraCosts(record: ContractRecord): ExtraCostRow[] {
 export function otherDetails(record: ContractRecord): CoreInfoRow[] {
   const core = coreInfo(record, '1900-01-01');
   const inCore = new Set([...core.map((r) => r.key), ...core.flatMap((r) => (r.covers ?? []).map((k) => `d:${k}`))]);
-  return detailFields(record.contract.contractType)
+  return detailFieldsFor(record.contract)
     .filter((f) => !inCore.has(`d:${f.key}`))
     .map((f) => ({ key: `d:${f.key}`, label: f.label, value: detailText(record, f.key) ?? '' }))
     .filter((r) => r.value !== '');

@@ -63,7 +63,8 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 
   check(10, '추정 값 표시 (고용 형태 AI 추정)', details.includes('AI 추정'), '');
   const checks = await text(tid('review-checks'));
   const sev = { info: (checks.match(/핵심 정보/g) || []).length, check: (checks.match(/확인 필요/g) || []).length, caution: (checks.match(/주의 필요/g) || []).length };
-  check(11, '계약 체크 분류 (핵심 정보 / 확인 필요 / 주의 필요)', sev.info === 1 && sev.check >= 7 && sev.caution === 0, JSON.stringify(sev));
+  // 분류 개편(계약 정보 ↔ 체크): 급여일은 사실이라 체크가 아니라 결제 정보에만 — 이전 기대: 핵심 정보(info) 체크 1개
+  check(11, '계약 체크 분류 (확인 필요 / 주의 필요 — 사실만 있는 체크 없음)', sev.info === 0 && sev.check >= 7 && sev.caution === 0, JSON.stringify(sev));
   const needed = ['근무장소·업무 변경', '고정연장근로수당', '수습기간 임금 90%', '퇴직 사전통보', '갱신 별도 협의', '비밀유지', '자산·자료 반환'];
   const missing = needed.filter((t) => !checks.includes(t));
   check(12, '필수 체크 7개', missing.length === 0, missing.length ? `누락: ${missing}` : '');

@@ -1,86 +1,133 @@
-import type { ContractCategory, ContractType } from './contractTypes';
+import {
+  CONTRACT_KIND_DEFS,
+  contractKindDef,
+  contractKindLabel,
+  contractSubtypeLabel,
+  isSubtypeOf,
+  type ContractKindDef,
+} from '../../supabase/functions/_shared/contractRegistry';
+import { withRo } from './categorySuggestion';
+import { detailFields, profileOf, type ContractCategory, type ContractType, type ContractTypeProfile, type DetailFieldSpec } from './contractTypes';
+import type { Confidence } from './types';
 
 /**
- * 사용자가 고르는 "계약 종류" 하나 → 내부 계약 유형(contract_type) + 분야(category).
- * 화면에는 종류만 보여주고 유형·분야를 따로 고르게 하지 않는다 (예: 보험 → insurance/insurance).
- * DB의 contract_type·category는 그대로 — 애매한 계약만 "상세 분류"에서 내부 값을 직접 바꾼다.
+ * 계약 종류 (contract_kind) — 사용자에게 보여주는 단일 기준값. 정의는 공용 레지스트리 CONTRACT_KIND_DEFS 한 곳
+ * (자동 분석·직접 입력 추천·수정 화면 공통). 계약의 본질로 정하며 결제 방식과 무관하다.
+ *
+ * 화면 이름·유형별 속성 묶음(관리 프로필)은 계약 종류의 profile로 고른다 — 결제 일정은 언제나 저장된 결제에서 만든다.
+ * 하위 호환: 계약 종류가 없는 기존 계약은 저장된 contract_type·category로 예전 표시만 한다 (다시 분류하지 않음).
  */
-export interface ContractKindDef {
-  code: string;
-  label: string;
-  type: ContractType;
+export { CONTRACT_KIND_DEFS, contractKindDef, contractKindLabel, contractSubtypeLabel, isSubtypeOf, type ContractKindDef };
+export const CONTRACT_KINDS = CONTRACT_KIND_DEFS;
+
+/** 분류 메타데이터 (contracts.classification) — 신뢰도·다른 후보·이유·근거·함께 포함된 요소·대상 */
+export interface ClassificationMeta {
+  confidence: Confidence | null;
+  alternatives: string[];
+  reason: string | null;
+  evidence: { quote: string; page: number | null; fileIndex: number | null } | null;
+  /** 혼합 계약에서 함께 포함된 계약 요소 (예: 통신 + 단말 할부). 금액은 결제에서 독립적으로 관리 */
+  secondaryElements: { kind: string; note: string }[];
+  /** 계약 대상 (vehicle 등) — 내부 메타데이터, 사용자가 입력하지 않음 */
+  domains: string[];
+  /** ai: 자동 분석 그대로 / user: 사용자가 고르거나 바꿈 / suggested: 계약명 추천 그대로 / null: 기존 데이터 */
+  source: 'ai' | 'user' | 'suggested' | null;
+}
+export const EMPTY_CLASSIFICATION: ClassificationMeta = { confidence: null, alternatives: [], reason: null, evidence: null, secondaryElements: [], domains: [], source: null };
+
+interface KindFields {
+  contractKind: string | null;
+  contractSubtype: string | null;
+  contractType: ContractType;
   category: ContractCategory;
-  examples: string;
 }
 
-export const CONTRACT_KINDS: readonly ContractKindDef[] = [
-  { code: 'employment', label: '근로', type: 'employment', category: 'employment', examples: '정규직 · 계약직 · 아르바이트' },
-  { code: 'lease', label: '부동산·임대차', type: 'lease', category: 'real_estate', examples: '전세 · 월세 · 반전세 · 상가 임대차' },
-  { code: 'loan', label: '대출', type: 'loan', category: 'finance', examples: '신용 · 담보 · 전세자금 대출' },
-  { code: 'insurance', label: '보험', type: 'insurance', category: 'insurance', examples: '자동차 · 실손 · 종신 · 화재 보험' },
-  { code: 'vehicle', label: '자동차', type: 'recurring', category: 'vehicle', examples: '자동차 리스 · 장기렌트 (할부 구매는 "할부")' },
-  { code: 'telecom', label: '통신', type: 'recurring', category: 'telecom', examples: '휴대폰 · 인터넷 · IPTV' },
-  { code: 'subscription', label: '구독·회원권', type: 'recurring', category: 'subscription', examples: 'OTT · 음악 · 헬스장 · 필라테스' },
-  { code: 'rental', label: '렌탈', type: 'recurring', category: 'rental', examples: '정수기 · 비데 · 안마의자' },
-  { code: 'installment', label: '할부', type: 'installment', category: 'vehicle', examples: '자동차 할부 · 물품 할부 구매' },
-  { code: 'sale', label: '매매', type: 'sale', category: 'sale', examples: '부동산 · 자동차 · 자산 매매' },
-  { code: 'service', label: '용역·프리랜서', type: 'service', category: 'service', examples: '외주 · 프리랜서 · 위탁 업무 · 유지보수' },
-  { code: 'education', label: '교육', type: 'recurring', category: 'education', examples: '학원 · 과외 · 온라인 강의' },
-  { code: 'business', label: '사업·거래', type: 'other', category: 'business', examples: '공급 · 대리점 · 업무 제휴' },
-  { code: 'other', label: '기타', type: 'other', category: 'other', examples: '위에 해당하지 않는 계약' },
-];
-
-const BY_CODE = new Map(CONTRACT_KINDS.map((k) => [k.code, k]));
-
-export function contractKind(code: string): ContractKindDef | undefined {
-  return BY_CODE.get(code);
-}
-
-/** 구조가 분명한 유형은 유형으로, 월 납입형·일회성·기타는 분야로 종류를 정한다 */
-const KIND_BY_TYPE: Partial<Record<string, string>> = {
-  employment: 'employment',
-  lease: 'lease',
-  loan: 'loan',
-  insurance: 'insurance',
-  installment: 'installment',
-  sale: 'sale',
-  service: 'service',
+// ===== 기존 계약 표시 (호환) — 계약 종류가 없을 때만. 분류를 다시 판단하지 않고 예전 화면 이름 그대로 =====
+const LEGACY_LABEL_BY_TYPE: Partial<Record<string, string>> = {
+  employment: '근로',
+  lease: '부동산·임대차',
+  loan: '대출',
+  insurance: '보험',
+  installment: '할부',
+  sale: '매매',
+  service: '용역·프리랜서',
 };
-const KIND_BY_CATEGORY: Partial<Record<string, string>> = {
-  employment: 'employment',
-  real_estate: 'lease',
-  finance: 'loan',
-  insurance: 'insurance',
-  vehicle: 'vehicle',
-  telecom: 'telecom',
-  subscription: 'subscription',
-  membership: 'subscription',
-  rental: 'rental',
-  sale: 'sale',
-  service: 'service',
-  education: 'education',
-  business: 'business',
+const LEGACY_LABEL_BY_CATEGORY: Partial<Record<string, string>> = {
+  employment: '근로',
+  real_estate: '부동산·임대차',
+  finance: '대출',
+  insurance: '보험',
+  vehicle: '자동차',
+  telecom: '통신',
+  subscription: '구독·회원권',
+  membership: '구독·회원권',
+  rental: '렌탈',
+  sale: '매매',
+  service: '용역·프리랜서',
+  education: '교육',
+  business: '사업·거래',
 };
-
-export interface KindMatch {
-  kind: ContractKindDef;
-  /** 저장된 유형·분야가 종류의 기본값과 정확히 같음 (아니면 "상세 분류"로 따로 정한 값) */
-  exact: boolean;
+/** 예전 화면의 계약 종류 이름 (월 납입형·일회성·기타는 분야로, 그 외는 유형으로) */
+export function legacyKindLabel(type: string, category: string): string {
+  if (type === 'recurring' || type === 'other' || type === 'one_time') return LEGACY_LABEL_BY_CATEGORY[category] ?? '기타';
+  return LEGACY_LABEL_BY_TYPE[type] ?? LEGACY_LABEL_BY_CATEGORY[category] ?? '기타';
 }
 
-/** 저장된 유형·분야 → 화면에 보여줄 종류 */
-export function kindOf(type: ContractType, category: ContractCategory): KindMatch {
-  const exact = CONTRACT_KINDS.find((k) => k.type === type && k.category === category);
-  if (exact) return { kind: exact, exact: true };
-  // 회원권은 "구독·회원권"의 다른 분야 — 상세 분류가 아니라 같은 종류로 본다
-  if (type === 'recurring' && category === 'membership') return { kind: BY_CODE.get('subscription')!, exact: true };
-  const code = KIND_BY_TYPE[type] ?? KIND_BY_CATEGORY[category] ?? 'other';
-  return { kind: BY_CODE.get(code)!, exact: false };
+/** 화면에 보여줄 계약 종류 · 상세 분류 */
+export function kindDisplay(c: KindFields): { label: string; subtypeLabel: string | null; legacy: boolean } {
+  if (c.contractKind && contractKindDef(c.contractKind)) return { label: contractKindLabel(c.contractKind), subtypeLabel: contractSubtypeLabel(c.contractKind, c.contractSubtype), legacy: false };
+  return { label: legacyKindLabel(c.contractType, c.category), subtypeLabel: null, legacy: true };
 }
 
-/** 계약명 추천 분야 → 종류 (추천이 없으면 null) */
-export function kindForCategory(category: ContractCategory | null | undefined): ContractKindDef | null {
-  if (!category || category === 'other') return null;
-  const code = KIND_BY_CATEGORY[category];
-  return code ? BY_CODE.get(code)! : null;
+/** 관리 프로필 키 (화면 이름·유형별 속성·날짜 우선순위 묶음) — 계약 종류가 있으면 종류로, 없으면 기존 유형으로 */
+export function profileKeyOf(c: Pick<KindFields, 'contractKind' | 'contractType'>): ContractType {
+  return (contractKindDef(c.contractKind)?.profile ?? c.contractType) as ContractType;
+}
+export const profileFor = (c: Pick<KindFields, 'contractKind' | 'contractType'>): ContractTypeProfile => profileOf(profileKeyOf(c));
+export const detailFieldsFor = (c: Pick<KindFields, 'contractKind' | 'contractType'>): readonly DetailFieldSpec[] => detailFields(profileKeyOf(c));
+/** 종료 문구용 분야 (계약 종류가 있으면 종류의 호환 분야) */
+export const endCategoryOf = (c: Pick<KindFields, 'contractKind' | 'category'>): ContractCategory => (contractKindDef(c.contractKind)?.legacy.category ?? c.category) as ContractCategory;
+
+/** 계약 종류 → 하위 호환값 (contracts.contract_type·category). 새 코드는 읽지 않는다 */
+export function legacyOf(kind: string): { contractType: ContractType; category: ContractCategory } {
+  const d = contractKindDef(kind) ?? contractKindDef('other')!;
+  return { contractType: d.legacy.type as ContractType, category: d.legacy.category as ContractCategory };
+}
+
+// ===== 등록 확인 화면의 AI 판단 표시 =====
+export interface KindClassification {
+  kind: string;
+  subtype: string | null;
+  confidence: Confidence;
+  alternatives: string[];
+  reason: string | null;
+}
+
+const CONFIDENCE_LABEL: Record<Confidence, string> = { high: '신뢰도 높음', medium: '신뢰도 보통', low: '신뢰도 낮음' };
+
+/**
+ * AI 판단 한 줄 + 신뢰도별 안내
+ * - 높음: 자동 선택 · 다른 가능성 숨김
+ * - 보통: 가장 가능성 높은 값 선택 · "○○로 분류했어요 · 변경" · 다른 가능성 표시
+ * - 낮음: 임의로 확정하지 않고 후보(최대 2개)와 이유 — 사용자가 골라야 최종 등록
+ */
+export function classificationView(c: KindClassification) {
+  const label = contractKindLabel(c.kind);
+  const sub = contractSubtypeLabel(c.kind, c.subtype);
+  const alternatives = c.alternatives.filter((a) => a !== c.kind && contractKindDef(a));
+  return {
+    headline: sub ? `${label} · ${sub}` : label,
+    confidenceLabel: CONFIDENCE_LABEL[c.confidence],
+    note: c.confidence === 'medium' ? `${withRo(label)} 분류했어요` : null,
+    showAlternatives: c.confidence !== 'high' && alternatives.length > 0,
+    alternativeLabels: alternatives.map(contractKindLabel),
+    needsChoice: c.confidence === 'low',
+    candidates: c.confidence === 'low' ? [c.kind, ...alternatives].slice(0, 2) : [],
+    reason: c.reason,
+  };
+}
+
+/** 최종 등록 가능 여부 — 신뢰도 낮음은 사용자가 종류를 골라야 한다 (임시 저장은 막지 않음) */
+export function canRegisterKind(c: KindClassification, picked: string | null): boolean {
+  return c.confidence !== 'low' || !!picked;
 }

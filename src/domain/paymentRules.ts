@@ -1,3 +1,4 @@
+import { profileKeyOf } from './contractKinds';
 import { addDays, addMonths } from './dates';
 import { amountAt } from './paymentAmount';
 import type { ContractPayment, ContractRecord, ISODate } from './types';
@@ -31,7 +32,7 @@ export interface PeriodBoundary {
 export function probationPeriod(record: Pick<ContractRecord, 'contract' | 'dates'>): { from: ISODate; to: ISODate; months: number } | null {
   const { contract } = record;
   const months = contract.details.probationMonths;
-  if (contract.contractType !== 'employment' || typeof months !== 'number' || months <= 0) return null;
+  if (profileKeyOf(contract) !== 'employment' || typeof months !== 'number' || months <= 0) return null;
   const from = record.dates.find((d) => d.kind === 'hire')?.date ?? contract.startDate;
   if (!from) return null;
   return { from, to: addDays(addMonths(from, months), -1), months };

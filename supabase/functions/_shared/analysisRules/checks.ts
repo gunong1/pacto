@@ -53,6 +53,10 @@ export function cleanChecks(raw: readonly unknown[]): ExtractedCheck[] {
         relatedDate,
         amount,
         amountNote: neutralize(text(c.amount_basis, 100) ?? '', '') || null,
+        // 의미 키는 checkScope.ts가 정한다 (여기서는 주제 그대로)
+        semanticKey: topic,
+        derivedFrom: null,
+        userAction: neutralize(text(c.user_action, 100) ?? '', '') || null,
         suggestion: null as ExtractedCheck['suggestion'],
       };
     });
@@ -75,6 +79,9 @@ export function waivedCheck(checks: ExtractedCheck[], references: AppExtractionR
     relatedDate: null,
     amount: null,
     amountNote: null,
+    semanticKey: 'other',
+    derivedFrom: null,
+    userAction: null,
     suggestion: null,
   });
 }
@@ -115,6 +122,9 @@ export function conditionalCostsToChecks(payments: ExtractedPayment[], checks: E
       relatedDate: null,
       amount: p.amount,
       amountNote: null,
+      semanticKey: topic,
+      derivedFrom: null,
+      userAction: null,
       suggestion: null,
     });
   }

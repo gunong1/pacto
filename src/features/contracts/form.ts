@@ -1,3 +1,4 @@
+import { contractKindDef, isSubtypeOf, profileKeyOf, type ClassificationMeta } from '@/domain/contractKinds';
 import { z } from 'zod';
 
 import { NOTICE_KINDS } from '@/domain/noticeKind';
@@ -98,6 +99,13 @@ const dateFormSchema = z.object({
 
 export const contractFormSchema = z
   .object({
+    /** 계약 종류 (기준값) — '' = 아직 고르지 않음(신뢰도 낮음) 또는 분류 개편 전 계약 */
+    contractKind: z.string(),
+    /** 상세 분류 — '' = 없음 */
+    contractSubtype: z.string(),
+    /** 분류 메타데이터 (폼에서 고치지 않고 그대로, 출처만 바뀜) */
+    classification: z.custom<ClassificationMeta>(),
+    /** 하위 호환값 — 계약 종류가 있으면 저장할 때 레지스트리 호환값으로 덮어쓴다 */
     contractType: z.enum(CONTRACT_TYPES),
     title: z.string().trim().min(1, '계약명을 입력해주세요').max(100, '100자 이내로 입력해주세요'),
     category: z.enum(CONTRACT_CATEGORIES),
@@ -157,7 +165,8 @@ export const contractFormSchema = z
       }
     });
     // 유형별 정보: 앱·AI·저장이 같은 스키마로 검증
-    for (const spec of detailFields(v.contractType)) {
+    if (v.contractKind && !contractKindDef(v.contractKind)) ctx.addIssue({ code: 'custom', path: ['contractKind'], message: '계약 종류를 다시 골라주세요' });
+    for (const spec of detailFields(formProfile(v))) {
       const raw = v.details[spec.key];
       if (raw === undefined || raw === '') continue;
       if (detailFromInput(spec, raw) === undefined) {
@@ -242,8 +251,14 @@ export function paymentToForm(p: PaymentDraft): PaymentFormValues {
   };
 }
 
+/** 폼 값의 관리 프로필 (화면 이름·유형별 속성 묶음) — 계약 종류가 있으면 종류로, 없으면 기존 유형으로 */
+export const formProfile = (v: { contractKind: string; contractType: ContractType }): ContractType => profileKeyOf({ contractKind: v.contractKind || null, contractType: v.contractType });
+
 export function draftToForm(d: ContractDraft): ContractFormValues {
   return {
+    contractKind: d.contractKind ?? '',
+    contractSubtype: d.contractSubtype ?? '',
+    classification: d.classification,
     contractType: d.contractType,
     title: d.title,
     category: d.category,
@@ -251,7 +266,7 @@ export function draftToForm(d: ContractDraft): ContractFormValues {
     contractDate: str(d.contractDate),
     startDate: str(d.startDate),
     endDate: str(d.endDate),
-    details: detailsToForm(d.contractType, d.details),
+    details: detailsToForm(profileKeyOf(d), d.details),
     payments: d.payments.map(paymentToForm),
     dates: d.dates.map((x): DateFormValues => ({ kind: x.kind, label: x.label, date: x.date })),
     totalAmount: formatAmountInput(d.totalAmount),
@@ -327,7 +342,8 @@ export function draftToQuickForm(d: ContractDraft): ContractFormValues {
   const v = draftToForm(d);
   const idx = d.payments.findIndex((p) => p.frequency !== 'one_time' && p.obligation === 'confirmed');
   const pick = idx >= 0 ? idx : d.payments.length > 0 ? 0 : -1;
-  if (pick < 0) return { ...v, quick: { amount: '', direction: quickDirectionAdvice(d.contractType).direction, frequency: quickDefaultFrequency(d.contractType), day: '', nextDate: '' } };
+  const profile = profileKeyOf(d);
+  if (pick < 0) return { ...v, quick: { amount: '', direction: quickDirectionAdvice(profile).direction, frequency: quickDefaultFrequency(profile), day: '', nextDate: '' } };
   const p = d.payments[pick];
   const oneTime = p.frequency === 'one_time';
   return {
@@ -444,8 +460,13 @@ export function paymentFromForm(p: PaymentFormValues): PaymentDraft {
 }
 
 export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul()): ContractDraft {
-  const quick = v.quick ? quickToPayment(v.contractType, v.quick, today, nullable(v.startDate)) : null;
+  const profile = formProfile(v);
+  const quick = v.quick ? quickToPayment(profile, v.quick, today, nullable(v.startDate)) : null;
+  const kind = v.contractKind || null;
   return {
+    contractKind: kind,
+    contractSubtype: kind && v.contractSubtype && isSubtypeOf(kind, v.contractSubtype) ? v.contractSubtype : null,
+    classification: v.classification,
     contractType: v.contractType,
     title: v.title.trim(),
     category: v.category,
@@ -453,7 +474,7 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
     contractDate: nullable(v.contractDate),
     startDate: nullable(v.startDate),
     endDate: nullable(v.endDate),
-    details: detailsFromForm(v.contractType, v.details),
+    details: detailsFromForm(profile, v.details),
     payments: [
       ...(quick ? [quick] : []),
       ...v.payments.map(paymentFromForm),

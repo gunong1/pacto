@@ -12,6 +12,7 @@ import { coreInfo } from '@/domain/coreInfo';
 import { isPaymentDayUnknown, nextPayment, scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
 import { toReviewModel } from '@/features/registration/extraction';
+import { answer } from './golden/classificationFixtures';
 
 const TODAY = '2026-10-09';
 const START = '2026-07-20';
@@ -21,8 +22,7 @@ function modelOutput(salary: { day: number | null; quote: string }) {
   for (const k of Object.keys(FIELDS)) fields[k] = { value: null, confidence: 'low', evidence_quote: null };
   fields.title = { value: '근로계약서', confidence: 'high', evidence_quote: null };
   return {
-    category: { value: 'employment', confidence: 'high', alternatives: [], reason: '' },
-    contract_type: { value: 'employment', confidence: 'high', alternatives: [], reason: '' },
+    classification: answer({ kind: 'employment', subtype: null }),
     fields,
     dates: [{ date: START, meaning: 'hire', label: '근로 시작일', confidence: 'high', evidence_quote: '근로계약기간은 2026년 7월 20일부터' }],
     payments: [

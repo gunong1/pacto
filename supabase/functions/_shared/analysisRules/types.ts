@@ -96,6 +96,12 @@ export interface ExtractedCheck {
   evidenceFileIndex: number | null;
   /** info: 알아둘 정보 / fixed_event: 날짜가 정해지는 일 / conditional_rule: 조건이 생길 때만 생기는 의무 */
   behavior: (typeof CHECK_BEHAVIORS)[number];
+  /** 의미 키 (레지스트리 SEMANTIC_KEY_DEFS) — 같은 의미의 체크는 하나 (checkScope.ts) */
+  semanticKey: string;
+  /** 구조화된 계약 정보에서 서버가 만든 체크면 그 출처 (예: ['terminationNoticeDays', 'endDate']) */
+  derivedFrom: string[] | null;
+  /** 사용자가 할 일 (AI가 찾은 경우) — 행동이 있는 체크인지 판단에 쓴다 */
+  userAction: string | null;
   /** conditional_rule — 사용자가 기준일(예: 퇴직 예정일)을 입력하면 기준일 − offsetDays 일정을 만든다 */
   rule: { condition: string; action: string; offsetDays: number | null } | null;
   relatedDate: string | null;
@@ -117,7 +123,25 @@ export interface ExtractedCheck {
  */
 export type ReferenceRole = 'total' | 'reference' | 'waived' | 'discount' | 'before_discount';
 
+/** 계약 종류 분류 (계약의 본질) — 결제 방식과 독립. 서버는 형식·명백한 모순만 검증한다 (classification.ts) */
+export interface ExtractedClassification {
+  kind: string;
+  subtype: string | null;
+  /** 계약 대상 (vehicle 등) — 내부 메타데이터 */
+  domains: string[];
+  confidence: Confidence;
+  /** 다른 후보 (최대 2개, 주 분류 제외) */
+  alternatives: string[];
+  reason: string | null;
+  evidence?: Evidence[];
+  /** 혼합 계약에서 함께 포함된 계약 요소 (금액은 결제에서 독립적으로) */
+  secondaryElements: { kind: string; note: string }[];
+}
+
 export interface AppExtractionResult {
+  /** 계약 종류 (기준값) */
+  classification: ExtractedClassification;
+  /** 하위 호환값 — 계약 종류의 레지스트리 호환값 (예전 앱용). 새 코드는 classification을 쓴다 */
   category: Classification<(typeof CATEGORY_CODES)[number]>;
   contractType: Classification<(typeof CONTRACT_TYPE_CODES)[number]>;
   fields: Record<string, Extracted>;

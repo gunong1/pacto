@@ -1,4 +1,4 @@
-import { profileOf } from './contractTypes';
+import { profileFor } from './contractKinds';
 import { addDays, addMonths } from './dates';
 import { daysUntil } from './dday';
 import type { Contract, ContractStatus, ISODate } from './types';
@@ -47,7 +47,7 @@ export interface NoticeDeadline {
  */
 export function terminationNoticeDeadline(contract: Contract, today: ISODate): NoticeDeadline | null {
   if (contract.terminationNoticeDays == null || contract.lifecycle !== 'active') return null;
-  if (!contract.autoRenewal && !profileOf(contract.contractType).hasRenewal) return null;
+  if (!contract.autoRenewal && !profileFor(contract).hasRenewal) return null;
   const term = currentTerm(contract, today);
   if (!term) return null;
   const date = addDays(term.termEnd, -contract.terminationNoticeDays);

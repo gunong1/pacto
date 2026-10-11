@@ -18,6 +18,7 @@ import { actionCandidates } from '../nextAction';
 import { getEffectiveNotificationPreferences, planNotifications, toReminderRules } from '../notifications';
 import { upcomingReminders } from '../reminders';
 import { contractSchedule } from '../schedule';
+import { answer } from './golden/classificationFixtures';
 
 const TODAY = '2026-10-08';
 const ev = (quote: string | null) => ({ evidence_quote: quote, evidence_page: 1, evidence_file: 1 });
@@ -28,8 +29,7 @@ const field = (key: string, v: { text?: string | null; num?: number | null; bool
 /** 주택 임대차 2026-10-20 ~ 2028-10-19 · 종료 60일 전 = 2028-08-20 */
 function lease(quote: string, kind: string | null, kindConfidence = 'high', contractType = 'lease') {
   return {
-    category: { value: contractType === 'lease' ? 'real_estate' : 'rental', confidence: 'high', alternatives: [], reason: '' },
-    contract_type: { value: contractType, confidence: 'high', alternatives: [], reason: '' },
+    classification: answer({ kind: contractType === 'lease' ? 'lease' : 'rental', subtype: null }),
     fields: [
       field('autoRenewal', { bool: false }, 'high', null),
       field('terminationNoticeDays', { num: 60 }, 'high', quote),

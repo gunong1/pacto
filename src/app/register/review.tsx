@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Divider, KeyValueRow, Section } from '@/components/ui/layout';
 import type { ContractDraft } from '@/data/repository';
 import { AI_DISCLAIMER, CHECK_SECTION_TITLE } from '@/domain/aiCopy';
-import { profileOf } from '@/domain/contractTypes';
+import { profileFor, profileKeyOf } from '@/domain/contractKinds';
 import { formatWon } from '@/domain/money';
 import { noticeLabelOf } from '@/domain/noticeKind';
 import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
@@ -135,7 +135,7 @@ export default function ReviewScreen() {
   // 갱신·통보 기한은 서버가 정한다: 확정된 기한은 그대로 저장, 확인이 필요하면 관련 계약 체크에 "N일 전 넣기" 제안(needsConfirm)
   // 화면은 제안을 보여주고 사용자가 고른 일수만 반영한다 (자동갱신 여부를 여기서 추론하지 않음)
   const noticeOffers = new Map<number, number>();
-  if (profileOf(model.draft.contractType).hasRenewal) {
+  if (profileFor(model.draft).hasRenewal) {
     model.checks.forEach((c, i) => {
       if (c.suggestion?.kind === 'set_termination_notice' && c.suggestion.needsConfirm) noticeOffers.set(i, c.suggestion.terminationNoticeDays);
     });
@@ -175,14 +175,17 @@ export default function ReviewScreen() {
                 <ContractCheckCard
                   testID={`review-check-${i}`}
                   check={c}
+                  // 확인이 필요한 통보기한("N일 전 넣기")은 고르기 전까지 날짜를 확정해 보이지 않는다
+                  contract={c.suggestion?.kind === 'set_termination_notice' && c.suggestion.needsConfirm ? undefined : model.draft}
+                  today={today}
                   onOpenOriginal={doc ? () => viewDocument(doc, c.evidencePage) : undefined}
                   deadline={
                     noticeOffers.has(i)
                       ? noticePick === i && noticeDate
-                        ? { label: noticeLabelOf(model.draft.noticeKind, model.draft.contractType), date: noticeDate }
+                        ? { label: noticeLabelOf(model.draft.noticeKind, profileKeyOf(model.draft)), date: noticeDate }
                         : null
                       : s?.kind === 'set_termination_notice' && noticeDate && noticeOffers.size === 0
-                        ? { label: noticeLabelOf(model.draft.noticeKind, model.draft.contractType), date: noticeDate }
+                        ? { label: noticeLabelOf(model.draft.noticeKind, profileKeyOf(model.draft)), date: noticeDate }
                         : s?.kind === 'add_event'
                           ? { label: s.title, date: s.eventDate }
                           : null
@@ -241,8 +244,7 @@ export default function ReviewScreen() {
         flagged={model.flagged}
         evidence={extraction.provider === 'mock' ? undefined : model.evidence}
         notes={model.notes}
-        typeSuggestion={model.typeSuggestion}
-        categorySuggestion={model.categorySuggestion}
+        classification={model.classification}
         allDetails={model.allDetails}
         header={header}
         today={today}

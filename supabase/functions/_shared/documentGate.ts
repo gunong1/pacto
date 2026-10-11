@@ -113,7 +113,7 @@ export const DOCUMENT_CHECK_INSTRUCTIONS = [
   '   supporting(견적서·청구서·납부내역·확인서·안내문처럼 계약과 관련된 자료) / non_contract(음식·동물·사람·풍경·물건 사진, 광고, 뉴스·SNS 캡처, 일반 영수증, 신분증만, 은행 거래내역만, 빈 종이, 무관한 문서) /',
   '   uncertain(판단하기 어려움) / unreadable(문서처럼 보이지만 흐림·어두움·잘림·저해상도로 글자를 읽기 어려움).',
   '   개인정보(주민등록번호 등)가 보인다는 이유만으로 계약으로 보지 않습니다. pages에 파일·쪽마다 역할을 적고, 같은 쪽을 두 번 찍었으면 duplicate_of_file/page.',
-  '   계약 문서가 아니거나(non_contract) 읽을 수 없는(unreadable) 경우 계약정보를 추측하여 생성하지 않습니다: fields의 value는 모두 null, dates·payments·details·checks는 빈 배열, category·contract_type은 other(confidence low).',
+  '   계약 문서가 아니거나(non_contract) 읽을 수 없는(unreadable) 경우 계약정보를 추측하여 생성하지 않습니다: fields의 value는 모두 null, dates·payments·details·checks는 빈 배열, classification.kind는 other(confidence low).',
   '   계약과 무관하거나 읽을 수 없는 쪽의 날짜·숫자는 추출에 쓰지 않습니다. 같은 쪽이 중복되어도 같은 금액·날짜를 두 번 넣지 않습니다.',
   '   모든 추출값(fields·dates·payments·details·checks)에는 근거가 있는 파일 번호(evidence_file, 첨부 순서 1부터)와 쪽(evidence_page, 사진은 1)을 넣습니다.',
 ].join('\n');

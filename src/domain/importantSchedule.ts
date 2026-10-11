@@ -8,7 +8,7 @@
  * - limit(5개)는 화면 표시 개수일 뿐이고, total로 남은 개수를 알려 "더 보기"로 확장할 수 있게 한다.
  * - 날짜의 출처(계약서 기준 등)와 PACTO가 언제 미리 알려주는지(알림 정책)를 따로 표시한다.
  */
-import { profileOf } from './contractTypes';
+import { profileFor } from './contractKinds';
 import { addDays } from './dates';
 import { daysUntil } from './dday';
 import { noticeBy } from './noticeKind';
@@ -56,7 +56,7 @@ const hasBatchim = (word: string) => {
 const subj = (word: string) => `${word}${hasBatchim(word) ? '이' : '가'}`;
 
 function copyFor(item: ScheduleItem, record: ContractRecord): Pick<ImportantScheduleItem, 'title' | 'body' | 'policyNote'> {
-  const profile = profileOf(record.contract.contractType);
+  const profile = profileFor(record.contract);
   switch (item.actionType) {
     // 언제 알려줄지는 사용자 설정이라 카드에 적지 않는다 (알림 설정 요약에서 보여줌)
     case 'termination_notice':

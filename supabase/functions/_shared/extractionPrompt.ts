@@ -6,11 +6,14 @@ import {
   BUSINESS_DAY_RULES,
   PAYMENT_OBLIGATIONS,
   CHECK_BEHAVIORS,
-  CATEGORY_CODES,
-  CATEGORY_DEFS,
   CHECK_TOPIC_CODES,
   CHECK_TOPIC_DEFS,
-  CONTRACT_TYPE_CODES,
+  CLASSIFICATION_PRIORITY,
+  CONTRACT_DOMAIN_CODES,
+  CONTRACT_DOMAIN_DEFS,
+  CONTRACT_KIND_CODES,
+  CONTRACT_KIND_DEFS,
+  CONTRACT_SUBTYPE_CODES,
   CONTRACT_TYPE_DEFS,
   DETAIL_DB_KEYS,
   DETAIL_FIELD_DEFS,
@@ -27,7 +30,10 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
  * v12: 면제는 role=waived · 조건부 비용(위약금·연체료 …)은 결제가 아니라 checks에 금액·계산식과 함께 · 참고 금액은 role=reference 하나로
  *      (payment_obligation은 confirmed·optional·conditional만) · 중도해지·위약금 글 필드 없음 (v11은 배포 전에 되돌림)
  */
-export const PROMPT_VERSION = 'extract-v12';
+/* v13: 계약 종류를 계약의 본질로 하나만 판단 (classification: kind·subtype·domains·confidence·alternatives·근거·secondary_elements).
+ *      분야(category)·관리 구조(contract_type)를 따로 고르지 않음 — 결제 방식은 분류 근거가 아님 · 자동차는 종류가 아니라 대상(domains)
+ *      계약 체크는 할 일·주의할 위험만 (user_action), 사실은 fields·details·payments에만 */
+export const PROMPT_VERSION = 'extract-v13';
 
 /** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
 const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
@@ -44,12 +50,21 @@ const evidence = {
 const confidence = { type: 'string', enum: [...CONFIDENCE] };
 const sourceType = { type: 'string', enum: [...MODEL_SOURCES], description: 'explicit: 계약서에 그대로 적힌 값 / inferred: 문맥으로 판단한 값' };
 const strictObject = (properties: Record<string, unknown>) => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties });
-const classification = (codes: readonly string[], desc: string) =>
+/** 계약 종류 분류 — 계약의 본질 하나 (결제 방식과 무관) */
+const classificationSchema = () =>
   strictObject({
-    value: { type: 'string', enum: [...codes], description: desc },
+    kind: { type: 'string', enum: [...CONTRACT_KIND_CODES], description: '주 계약 종류 — 계약을 통해 실제로 무엇을 제공받거나 어떤 법률관계를 맺는가' },
+    subtype: { type: 'string', enum: [...CONTRACT_SUBTYPE_CODES, 'none'], description: '상세 분류 (그 종류의 목록에서만, 맞는 것이 없으면 none)' },
+    domains: { type: 'array', items: { type: 'string', enum: [...CONTRACT_DOMAIN_CODES] }, description: '계약 대상 (자동차·부동산·소프트웨어 …). 없으면 빈 배열' },
     confidence,
-    alternatives: { type: 'array', items: { type: 'string', enum: [...codes] }, description: '가능성이 있는 다른 값 (최대 3개, 없으면 빈 배열)' },
-    reason: { type: 'string', description: '이렇게 본 이유 (한 문장, 계약서 내용 기준)' },
+    alternatives: { type: 'array', items: { type: 'string', enum: [...CONTRACT_KIND_CODES] }, description: '애매할 때 가능한 다른 종류 (최대 2개, 주 종류 제외, 없으면 빈 배열)' },
+    reason: { type: 'string', description: '이렇게 본 이유 — 무엇을 제공·사용·보장·대여·이전하는 계약인지 (한 문장, 계약서 내용 기준)' },
+    ...evidence,
+    secondary_elements: {
+      type: 'array',
+      description: '혼합 계약에서 함께 포함된 다른 계약 요소 (예: 통신 + 단말기 할부). 없으면 빈 배열',
+      items: strictObject({ kind: { type: 'string', enum: [...CONTRACT_KIND_CODES] }, note: { type: 'string', description: '무엇인지 짧게 (예: 단말기 24개월 할부)' } }),
+    },
   });
 
 /** Structured Outputs(strict)용 JSON Schema: 모든 속성 required, additionalProperties false */
@@ -61,8 +76,7 @@ const FIELD_GUIDE = Object.entries(FIELDS)
 export function extractionJsonSchema() {
   return strictObject({
     document_check: documentCheckJsonSchema(),
-    category: classification(CATEGORY_CODES, '무슨 계약인가 (분야)'),
-    contract_type: classification(CONTRACT_TYPE_CODES, '돈·날짜·의무가 움직이는 구조 (관리 방식)'),
+    classification: classificationSchema(),
     fields: {
       type: 'array',
       description: `계약 공통 정보 중 계약서에 있는 것만 key마다 한 번 (없으면 넣지 않음). ${FIELD_GUIDE}`,
@@ -146,12 +160,13 @@ export function extractionJsonSchema() {
     },
     checks: {
       type: 'array',
-      description: 'PACTO 계약 체크 — 사용자가 놓치기 쉬운, 확인이 필요한 조항',
+      description: 'PACTO 계약 체크 — 사용자가 해야 할 일이나 주의할 위험이 있는 조항만 (단순 사실은 넣지 않음)',
       items: strictObject({
         severity: { type: 'string', enum: [...SEVERITY] },
         topic: { type: 'string', enum: [...CHECK_TOPIC_CODES] },
-        title: { type: 'string', description: '짧은 이름 (예: 자동갱신, 중도해지 위약금)' },
-        description: { type: 'string', description: '계약서에 무엇이 어떻게 적혀 있는지 1~2문장. 판단하지 않고 전달만' },
+        title: { type: 'string', description: '짧은 이름 (예: 중도해지 위약금, 원상복구)' },
+        description: { type: 'string', description: '왜 챙겨야 하는지 짧은 이유 한 문장 (원문 조항을 그대로 옮기지 않음 — 원문은 evidence_quote에). 판단하지 않고 전달만' },
+        user_action: { type: ['string', 'null'], description: '사용자가 해야 할 일 (예: 퇴거 전 원상복구 범위 확인). 주의만 필요하면 null' },
         confidence,
         behavior: {
           type: 'string',
@@ -178,16 +193,26 @@ function detailGuide(): string {
         const value = d.options ? `text_value: ${d.options.map((o) => o.value).join('|')}` : d.input === 'boolean' ? 'boolean_value' : d.input === 'text' ? 'text_value' : 'number_value';
         return `${d.db}(${d.label}, ${value})`;
       });
-      return `   - ${t.code}: ${keys.join(', ')}`;
+      return `   - ${t.code} (${profileKinds(t.code)}): ${keys.join(', ')}`;
     })
     .join('\n');
+}
+
+/** 관리 묶음(profile)을 쓰는 계약 종류 이름 (프롬프트 안내용) */
+function profileKinds(profile: string): string {
+  return CONTRACT_KIND_DEFS.filter((k) => k.profile === profile).map((k) => k.code).join('·') || profile;
+}
+
+/** 계약 종류 정의 (프롬프트용) */
+function kindGuide(): string {
+  return CONTRACT_KIND_DEFS.map((k) => `   - ${k.code}(${k.label}): ${k.guide}${k.subtypes.length ? ` / subtype: ${k.subtypes.map((s) => `${s.code}(${s.label})`).join(', ')}` : ''}`).join('\n');
 }
 
 function topicGuide(): string {
   const common = CHECK_TOPIC_DEFS.filter((t) => t.types.length === 0 && t.code !== 'other').map((t) => `${t.code}(${t.label})`);
   const byType = CONTRACT_TYPE_DEFS.map((ty) => {
     const ts = CHECK_TOPIC_DEFS.filter((t) => t.types.includes(ty.code)).map((t) => `${t.code}(${t.label})`);
-    return ts.length ? `   - ${ty.code}: ${ts.join(', ')}` : null;
+    return ts.length ? `   - ${ty.code} (${profileKinds(ty.code)}): ${ts.join(', ')}` : null;
   }).filter(Boolean);
   return [`   - 모든 계약: ${common.join(', ')}`, ...byType].join('\n');
 }
@@ -199,10 +224,18 @@ export function extractionInstructions(today: string): string {
     '계약서가 좋은지 나쁜지 판정하지 않습니다. 첨부된 파일(PDF 또는 사진)을 다음 순서로 분석합니다.',
     '',
     DOCUMENT_CHECK_INSTRUCTIONS,
-    `1) category — 무슨 계약인가: ${CATEGORY_DEFS.map((c) => `${c.code}(${c.label})`).join(', ')}`,
-    '2) contract_type — 돈·날짜·의무가 움직이는 구조. 분야가 아니라 실제 계약 내용으로 정합니다 (자동차 분야라도 할부·리스·보험·매매는 다름):',
-    ...CONTRACT_TYPE_DEFS.map((t) => `   - ${t.code}: ${t.guide} (예: ${t.examples})`),
-    '   확실하지 않으면 confidence를 medium/low로 두고 alternatives에 다른 가능성을 넣습니다.',
+    '1·2) classification — 계약 종류는 "돈을 어떻게 내는가"가 아니라 "계약을 통해 실제로 무엇을 제공받거나 어떤 법률관계를 맺는가"로 정합니다.',
+    '   계약서 전체 문맥에서 본질적인 목적을 먼저 판단합니다: 무엇을 제공·사용·보장·대여·이전하는 계약인가 → 주된 법률관계·경제적 목적 → kind → subtype.',
+    '   결제 주기(월납·연납·일시불·분납)와 금액 구조는 종류의 근거가 아닙니다 (구독도 연납·일시불일 수 있고, 보험도 월납일 수 있고, 렌탈도 선납일 수 있음).',
+    '   단어 하나로 정하지 않습니다: "서비스" → 용역, "월 이용료" → 렌탈, "자동차" → 자동차, "매월" → 구독, "할부" 한 번 등장 → 할부 같은 판단을 하지 않습니다.',
+    '   kind (주 종류 하나):',
+    kindGuide(),
+    '   판단 우선순위 (여러 성격이 함께 있으면 등장 단어 수가 아니라 주된 관계로):',
+    ...CLASSIFICATION_PRIORITY.map((l) => `   - ${l}`),
+    `   domains: 계약 대상 — ${CONTRACT_DOMAIN_DEFS.map((d) => `${d.code}(${d.label})`).join(', ')}. 자동차는 종류가 아니라 대상입니다 (자동차보험 = insurance/auto + domains [vehicle], 장기렌트 = rental/vehicle, 자동차 매매 = sale/vehicle).`,
+    '   secondary_elements: 혼합 계약(휴대전화 서비스 + 단말 할부, SaaS + 초기 구축 용역, 제품 매매 + 유지보수)이면 주 종류 하나 + 함께 포함된 요소. 각 돈은 payments에 그대로 따로 넣습니다.',
+    '   confidence: 본질이 분명하면 high. 가장 가능성 높은 종류가 있지만 다른 해석도 가능하면 medium + alternatives. 두 종류 사이에서 정할 수 없으면 low + alternatives(상위 후보) + reason에 왜 애매한지.',
+    '   기타(other)는 상위 후보 2개를 비교한 뒤에도 맞는 종류가 없을 때만. 확신이 없다는 이유만으로 고르지 않습니다. reason과 근거 문장(evidence_quote)을 반드시 넣습니다.',
     '3·4) dates — 계약서에 나온 중요한 날짜를 모두 찾고, 각 날짜의 의미를 문맥으로 판단합니다.',
     '   같은 날짜라도 의미가 여러 개면 각각 넣습니다. 체결일(작성·서명일)이 따로 적혀 있지 않으면 contract_signed를 만들지 않습니다.',
     '   다른 날짜를 체결일로 대신 넣지 않습니다. 기간만 적혀 있으면(예: "개시일로부터 36개월") 종료일을 계산해 넣고 confidence를 medium으로.',
@@ -231,7 +264,10 @@ export function extractionInstructions(today: string): string {
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
     '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·만기 조건(자동갱신, 연장 기간, 통보기한 일수). 계약서에 있는 key만 목록으로. 중도해지·위약금 조건은 checks에만.',
-    '9) checks — PACTO 계약 체크: 사용자가 놓치기 쉬운, 확인이 필요한 조항을 찾습니다. 주제(topic):',
+    '9) checks — PACTO 계약 체크: 계약 정보는 사실, 계약 체크는 그 사실 때문에 사용자가 해야 할 일·주의할 위험입니다.',
+    '   단순 사실(관리비 금액·급여일·근로시간·계약기간·보증금을 종료 시 돌려받는다는 사실)은 fields·details·payments에만 넣고 checks에 넣지 않습니다.',
+    '   행동이 필요하거나(기한까지 갱신 여부 확인·해지 통보, 반납·원상복구 준비) 놓치면 불이익이 있거나(위약금·연체료·자동 연장·추가 정산) 사용자에게 불리한 조건만 넣습니다.',
+    '   description은 원문을 옮기지 말고 왜 챙겨야 하는지 짧은 이유 한 문장, user_action은 해야 할 일 (원문은 evidence_quote에만). 같은 의미의 체크를 두 번 만들지 않습니다. 주제(topic):',
     topicGuide(),
     '   severity와 behavior는 아래 의미 해석 원칙을 따릅니다. 확신이 낮으면 confidence를 low로.',
     '   각 항목에는 근거가 된 원문 문장(evidence_quote), 쪽(evidence_page), 파일 번호(evidence_file)를 반드시 넣습니다. 근거가 없는 조항은 넣지 않습니다.',
@@ -259,10 +295,9 @@ export function extractionInstructions(today: string): string {
     '  어느 쪽인지 원문으로 판단할 수 없으면 unknown (확신이 없을 때 해지 통보기한으로 단정하지 않음). 근거 문장은 terminationNoticeDays와 같은 조항.',
     '- 기간 조건(수습기간 N개월, 수습 중 임금 N%)은 속성(probation_months, probation_pay_rate)으로 넣습니다. 시작일만 따로 일정(related_date)으로 만들지 않습니다.',
     '- 지급일이 휴일일 때 규칙("휴일이면 직전 영업일")은 business_day_rule로.',
-    '- 자동갱신이 아니고 갱신을 별도 협의로 정하면 autoRenewal=false, 갱신 조건은 renewal_terms 속성(해당 유형) 또는 checks(topic=renewal_terms).',
-    '- checks의 severity: info = 핵심 정보(알아두면 되는 계약 정보: 급여일·근로시간·계약기간·수습기간 사실),',
-    '  check = 확인 필요(사용자가 조건을 알고 있어야 하는 내용: 회사의 근무장소·업무 변경 가능, 수습 중 임금 감액, 월 임금에 고정수당 포함, 퇴직 사전통보, 갱신 별도 협의, 비밀유지, 자산 반환),',
-    '  caution = 주의 필요(책임·비용·권리 제한이 큰 조건: 위약금·손해배상 범위·환불 제한·일방적 변경·연체이율 등). 일반 정보를 모두 확인 필요로 올리지 않습니다.',
+    '- 자동갱신이 아니고 갱신을 별도 협의로 정하면 autoRenewal=false, 갱신 조건(사실)은 renewal_terms 속성(해당 유형)에. 종료 N일 전까지 협의하는 기한이면 terminationNoticeDays와 noticeKind=renewal_decision (기한 체크는 PACTO가 만듭니다).',
+    '- checks의 severity: check = 확인·행동 필요(회사의 근무장소·업무 변경 가능, 수습 중 임금 감액, 월 임금에 고정수당 포함, 퇴직 사전통보, 비밀유지, 자산 반환, 추가 정산),',
+    '  caution = 주의 필요(책임·비용·권리 제한이 큰 조건: 위약금·손해배상 범위·환불 제한·일방적 변경·연체이율·원상복구 등). info는 쓰지 않습니다 (사실은 계약 정보에).',
     '',
     '공통 규칙:',
     '- 계약서에 적힌 내용만 사용합니다. 유형 템플릿에 맞추려고 없는 정보를 만들지 않습니다 (임대차라도 월세가 없을 수 있고, 보험이 월납이 아닐 수 있고, 근로계약이 기간 없이 체결될 수 있음).',

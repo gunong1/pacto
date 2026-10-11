@@ -1,4 +1,4 @@
-import { profileOf } from "./contractTypes";
+import { profileFor, profileKeyOf } from './contractKinds';
 import { noticeActionType, noticeLabelOf, type NoticeKind } from "./noticeKind";
 import { addDays } from "./dates";
 import {
@@ -185,7 +185,7 @@ export function upcomingReminders(
 
     const term = currentTerm(contract, today);
     const endType: ActionEventType = /만기/.test(
-      profileOf(contract.contractType).endEvent,
+      profileFor(contract).endEvent,
     )
       ? "maturity"
       : "contract_end";
@@ -223,7 +223,7 @@ export function upcomingReminders(
     }
 
     const notice = terminationNoticeDeadline(contract, today);
-    const noticeLabel = noticeLabelOf(contract.noticeKind, contract.contractType);
+    const noticeLabel = noticeLabelOf(contract.noticeKind, profileKeyOf(contract));
     const noticeMeta = meta(record, noticeActionType(contract.noticeKind), [
       "endDate",
       "terminationNoticeDays",

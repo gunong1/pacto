@@ -1,4 +1,5 @@
-import { isConfirmedPayment, profileOf, type PaymentKind } from './contractTypes';
+import { profileFor, profileKeyOf } from './contractKinds';
+import { isConfirmedPayment, type PaymentKind } from './contractTypes';
 import { adjustToBusinessDay } from './businessDays';
 import { contractTermSource, getNotificationPriority, termNeedsReview, type ActionEventType, type NotificationPriority, type NotificationSource } from './notificationPriority';
 import { addDays, dateInMonth, parseISODate } from './dates';
@@ -256,7 +257,7 @@ function withMeta(record: ContractRecord, item: ScheduleItemDraft): ScheduleItem
       needsReview = termNeedsReview(contract, ['endDate', 'renewalPeriodMonths']);
       break;
     case 'contract_end':
-      actionType = /만기/.test(profileOf(contract.contractType).endEvent) ? 'maturity' : 'contract_end';
+      actionType = /만기/.test(profileFor(contract).endEvent) ? 'maturity' : 'contract_end';
       needsReview = termNeedsReview(contract, ['endDate']);
       // 해지·종료 처리 기록은 사용자가 입력한 상태
       if (item.key.startsWith('closed:')) source = 'manual_entry';
@@ -328,7 +329,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
     }
   }
 
-  const profile = profileOf(contract.contractType);
+  const profile = profileFor(contract);
   const plain = { paymentKind: null, direction: null, amount: null, estimated: false, eventId: null };
 
   if (profile.startEvent && inRange(contract.startDate)) {
@@ -375,7 +376,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
     }
     const notice = terminationNoticeDeadline(contract, today);
     if (notice && inRange(notice.date)) {
-      items.push({ ...base, ...plain, key: `notice:${contract.id}:${notice.date}`, date: notice.date, type: 'termination_notice', title: noticeLabelOf(contract.noticeKind, contract.contractType) });
+      items.push({ ...base, ...plain, key: `notice:${contract.id}:${notice.date}`, date: notice.date, type: 'termination_notice', title: noticeLabelOf(contract.noticeKind, profileKeyOf(contract)) });
     }
     const prep = prepareDate(contract);
     // 계약서에 갱신 여부 확인 시점이 있으면 PACTO 기본 안내(갱신 여부 확인)를 따로 만들지 않는다
@@ -407,7 +408,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
 
 /** 종료 전 미리 확인할 시점 (임대차: 만기 60일 전 갱신 확인). 자동갱신 계약은 해지 통보기한으로 대신한다. */
 export function prepareDate(contract: Contract): { date: ISODate; label: string; guidance: string } | null {
-  const prep = profileOf(contract.contractType).prepare;
+  const prep = profileFor(contract).prepare;
   if (!prep || !contract.endDate || contract.autoRenewal || contract.lifecycle !== 'active') return null;
   return { date: addDays(contract.endDate, -prep.daysBefore), label: prep.label, guidance: prep.guidance };
 }

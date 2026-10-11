@@ -42,9 +42,9 @@ async function signUp(page, email, password) {
   await page.click(tid('method-manual'));
   await page.click(tid('toggle-more')); // 직접 입력: 접힌 상세 정보 펼치기
   await page.fill(`input${tid('field-title')}`, '헬스장');
-  await page.click(tid('kind-subscription')); // 구독·회원권 → 월 납입형
+  await page.click(tid('kind-subscription_membership')); // 구독·회원권 (분류 개편: 종류 코드 subscription_membership)
   await page.click(tid('toggle-classification'));
-  await page.click(tid('category-membership'));
+  await page.click(tid('subtype-fitness_membership')); // 상세 분류: 피트니스·운동 (분류 개편: 예전 분야 칩 대신)
   await page.fill(`input${tid('field-startDate')}`, '260101');
   await page.fill(`input${tid('field-endDate')}`, '20261231');
   await page.click(tid('add-payment'));

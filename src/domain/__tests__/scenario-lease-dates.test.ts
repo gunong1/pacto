@@ -3,6 +3,7 @@ import { anchorFromQuote, quoteHasDate, resolvePaymentDate, toAppResult } from '
 import { draftToRecord } from '@/data/draft';
 import { toReviewModel } from '@/features/registration/extraction';
 import { expandPayment } from '../schedule';
+import { answer } from './golden/classificationFixtures';
 
 const TODAY = '2026-10-08';
 const ev = (quote: string | null) => ({ evidence_quote: quote, evidence_page: 1, evidence_file: 1 });
@@ -17,8 +18,7 @@ const DEPOSIT_QUOTE = '2,000,000원 (금 이백만원) – 계약 당일 지급'
 /** 주택 월세 임대차계약서 샘플 — 계약금 행의 날짜만 모델 응답별로 바꾼다 */
 function lease(deposit: Record<string, unknown>, opts: { signed?: boolean } = {}) {
   return {
-    category: { value: 'real_estate', confidence: 'high', alternatives: [], reason: '' },
-    contract_type: { value: 'lease', confidence: 'high', alternatives: [], reason: '' },
+    classification: answer({ kind: 'lease', subtype: 'housing' }),
     fields: [{ key: 'depositAmount', text_value: null, number_value: 20000000, boolean_value: null, confidence: 'high', ...ev('보증금 20,000,000원 (금 이천만원)') }],
     dates: [
       ...(opts.signed === false ? [] : [date('2026-10-08', 'contract_signed', '계약서 작성일', '2026년 10월 8일')]),

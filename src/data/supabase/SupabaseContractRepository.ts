@@ -1,9 +1,10 @@
+import { profileKeyOf } from '@/domain/contractKinds';
 import { detailsToDb } from '@/domain/contractTypes';
 import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
 import type { Database, Json } from '@/types/database';
 
-import { draftToPayment } from '../draft';
+import { draftToPayment, legacyFields } from '../draft';
 import type { ContractDraft, ContractRepository, CreateContractInput, NewEventInput } from '../repository';
 import type { PactoSupabase } from './client';
 import { CONTRACT_SELECT, toRecord, type ContractRow } from './rowMapping';
@@ -31,11 +32,16 @@ function check<T>(res: { data: T; error: { code?: string; message: string } | nu
 
 // ===== domain → RPC payload =====
 function contractPayload(d: ContractDraft, extra: Record<string, unknown> = {}): Json {
+  const legacy = legacyFields(d);
   return {
     title: d.title.trim(),
-    category: d.category,
-    contract_type: d.contractType,
-    contract_details: detailsToDb(d.contractType, d.details),
+    // 계약 종류(기준값) + 하위 호환값 (계약 종류가 있으면 레지스트리 호환값, 없으면 저장된 값 그대로)
+    contract_kind: d.contractKind,
+    contract_subtype: d.contractKind ? d.contractSubtype : null,
+    classification: d.classification as unknown as Json,
+    category: legacy.category,
+    contract_type: legacy.contractType,
+    contract_details: detailsToDb(profileKeyOf(d), d.details),
     value_sources: d.valueSources,
     counterparty: d.counterparty,
     contract_date: d.contractDate,

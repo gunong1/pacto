@@ -19,8 +19,7 @@ const check = (c: Record<string, unknown>) => ({ confidence: 'high', behavior: '
 
 export function rentalOutput(title: string) {
   return {
-    category: { value: 'rental', confidence: 'high', alternatives: [], reason: '공기청정기 렌탈 계약으로 기재되어 있습니다.' },
-    contract_type: { value: 'recurring', confidence: 'high', alternatives: ['other'], reason: '매월 렌탈료를 내는 계약으로 기재되어 있습니다.' },
+    classification: { kind: 'rental', subtype: 'appliance', domains: ['appliance'], confidence: 'high', alternatives: [], reason: '공기청정기를 빌려 쓰는 렌탈 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
     fields: {
       title: f(title),
       counterparty: f('테스트렌탈(주)', 'high', '렌탈회사: 테스트렌탈 주식회사'),
@@ -91,7 +90,7 @@ export function rentalDiscountOutput(title: string) {
   const base = rentalOutput(title);
   return {
     ...base,
-    category: { ...base.category, reason: '정수기 렌탈 계약으로 기재되어 있습니다.' },
+    classification: { ...base.classification, reason: '정수기를 빌려 쓰는 렌탈 계약으로 기재되어 있습니다.' },
     fields: { ...base.fields, counterparty: f('가짜정수기(주)', 'high', '렌탈 서비스 제공: 가짜정수기 주식회사'), autoRenewal: f(false, 'medium'), renewalPeriodMonths: f(null, 'low'), terminationNoticeDays: f(null, 'low') },
     dates: [
       { date: '2026-03-08', meaning: 'service_start', label: '계약 기간 시작', confidence: 'high', source_type: 'explicit', ...q('계약기간 : 2026.03.08 ~ 2031.03.07') },
@@ -121,8 +120,7 @@ export function employmentOutput(title: string) {
   const payday = '임금은 매월 25일에 지급하며, 지급일이 휴일인 경우 그 전일에 지급한다.';
   const period = '근로계약기간: 2026년 10월 1일부터 2027년 9월 30일까지';
   return {
-    category: { value: 'employment', confidence: 'high', alternatives: [], reason: '근로계약서로 기재되어 있습니다.' },
-    contract_type: { value: 'employment', confidence: 'high', alternatives: [], reason: '근로 제공과 임금 지급을 정한 계약으로 기재되어 있습니다.' },
+    classification: { kind: 'employment', subtype: 'fixed_term', domains: [], confidence: 'high', alternatives: [], reason: '근로 제공과 임금 지급을 정한 고용 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
     fields: {
       title: f(title),
       counterparty: f('주식회사 네오링크', 'high', '사용자: 주식회사 네오링크'),
@@ -178,8 +176,7 @@ export function employmentOutput(title: string) {
 export function gymYearOutput(title: string) {
   const term = '이용기간: 2026년 10월 10일부터 2027년 10월 9일까지 (1년)';
   return {
-    category: { value: 'membership', confidence: 'high', alternatives: [], reason: '헬스장 회원권 이용 계약으로 기재되어 있습니다.' },
-    contract_type: { value: 'recurring', confidence: 'medium', alternatives: ['one_time'], reason: '1년 이용권을 계약 시 한 번에 결제하는 것으로 기재되어 있습니다.' },
+    classification: { kind: 'subscription_membership', subtype: 'fitness_membership', domains: [], confidence: 'high', alternatives: [], reason: '헬스장 시설을 1년 동안 이용할 권리를 받는 회원권 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
     fields: {
       title: f(title),
       counterparty: f('바디핏 피트니스', 'high', '사업장: 바디핏 피트니스'),
@@ -238,8 +235,7 @@ const NO_SIGNALS = { parties: false, dates: false, amounts: false, obligations: 
 /** 계약 정보를 만들지 않는 출력 (계약이 아니거나 읽을 수 없을 때 — 추측하지 않는다) */
 function emptyExtraction() {
   return {
-    category: { value: 'other', confidence: 'low', alternatives: [], reason: '계약 문서로 확인되지 않았습니다.' },
-    contract_type: { value: 'other', confidence: 'low', alternatives: [], reason: '계약 문서로 확인되지 않았습니다.' },
+    classification: { kind: 'other', subtype: 'none', domains: [], confidence: 'low', alternatives: [], reason: '계약 문서로 확인되지 않았습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
     fields: Object.fromEntries(['title', 'counterparty', 'totalAmount', 'depositAmount', 'autoRenewal', 'renewalPeriodMonths', 'terminationNoticeDays', 'earlyTerminationTerms', 'penaltyTerms'].map((k) => [k, f(null, 'low')])),
     dates: [],
     payments: [],

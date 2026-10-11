@@ -1,3 +1,4 @@
+import type { ClassificationMeta } from '@/domain/contractKinds';
 import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { NoticeKind } from '@/domain/noticeKind';
 import type {
@@ -60,6 +61,11 @@ export interface DateDraft {
 /** 확인/수정 폼에서 확정된 계약 정보 (AI 추정값이 아니라 사용자가 확인한 값). */
 export interface ContractDraft {
   title: string;
+  /** 계약 종류 (기준값). null = 기존 계약을 종류를 바꾸지 않고 수정 — 호환값(category·contractType) 그대로 저장 */
+  contractKind: string | null;
+  contractSubtype: string | null;
+  classification: ClassificationMeta;
+  /** 하위 호환값 — 계약 종류가 있으면 저장할 때 레지스트리 호환값으로 덮어쓴다 (draft.legacyFields) */
   category: ContractCategory;
   contractType: ContractType;
   details: ContractDetails;

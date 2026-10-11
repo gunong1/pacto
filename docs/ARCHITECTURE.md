@@ -8,6 +8,20 @@
 - 작성 기준일: 2026-10-05
 - 범위: 아키텍처, 화면 목록, DB 스키마, 폴더 구조, V1 Task 분해, 기술/보안 리스크
 
+## 분류 개편 (2026-10-12) — 계약 종류 = 계약의 본질, 계약 체크 = 할 일·위험
+네 가지를 섞지 않는다: **계약 종류 = 계약의 본질 / 결제 구조 = 독립된 현금흐름 / 계약 정보 = 사실 / 계약 체크 = 행동·위험**.
+
+- **기준값(Source of Truth)**: `contracts.contract_kind` (13개: 근로·부동산·임대차·대출·보험·통신·구독·회원권·렌탈·할부·매매·용역·프리랜서·교육·사업·거래·기타) + `contract_subtype` + `classification`(신뢰도·다른 후보·이유·근거·secondaryElements·domains·source).
+  - "자동차"는 종류가 아니라 대상 → `classification.domains: ["vehicle"]` (자동차보험 = 보험/auto, 장기렌트 = 렌탈/vehicle …).
+  - 정의는 `supabase/functions/_shared/contractRegistry.ts` `CONTRACT_KIND_DEFS` 한 곳 — 자동 분석·직접 입력 추천(nameHints)·수정 화면이 공유. DB 기준표 `contract_kind_defs`·`contract_subtype_defs`(통합 테스트가 일치 검사).
+- **하위 호환**: `category`·`contract_type`은 레지스트리 호환값으로만 저장 (예전 앱·예전 데이터용). 새 코드는 계약 종류가 있으면 읽지 않는다. 화면 이름·유형별 속성 묶음은 종류의 `profile`로 고른다 (결제 방식 아님). 결제 일정은 언제나 저장된 결제에서.
+  - 기존 계약(`contract_kind = null`)은 자동 변경하지 않고 예전 표시(`legacyKindLabel`). 수정하거나 다시 분석할 때 새 종류로.
+- **AI (extract-v13)**: 종류 하나만 판단 (결제 주기·단어로 정하지 않음). 서버(`analysisRules/classification.ts`)는 형식·명백한 모순만 검증 (다른 종류의 상세 분류 → 비움, 없는 종류 → 기타+low). 앱은 다시 분류하지 않는다.
+- **확인 화면**: "AI 판단 · 구독·회원권 · 소프트웨어·SaaS · 신뢰도 높음" 한 줄. 보통 → "○○으로 분류했어요", 다른 가능성. 낮음 → 후보 2개 + 이유, 고르기 전에는 최종 등록 불가.
+- **계약 정보 ↔ 체크** (`analysisRules/checkScope.ts`, 정책 표 `SEMANTIC_KEY_DEFS`): 의미 키로 같은 의미는 하나, 사실만 있는 체크(정책 none)는 계약 정보에 같은 사실이 있으면 만들지 않음, 기한(deadline)은 통보기한 일수·종료일에서 할 일 체크 하나(derivedFrom 기록). 카드는 "2028. 8. 20.까지 갱신 여부 확인" + 짧은 이유, 원문은 "계약서에서 보기"로만.
+- **테스트 두 층**: 결정론 golden(`src/domain/__tests__/golden/classification·checkScope`) — AI 답이 주어졌다고 가정. 모델 평가(`scripts/eval-classification.ts`, 가짜 계약서 18종, `OPENAI_API_KEY` 환경변수) — 주 분류·상세 분류 정확도, **신뢰도 높음 오분류율**, 보류율, 후보 적중률.
+- 마이그레이션: `20261022000001_contract_kind.sql` (기존 데이터 변경 없음).
+
 ## 개정 1 (2026-10-05) 요약
 | # | 변경 | 반영 위치 |
 |---|---|---|

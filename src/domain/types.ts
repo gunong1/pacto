@@ -5,6 +5,7 @@ import type { NoticeKind } from './noticeKind';
  * 날짜는 시간대 없는 로컬 날짜 문자열 'YYYY-MM-DD' (Asia/Seoul 기준), 금액은 원 단위 정수.
  */
 
+import type { ClassificationMeta } from './contractKinds';
 import type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, PaymentObligation, SourceType } from './contractTypes';
 
 export { CONTRACT_CATEGORIES } from './contractTypes';
@@ -64,8 +65,18 @@ export interface ReferenceAmount {
 export interface Contract {
   id: string;
   title: string;
+  /**
+   * 계약 종류 (contract_kind) — 사용자에게 보여주는 기준값 (레지스트리 CONTRACT_KIND_DEFS). 계약의 본질로 정하며 결제 방식과 무관.
+   * null = 분류 개편 전에 저장된 계약 (자동 변경하지 않음 — 화면은 기존 표시, 수정·재분석할 때 채워짐)
+   */
+  contractKind: string | null;
+  /** 상세 분류 (예: software_saas) — 계약 종류에 속한 값만 */
+  contractSubtype: string | null;
+  /** 분류 메타데이터 — 신뢰도·다른 후보·이유·근거·함께 포함된 요소·대상(domains) */
+  classification: ClassificationMeta;
+  /** 하위 호환값 (분야) — 새 코드는 계약 종류가 있으면 읽지 않는다 */
   category: ContractCategory;
-  /** 돈과 날짜가 움직이는 방식 (일정·지출 로직 선택) */
+  /** 하위 호환값 (관리 유형) — 새 코드는 계약 종류가 있으면 읽지 않는다. 결제 일정은 언제나 저장된 결제에서 만든다 */
   contractType: ContractType;
   /** 유형별 추가 속성 (contractTypes.ts DETAIL_FIELDS) */
   details: ContractDetails;
@@ -259,6 +270,12 @@ export interface AiCheck {
   amount?: number | null;
   /** 금액 계산식·기준 (예: 잔여 렌탈료의 10%) */
   amountNote?: string | null;
+  /** 의미 키 (레지스트리 SEMANTIC_KEY_DEFS) — 같은 의미의 체크는 하나. 이전 버전 데이터는 없음 */
+  semanticKey?: string | null;
+  /** 구조화된 계약 정보에서 서버가 만든 체크면 그 출처 (예: ['terminationNoticeDays', 'endDate']) */
+  derivedFrom?: string[] | null;
+  /** 사용자가 할 일 (AI가 찾은 경우) */
+  userAction?: string | null;
   /** 이 체크를 일정 관리로 연결하는 제안. */
   suggestion: AiCheckSuggestion | null;
   status: 'new' | 'acknowledged' | 'dismissed';

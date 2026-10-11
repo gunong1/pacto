@@ -1,3 +1,4 @@
+import { endCategoryOf, profileFor, profileKeyOf } from './contractKinds';
 import { addDays, addMonths, formatDateLongKo } from './dates';
 import { daysUntil } from './dday';
 import { formatWon } from './money';
@@ -60,8 +61,9 @@ export const CATEGORY_PROFILES: Record<ContractCategory, CategoryProfile> = {
 
 /** 종료 문구: 월 납입형·기타는 분야별 표현(렌탈 계약 종료·회원권 만료 …), 그 외는 유형별 표현(대출 만기·보험 만기 …) */
 export function endProfile(contract: Contract): CategoryProfile {
-  if (contract.contractType === 'recurring' || contract.contractType === 'other') return CATEGORY_PROFILES[contract.category];
-  const p = profileOf(contract.contractType);
+  const key = profileKeyOf(contract);
+  if (key === 'recurring' || key === 'other' || key === 'one_time') return CATEGORY_PROFILES[endCategoryOf(contract)];
+  const p = profileOf(key);
   return { endLabel: p.endEvent, endGuidance: p.endGuidance };
 }
 
@@ -89,7 +91,7 @@ function remaining(label: string, days: number, particle: '이' | '가' | '까�
 export function actionCandidates(record: ContractRecord, today: ISODate): NextAction[] {
   const { contract } = record;
   if (!isLive(contract, today)) return [];
-  const typeProfile = profileOf(contract.contractType);
+  const typeProfile = profileFor(contract);
   const profile = endProfile(contract);
   const base = { contractId: contract.id, contractTitle: contract.title, category: contract.category };
   const out: NextAction[] = [];

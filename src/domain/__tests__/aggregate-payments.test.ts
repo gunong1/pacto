@@ -15,6 +15,7 @@ import { summarizeCashflows } from '../calendarGroups';
 import { scheduleForRange } from '../schedule';
 import { monthSpending } from '../spending';
 import type { ContractRecord } from '../types';
+import { answer } from './golden/classificationFixtures';
 
 const TODAY = '2026-10-08';
 const ev = (quote: string) => ({ evidence_quote: quote, evidence_page: 1, evidence_file: 1 });
@@ -23,8 +24,7 @@ const pay = (p: Record<string, unknown>) => ({
   installment_count: null, is_variable: false, payment_obligation: 'confirmed', condition: null, business_day_rule: 'none', confidence: 'high', source_type: 'explicit', ...ev(''), ...p,
 });
 const leaseRaw = (deposit: Record<string, unknown>[]) => ({
-  category: { value: 'real_estate', confidence: 'high', alternatives: [], reason: '' },
-  contract_type: { value: 'lease', confidence: 'high', alternatives: [], reason: '' },
+  classification: answer({ kind: 'lease', subtype: 'housing' }),
   fields: [{ key: 'depositAmount', text_value: null, number_value: 20000000, boolean_value: null, confidence: 'high', ...ev('보증금 20,000,000원 (금 이천만원)') }],
   dates: [
     { date: '2026-10-08', meaning: 'contract_signed', label: '계약서 작성일', confidence: 'high', source_type: 'explicit', ...ev('2026년 10월 8일') },

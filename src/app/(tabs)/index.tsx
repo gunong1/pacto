@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/layout";
 import { statusSummary, upcomingEnds } from "@/domain/actions";
 import { formatDateKo, yearMonthOf } from "@/domain/dates";
-import { categoryLabel } from "@/domain/labels";
+import { kindDisplay } from "@/domain/contractKinds";
 import { formatKRW, formatWonCompact } from "@/domain/money";
 import { attentionItems } from "@/domain/nextAction";
 import { monthSpending } from "@/domain/spending";
@@ -185,12 +185,12 @@ export default function HomeScreen() {
           </AppText>
         ) : null}
 
-        {view.spending.byCategory.length > 0 ? (
+        {view.spending.byKind.length > 0 ? (
           <View style={styles.breakdown}>
-            {view.spending.byCategory.map((c) => (
-              <View key={c.category} style={styles.breakdownRow}>
+            {view.spending.byKind.map((c) => (
+              <View key={c.label} style={styles.breakdownRow}>
                 <AppText variant="body2" color="textSecondary">
-                  {categoryLabel(c.category)}
+                  {c.label}
                 </AppText>
                 <Amount value={c.amount} variant="body2" />
               </View>
@@ -313,7 +313,7 @@ export default function HomeScreen() {
               title={contract.title}
               subtitle={[
                 contract.counterparty,
-                categoryLabel(contract.category),
+                kindDisplay(contract).label,
               ]
                 .filter(Boolean)
                 .join(" · ")}

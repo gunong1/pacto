@@ -265,3 +265,186 @@ export const DATE_KIND_CODES = DATE_KIND_DEFS.map((d) => d.code);
 export const CHECK_TOPIC_CODES = CHECK_TOPIC_DEFS.map((d) => d.code);
 /** 상세 속성 저장 키 전체 (유형 무관, 중복 제거) */
 export const DETAIL_DB_KEYS = [...new Set(DETAIL_FIELD_DEFS.map((d) => d.db))];
+
+// ===================================================================================================
+// 계약 종류 (contract_kind) — 사용자에게 보여주는 단일 기준값 (2026-10 분류 개편)
+//
+// 계약 종류 = 계약의 본질 (무엇을 제공·사용·보장·대여·이전하는 관계인가). 결제 방식(월납·연납·일시불·분납)과 무관하다.
+// 자동 분석(AI)·직접 입력 추천·수정 화면이 모두 이 정의 하나를 쓴다.
+// - subtypes: 상세 분류 (AI 내부·"+ 상세 분류"에서만 보여줌)
+// - profile: 화면 이름·유형별 속성·날짜 우선순위 묶음 (contractTypes.ts PROFILES 키). 결제 방식을 뜻하지 않는다
+// - legacy: 하위 호환값 (contracts.contract_type·category). 예전 앱·예전 데이터용 — 새 코드는 계약 종류가 있으면 읽지 않는다
+// - nameHints: 직접 입력 계약명 추천 단서 (공백 없이 소문자, 추천일 뿐 확정 아님 — categorySuggestion.ts)
+// "자동차"는 종류가 아니라 대상(domain)이다: 자동차보험 = 보험/auto, 장기렌트 = 렌탈/vehicle, 할부 = 할부/vehicle …
+// ===================================================================================================
+export interface ContractKindDef {
+  code: string;
+  label: string;
+  /** AI 판단 기준 (지시문에 그대로 들어감) */
+  guide: string;
+  examples: string;
+  subtypes: readonly { code: string; label: string }[];
+  profile: (typeof CONTRACT_TYPE_DEFS)[number]['code'];
+  legacy: { type: (typeof CONTRACT_TYPE_DEFS)[number]['code']; category: (typeof CATEGORY_DEFS)[number]['code'] };
+  nameHints?: readonly string[];
+}
+
+export const CONTRACT_KIND_DEFS: readonly ContractKindDef[] = [
+  {
+    code: 'employment', label: '근로', examples: '정규직 · 계약직 · 아르바이트',
+    guide: '사용자가 근로자로서 회사·고용주에게 노동을 제공하고 임금을 받는 고용 관계 (근로자/사용자, 임금·근무시간·근무장소·휴가·수습·퇴직·4대보험). 사람이 일을 한다는 이유만으로 용역으로 보지 않는다 — 고용 관계가 핵심이면 근로',
+    subtypes: [{ code: 'full_time', label: '정규직' }, { code: 'fixed_term', label: '계약직' }, { code: 'part_time', label: '단시간·아르바이트' }],
+    profile: 'employment', legacy: { type: 'employment', category: 'employment' },
+  },
+  {
+    code: 'lease', label: '부동산·임대차', examples: '전세 · 월세 · 반전세 · 상가 임대차',
+    guide: '토지·주택·상가·사무실 등 부동산의 사용·점유를 제공하는 계약 (임대인/임차인, 보증금·월세·차임·전세, 목적물·입주·임대차기간). 정수기·기계 같은 물건 대여는 렌탈',
+    subtypes: [{ code: 'housing', label: '주택' }, { code: 'commercial', label: '상가' }, { code: 'office', label: '사무실' }, { code: 'land', label: '토지' }],
+    profile: 'lease', legacy: { type: 'lease', category: 'real_estate' },
+  },
+  {
+    code: 'loan', label: '대출', examples: '신용 · 담보 · 전세자금 · 자동차 대출',
+    guide: '금전을 빌리고 원금(+이자)을 상환하는 계약 (대출원금·금리·원리금·상환·만기·대출 실행일). 담보가 자동차·부동산이어도 본질이 자금 대여면 대출',
+    subtypes: [{ code: 'credit', label: '신용대출' }, { code: 'mortgage', label: '주택담보대출' }, { code: 'jeonse_loan', label: '전세자금대출' }, { code: 'auto_loan', label: '자동차 대출' }, { code: 'auto_lease', label: '자동차 금융리스' }],
+    profile: 'loan', legacy: { type: 'loan', category: 'finance' },
+  },
+  {
+    code: 'insurance', label: '보험', examples: '자동차 · 실손 · 종신 · 화재 보험',
+    guide: '보험료를 내고 특정 위험이 생기면 보장·보험금을 받는 계약 (보험계약자·피보험자·보험료·보험기간·보장·보험금·특약). 자동차보험도 보험',
+    subtypes: [{ code: 'auto', label: '자동차보험' }, { code: 'health', label: '건강·실손보험' }, { code: 'life', label: '생명보험' }, { code: 'fire', label: '화재보험' }, { code: 'liability', label: '배상책임보험' }, { code: 'travel', label: '여행자보험' }],
+    profile: 'insurance', legacy: { type: 'insurance', category: 'insurance' },
+    nameHints: ['보험', '실손', '실비', '삼성화재', '메리츠화재', '현대해상', 'db손해', 'kb손해', '삼성생명', '한화생명', '교보생명'],
+  },
+  {
+    code: 'telecom', label: '통신', examples: '휴대폰 · 인터넷 · IPTV',
+    guide: '통신망·통신 서비스 이용이 핵심인 계약 (휴대전화 요금제·인터넷·IPTV·유선전화·알뜰폰·회선). 단말기 할부가 함께 있어도 주된 대상이 통신 서비스면 통신 (할부는 함께 포함된 요소)',
+    subtypes: [{ code: 'mobile', label: '휴대전화' }, { code: 'internet', label: '인터넷' }, { code: 'iptv', label: 'IPTV' }, { code: 'landline', label: '유선전화' }],
+    profile: 'recurring', legacy: { type: 'recurring', category: 'telecom' },
+    nameHints: ['skt', 'sk텔레콤', 'kt', 'lgu+', 'lg유플러스', '유플러스', '알뜰폰', '통신', '휴대폰요금', '핸드폰요금'],
+  },
+  {
+    code: 'subscription_membership', label: '구독·회원권', examples: 'OTT · 음악 · SaaS · 헬스장 · 필라테스',
+    guide: '서비스·콘텐츠·플랫폼·소프트웨어·시설을 계속 이용할 권한(사용권·접근권)을 받는 계약 (서비스 이용·계정·구독·회원권·이용권·플랫폼·SaaS). 월 결제라서가 아니라 지속적인 이용 권한을 받기 때문에 구독·회원권. 소프트웨어 사용권은 렌탈이 아님',
+    subtypes: [{ code: 'software_saas', label: '소프트웨어·SaaS' }, { code: 'streaming', label: '영상·음악 스트리밍' }, { code: 'fitness_membership', label: '피트니스·운동' }, { code: 'online_platform', label: '온라인 플랫폼' }, { code: 'content_subscription', label: '콘텐츠 구독' }],
+    profile: 'recurring', legacy: { type: 'recurring', category: 'subscription' },
+    nameHints: ['구독', '유튜브', 'youtube', '넷플릭스', 'netflix', '티빙', 'tving', '디즈니+', '디즈니플러스', 'disney+', 'disneyplus', '왓챠', 'watcha', '웨이브', 'wavve', '쿠팡플레이', '스포티파이', 'spotify', '멜론', '지니뮤직', '애플뮤직', 'applemusic', '애플tv', 'appletv', '헬스', '피트니스', 'fitness', 'pt', '퍼스널트레이닝', '필라테스', '요가', '크로스핏', '회원권'],
+  },
+  {
+    code: 'rental', label: '렌탈', examples: '정수기 · 비데 · 복합기 · 자동차 장기렌트',
+    guide: '물리적인 물건·장비를 소유하지 않고 일정 기간 빌려 쓰는 계약 (렌탈·대여·렌탈기간·렌탈료·반납·설치·장비 회수, 만료 후 소유권 이전 조건이 있을 수 있음). 렌탈료를 36회 내도 렌탈 (할부 아님)',
+    subtypes: [{ code: 'appliance', label: '가전·생활기기' }, { code: 'vehicle', label: '자동차' }, { code: 'vehicle_lease', label: '자동차 운용리스' }, { code: 'equipment', label: '장비·기계' }, { code: 'office_device', label: '사무기기' }],
+    profile: 'recurring', legacy: { type: 'recurring', category: 'rental' },
+    nameHints: ['렌탈', '정수기', '비데', '안마의자', '코웨이', '청호나이스', 'sk매직'],
+  },
+  {
+    code: 'installment', label: '할부', examples: '자동차 할부 · 물품 할부 구매',
+    guide: '상품·자산을 사면서(소유권 취득) 대금을 여러 회차로 나눠 내는 것이 핵심인 계약 (할부원금·할부기간·총 회차·월 할부금). 서비스 이용료를 매월 내는 것은 할부가 아님',
+    subtypes: [{ code: 'vehicle', label: '자동차' }, { code: 'goods', label: '물품' }, { code: 'device', label: '휴대폰·단말' }],
+    profile: 'installment', legacy: { type: 'installment', category: 'vehicle' },
+  },
+  {
+    code: 'sale', label: '매매', examples: '부동산 · 자동차 · 물품 매매',
+    guide: '상품·자산의 소유권을 대가를 받고 최종적으로 넘기는 계약 (매도인/매수인·매매대금·소유권 이전·계약금/중도금/잔금·인도). 부동산 매매도 매매',
+    subtypes: [{ code: 'real_estate', label: '부동산' }, { code: 'vehicle', label: '자동차' }, { code: 'goods', label: '물품' }, { code: 'business_transfer', label: '사업 양수도' }],
+    profile: 'sale', legacy: { type: 'sale', category: 'sale' },
+  },
+  {
+    code: 'service', label: '용역·프리랜서', examples: '외주 개발 · 디자인 · 컨설팅 · 유지보수 위탁',
+    guide: '사람·업체가 특정 업무·작업·프로젝트·결과물을 수행해 주고 대가를 받는 계약 (용역 수행·업무 위탁·결과물·납품·업무 범위·완료 기준·용역비). "서비스"라는 단어만으로 용역이 아님: 서비스를 이용하면 구독·회원권, 업무를 수행해 주면 용역',
+    subtypes: [{ code: 'development', label: '개발' }, { code: 'design', label: '디자인' }, { code: 'consulting', label: '컨설팅' }, { code: 'maintenance', label: '유지보수' }, { code: 'content_production', label: '콘텐츠 제작' }],
+    profile: 'service', legacy: { type: 'service', category: 'service' },
+  },
+  {
+    code: 'education', label: '교육', examples: '학원 · 과외 · 온라인 강의 · 직업교육',
+    guide: '교육·강의 제공 자체가 핵심인 계약 (학원·과외·수강·교육 프로그램). 강의가 아니라 콘텐츠 플랫폼 이용권이 핵심이면 구독·회원권',
+    subtypes: [{ code: 'academy', label: '학원' }, { code: 'tutoring', label: '과외' }, { code: 'online_course', label: '온라인 강의' }, { code: 'vocational', label: '직업교육' }],
+    profile: 'recurring', legacy: { type: 'recurring', category: 'education' },
+  },
+  {
+    code: 'business', label: '사업·거래', examples: '공급 기본계약 · 제휴 · 유통 · 판매대행',
+    guide: '기업 간 포괄적 거래 관계로 매매·용역·렌탈·구독 중 하나로 보기 어려운 경우 (공급 기본계약·장기 거래·제휴·유통·판매대행). B2B라는 이유만으로 고르지 않고, 더 구체적인 종류가 있으면 그쪽',
+    subtypes: [{ code: 'supply', label: '공급' }, { code: 'partnership', label: '제휴' }, { code: 'distribution', label: '유통' }, { code: 'agency', label: '판매대행' }],
+    profile: 'other', legacy: { type: 'other', category: 'business' },
+  },
+  {
+    code: 'other', label: '기타', examples: '위에 해당하지 않는 계약',
+    guide: '위 종류 어느 것으로도 본질을 표현하기 어려울 때만. 확신이 없다는 이유로 고르지 않는다 (먼저 상위 후보 2개를 비교)',
+    subtypes: [],
+    profile: 'other', legacy: { type: 'other', category: 'other' },
+  },
+];
+
+/** 판단 우선순위 — 단어 수가 아니라 주된 법률관계·경제적 목적 (지시문에 그대로) */
+export const CLASSIFICATION_PRIORITY: readonly string[] = [
+  '보험 관계가 핵심 → insurance',
+  '자금 대여가 핵심 → loan',
+  '고용 관계가 핵심 → employment',
+  '소유권 이전이 핵심 → sale',
+  '부동산 사용권 → lease',
+  '물리적 자산 대여 → rental',
+  '상품 구매의 분할 지급 → installment',
+  '통신망 이용 → telecom',
+  '서비스·플랫폼·시설 이용권 → subscription_membership',
+  '업무 수행·결과물 제공 → service',
+  '교육 제공 → education',
+  '대상(자동차·부동산·소프트웨어)보다 계약 관계(보험·대출·렌탈·매매)가 더 구체적이면 계약 관계를 주 분류로, 대상은 domains에',
+];
+
+/** 계약 대상 (domain) — 종류와 관계없이 "자동차 관련 계약 전체"처럼 찾기 위한 내부 메타데이터. 사용자가 입력하지 않는다 */
+export const CONTRACT_DOMAIN_DEFS = [
+  { code: 'vehicle', label: '자동차' },
+  { code: 'real_estate', label: '부동산' },
+  { code: 'software', label: '소프트웨어' },
+  { code: 'mobile_device', label: '휴대폰·단말' },
+  { code: 'appliance', label: '가전·생활기기' },
+  { code: 'health', label: '건강·의료' },
+] as const;
+
+export const CONTRACT_KIND_CODES = CONTRACT_KIND_DEFS.map((d) => d.code);
+export const CONTRACT_DOMAIN_CODES = CONTRACT_DOMAIN_DEFS.map((d) => d.code);
+/** 상세 분류 코드 전체 (종류가 달라도 같은 코드가 있을 수 있다 — 저장·검증은 (종류, 상세 분류) 쌍으로) */
+export const CONTRACT_SUBTYPE_CODES = [...new Set(CONTRACT_KIND_DEFS.flatMap((k) => k.subtypes.map((s) => s.code)))];
+
+export const contractKindDef = (code: string | null | undefined): ContractKindDef | undefined => CONTRACT_KIND_DEFS.find((k) => k.code === code);
+export const contractKindLabel = (code: string | null | undefined): string => contractKindDef(code)?.label ?? '기타';
+export const contractSubtypeLabel = (kind: string | null | undefined, subtype: string | null | undefined): string | null =>
+  contractKindDef(kind)?.subtypes.find((s) => s.code === subtype)?.label ?? null;
+export const isSubtypeOf = (kind: string, subtype: string): boolean => !!contractKindDef(kind)?.subtypes.some((s) => s.code === subtype);
+
+// ===================================================================================================
+// 계약 정보 ↔ PACTO 계약 체크 — 의미 키(semantic key)와 체크 정책
+//
+// 계약 정보 = 사실 / 계약 체크 = 그 사실 때문에 사용자가 해야 할 일·주의할 위험.
+// 체크는 의미 키 하나로 묶인다 (문장이 달라도 같은 의미면 하나). 정책:
+//   none: 사실 — 같은 의미의 계약 정보(facts)가 있고 행동·금액·위험·날짜가 없으면 체크를 만들지 않는다
+//   deadline: 날짜까지 해야 할 일 — 구조화 값(통보기한 일수 + 종료일)이 있으면 체크가 없어도 서버가 하나 파생 (derivedFrom 기록)
+//   caution: 주의할 위험 (원상복구·손해배상 …) / conditional: 상황이 생길 때만 (중도해지·연체 …) / actionable: 해야 할 일
+// topics: 이 의미에 해당하는 체크 주제. facts: 같은 사실을 담는 계약 정보 (details.<db키> · payments.<kind>)
+// ===================================================================================================
+export const CHECK_POLICIES = ['none', 'actionable', 'caution', 'deadline', 'conditional'] as const;
+export type CheckPolicy = (typeof CHECK_POLICIES)[number];
+
+export const SEMANTIC_KEY_DEFS: readonly { key: string; label: string; policy: CheckPolicy; topics: readonly string[]; facts?: readonly string[]; action?: string }[] = [
+  { key: 'renewal_decision', label: '갱신 여부 확인', policy: 'deadline', topics: ['renewal_terms'], action: '갱신 여부 확인' },
+  { key: 'termination_notice', label: '해지·갱신 통보', policy: 'deadline', topics: [], action: '해지 여부 결정·통보' },
+  { key: 'auto_renewal', label: '자동갱신', policy: 'caution', topics: ['auto_renewal'] },
+  { key: 'deposit_return', label: '보증금 반환', policy: 'none', topics: ['deposit_return'], facts: ['details.deposit_return_terms'] },
+  { key: 'maintenance_fee', label: '관리비', policy: 'none', topics: ['maintenance_fee'], facts: ['payments.maintenance_fee'] },
+  { key: 'wage', label: '급여', policy: 'none', topics: ['wage'], facts: ['payments.salary'] },
+  { key: 'working_hours', label: '근로시간', policy: 'none', topics: ['working_hours'], facts: ['details.work_hours'] },
+  // 수습기간은 임금 감액 등 주의할 조건이 함께 있는 경우가 많아 사실 전용(none)으로 두지 않는다
+  { key: 'probation', label: '수습기간', policy: 'caution', topics: ['probation'] },
+  { key: 'early_termination', label: '중도해지', policy: 'conditional', topics: ['early_termination'] },
+  { key: 'overdue', label: '연체', policy: 'conditional', topics: ['overdue'] },
+  { key: 'penalty', label: '손해배상·위약금', policy: 'caution', topics: ['damages'] },
+  { key: 'restoration', label: '원상복구', policy: 'caution', topics: ['restoration'] },
+];
+
+/** 통보기한 의미(noticeKind)별 체크 의미 키 — 갱신 협의는 renewal_decision, 그 외 통보는 termination_notice */
+export const NOTICE_SEMANTIC_KEY: Record<string, string> = {
+  renewal_decision: 'renewal_decision',
+  termination_notice: 'termination_notice',
+  renewal_notice: 'termination_notice',
+  unknown: 'termination_notice',
+};
+export const semanticKeyDef = (key: string | null | undefined) => SEMANTIC_KEY_DEFS.find((d) => d.key === key);

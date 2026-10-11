@@ -1,3 +1,4 @@
+import { kindDisplay } from './contractKinds';
 import { isConfirmedPayment } from './contractTypes';
 import { amountAt } from './paymentAmount';
 import { monthRange, type YearMonth } from './dates';
@@ -7,6 +8,8 @@ import type { ContractCategory, ContractPayment, ContractRecord, Direction, ISOD
 export interface SpendingItem extends PaymentOccurrence {
   contractTitle: string;
   category: ContractCategory;
+  /** 계약 종류 이름 (화면 표시용 — 분류 개편 전 계약은 예전 이름) */
+  kindLabel: string;
 }
 
 export interface CategorySpending {
@@ -19,6 +22,8 @@ export interface MonthSpending {
   /** 이번 달 실제 결제 예정액 (연납은 결제되는 달에만 포함). */
   total: number;
   byCategory: CategorySpending[];
+  /** 계약 종류별 지출 (화면 표시) — 내부 분야값을 사용자에게 보여주지 않는다 */
+  byKind: { label: string; amount: number }[];
   items: SpendingItem[];
   hasEstimated: boolean;
   /** 이번 달 오가는 보증금 등 중립 금액 (지출·수입 합계 제외) */
@@ -35,6 +40,7 @@ function occurrencesIn(records: ContractRecord[], start: ISODate, end: ISODate, 
         ...o,
         contractTitle: contract.title,
         category: contract.category,
+        kindLabel: kindDisplay(contract).label,
       })),
     ),
   );
@@ -46,12 +52,15 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth): MonthSp
   const items = occurrencesIn(records, start, end).sort((a, b) => a.date.localeCompare(b.date));
   const byCat = new Map<ContractCategory, number>();
   for (const i of items) byCat.set(i.category, (byCat.get(i.category) ?? 0) + i.amount);
+  const byKind = new Map<string, number>();
+  for (const i of items) byKind.set(i.kindLabel, (byKind.get(i.kindLabel) ?? 0) + i.amount);
   return {
     yearMonth: ym,
     total: items.reduce((sum, i) => sum + i.amount, 0),
     byCategory: [...byCat.entries()]
       .map(([category, amount]) => ({ category, amount }))
       .sort((a, b) => b.amount - a.amount),
+    byKind: [...byKind.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount),
     items,
     hasEstimated: items.some((i) => i.estimated),
     depositTotal: occurrencesIn(records, start, end, 'neutral').reduce((sum, o) => sum + o.amount, 0),

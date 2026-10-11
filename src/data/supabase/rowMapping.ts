@@ -2,6 +2,7 @@
  * DB 행 → 도메인 기록 (앱 저장소와 서버 알림 계획이 같은 변환을 쓴다 — Edge Function용 번들에 포함)
  * 이 파일은 Supabase 클라이언트를 import하지 않는다.
  */
+import { profileKeyOf, type ClassificationMeta } from '@/domain/contractKinds';
 import { isNoticeKind } from '@/domain/noticeKind';
 import { detailsFromDb } from '@/domain/contractTypes';
 import type {
@@ -153,14 +154,38 @@ function toDocument(r: DocumentRow): ContractDocument {
   };
 }
 
+/** 분류 메타데이터 (형식이 틀린 값은 버린다) */
+export function toClassification(raw: unknown): ClassificationMeta {
+  const o = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const conf = o.confidence === 'high' || o.confidence === 'medium' || o.confidence === 'low' ? o.confidence : null;
+  const ev = o.evidence && typeof o.evidence === 'object' ? (o.evidence as Record<string, unknown>) : null;
+  const source = o.source === 'ai' || o.source === 'user' || o.source === 'suggested' ? o.source : null;
+  return {
+    confidence: conf,
+    alternatives: strings(o.alternatives),
+    reason: typeof o.reason === 'string' ? o.reason : null,
+    evidence: ev && typeof ev.quote === 'string' ? { quote: ev.quote, page: typeof ev.page === 'number' ? ev.page : null, fileIndex: typeof ev.fileIndex === 'number' ? ev.fileIndex : null } : null,
+    secondaryElements: (Array.isArray(o.secondaryElements) ? o.secondaryElements : [])
+      .filter((x): x is { kind: string; note: string } => !!x && typeof x === 'object' && typeof (x as { kind?: unknown }).kind === 'string')
+      .map((x) => ({ kind: x.kind, note: typeof x.note === 'string' ? x.note : '' })),
+    domains: strings(o.domains),
+    source,
+  };
+}
+
 function toContract(r: Row<'contracts'>): Contract {
   return {
     id: r.id,
     title: r.title,
-    // 앱이 모르는 코드(나중에 DB 레지스트리에 추가된 분야·유형)도 그대로 보존한다 — 화면은 '기타'로 표시
+    // 계약 종류(기준값) — 분류 개편 전 계약은 null (자동 변경하지 않음)
+    contractKind: r.contract_kind ?? null,
+    contractSubtype: r.contract_subtype ?? null,
+    classification: toClassification(r.classification),
+    // 하위 호환값. 앱이 모르는 코드(나중에 DB 레지스트리에 추가된 분야·유형)도 그대로 보존한다 — 화면은 '기타'로 표시
     category: r.category as Contract['category'],
     contractType: r.contract_type as Contract['contractType'],
-    details: detailsFromDb(r.contract_type, r.contract_details),
+    details: detailsFromDb(profileKeyOf({ contractKind: r.contract_kind ?? null, contractType: r.contract_type as Contract['contractType'] }), r.contract_details),
     referenceAmounts: toReferenceAmounts(r.reference_amounts),
     valueSources: (r.value_sources && typeof r.value_sources === 'object' && !Array.isArray(r.value_sources) ? r.value_sources : {}) as Contract['valueSources'],
     counterparty: r.counterparty,
