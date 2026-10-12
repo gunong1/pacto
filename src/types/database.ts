@@ -157,6 +157,44 @@ isOneToOne: true
       referencedColumns: ["id"]
     }
                   ]
+                },"contract_funds": {
+                  Row: {
+                    "contract_id": string,"created_at": string,"depositor_role": string | null,"holder_role": string | null,"id": string,"kind": string,"label": string,"return_due_on": string | null,"sort_order": number,"total_amount": number | null,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "contract_id": string,"created_at"?: string,"depositor_role"?: string | null,"holder_role"?: string | null,"id"?: string,"kind"?: string,"label"?: string,"return_due_on"?: string | null,"sort_order"?: number,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string
+                  }
+                  Update: {
+                    "contract_id"?: string,"created_at"?: string,"depositor_role"?: string | null,"holder_role"?: string | null,"id"?: string,"kind"?: string,"label"?: string,"return_due_on"?: string | null,"sort_order"?: number,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "contract_funds_contract_id_fkey"
+      columns: ["contract_id"]
+isOneToOne: false
+      referencedRelation: "contracts"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"fund_refunds": {
+                  Row: {
+                    "amount": number,"created_at": string,"fund_id": string,"id": string,"note": string | null,"refunded_on": string,"updated_at": string,"user_id": string
+                  }
+                  Insert: {
+                    "amount": number,"created_at"?: string,"fund_id": string,"id"?: string,"note"?: string | null,"refunded_on": string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Update: {
+                    "amount"?: number,"created_at"?: string,"fund_id"?: string,"id"?: string,"note"?: string | null,"refunded_on"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "fund_refunds_fund_id_fkey"
+      columns: ["fund_id"]
+isOneToOne: false
+      referencedRelation: "contract_funds"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"contract_payment_changes": {
                   Row: {
                     "amount": number,"change_reason": string | null,"created_at": string,"day_of_month": number | null,"effective_from": string,"id": string,"payment_id": string,"source_document_id": string | null,"updated_at": string,"user_id": string
@@ -184,13 +222,13 @@ isOneToOne: false
                   ]
                 },"contract_payments": {
                   Row: {
-                    "amount": number,"business_day_rule": string,"components": NonNullable<Json>,"condition_note": string | null,"contract_id": string,"created_at": string,"currency": string,"day_of_month": number | null,"direction": string,"ends_on": string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id": string,"installment_count": number | null,"is_variable": boolean,"kind": string,"label": string,"month_of_year": number | null,"obligation": string,"sort_order": number,"starts_on": string,"updated_at": string,"user_id": string
+                    "amount": number,"business_day_rule": string,"components": NonNullable<Json>,"condition_note": string | null,"contract_id": string,"created_at": string,"currency": string,"day_of_month": number | null,"direction": string,"ends_on": string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id": string,"installment_count": number | null,"is_variable": boolean,"kind": string,"label": string,"month_of_year": number | null,"obligation": string,"sort_order": number,"starts_on": string,"updated_at": string,"user_id": string,"money_nature": string | null,"direction_basis": string | null,"payer_role": string | null,"payee_role": string | null,"fund_id": string | null
                   }
                   Insert: {
-                    "amount": number,"business_day_rule"?: string,"components"?: NonNullable<Json>,"condition_note"?: string | null,"contract_id": string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"direction"?: string,"ends_on"?: string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: string,"label"?: string,"month_of_year"?: number | null,"obligation"?: string,"sort_order"?: number,"starts_on": string,"updated_at"?: string,"user_id"?: string
+                    "amount": number,"business_day_rule"?: string,"components"?: NonNullable<Json>,"condition_note"?: string | null,"contract_id": string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"direction"?: string,"ends_on"?: string | null,"frequency": Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: string,"label"?: string,"month_of_year"?: number | null,"obligation"?: string,"sort_order"?: number,"starts_on": string,"updated_at"?: string,"user_id"?: string,"money_nature"?: string | null,"direction_basis"?: string | null,"payer_role"?: string | null,"payee_role"?: string | null,"fund_id"?: string | null
                   }
                   Update: {
-                    "amount"?: number,"business_day_rule"?: string,"components"?: NonNullable<Json>,"condition_note"?: string | null,"contract_id"?: string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"direction"?: string,"ends_on"?: string | null,"frequency"?: Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: string,"label"?: string,"month_of_year"?: number | null,"obligation"?: string,"sort_order"?: number,"starts_on"?: string,"updated_at"?: string,"user_id"?: string
+                    "amount"?: number,"business_day_rule"?: string,"components"?: NonNullable<Json>,"condition_note"?: string | null,"contract_id"?: string,"created_at"?: string,"currency"?: string,"day_of_month"?: number | null,"direction"?: string,"ends_on"?: string | null,"frequency"?: Database["public"]['Enums']["payment_frequency"],"id"?: string,"installment_count"?: number | null,"is_variable"?: boolean,"kind"?: string,"label"?: string,"month_of_year"?: number | null,"obligation"?: string,"sort_order"?: number,"starts_on"?: string,"updated_at"?: string,"user_id"?: string,"money_nature"?: string | null,"direction_basis"?: string | null,"payer_role"?: string | null,"payee_role"?: string | null,"fund_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -222,13 +260,13 @@ isOneToOne: false
                   ]
                 },"contracts": {
                   Row: {
-                    "ai_checks": NonNullable<Json>,"analysis_job_id": string | null,"auto_renewal": boolean,"category": string,"contract_date": string | null,"classification": NonNullable<Json>,"contract_details": NonNullable<Json>,"contract_kind": string | null,"contract_subtype": string | null,"contract_type": string,"counterparty": string | null,"parties": Json,"user_party_role": string | null,"created_at": string,"currency": string,"deposit_amount": number | null,"early_termination_terms": string | null,"end_date": string | null,"id": string,"lifecycle": Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on": string | null,"memo": string | null,"notice_kind": string,"notifications_enabled": boolean,"penalty_terms": string | null,"reference_amounts": NonNullable<Json>,"renewal_period_months": number | null,"source": Database["public"]['Enums']["contract_source"],"start_date": string | null,"termination_notice_days": number | null,"title": string,"total_amount": number | null,"updated_at": string,"user_id": string,"value_sources": NonNullable<Json>
+                    "ai_checks": NonNullable<Json>,"analysis_job_id": string | null,"auto_renewal": boolean,"category": string,"contract_date": string | null,"classification": NonNullable<Json>,"contract_details": NonNullable<Json>,"contract_kind": string | null,"contract_subtype": string | null,"contract_type": string,"counterparty": string | null,"parties": Json,"user_party_role": string | null,"created_at": string,"currency": string,"deposit_amount": number | null,"early_termination_terms": string | null,"end_date": string | null,"id": string,"lifecycle": Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on": string | null,"memo": string | null,"notice_kind": string,"notifications_enabled": boolean,"penalty_terms": string | null,"reference_amounts": NonNullable<Json>,"renewal_period_months": number | null,"source": Database["public"]['Enums']["contract_source"],"start_date": string | null,"termination_notice_days": number | null,"title": string,"total_amount": number | null,"updated_at": string,"user_id": string,"value_sources": NonNullable<Json>,"user_party_relation": string | null
                   }
                   Insert: {
-                    "ai_checks"?: NonNullable<Json>,"analysis_job_id"?: string | null,"auto_renewal"?: boolean,"category"?: string,"contract_date"?: string | null,"classification"?: NonNullable<Json>,"contract_details"?: NonNullable<Json>,"contract_kind"?: string | null,"contract_subtype"?: string | null,"contract_type"?: string,"counterparty"?: string | null,"parties"?: Json,"user_party_role"?: string | null,"created_at"?: string,"currency"?: string,"deposit_amount"?: number | null,"early_termination_terms"?: string | null,"end_date"?: string | null,"id"?: string,"lifecycle"?: Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on"?: string | null,"memo"?: string | null,"notice_kind"?: string,"notifications_enabled"?: boolean,"penalty_terms"?: string | null,"reference_amounts"?: NonNullable<Json>,"renewal_period_months"?: number | null,"source"?: Database["public"]['Enums']["contract_source"],"start_date"?: string | null,"termination_notice_days"?: number | null,"title": string,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string,"value_sources"?: NonNullable<Json>
+                    "ai_checks"?: NonNullable<Json>,"analysis_job_id"?: string | null,"auto_renewal"?: boolean,"category"?: string,"contract_date"?: string | null,"classification"?: NonNullable<Json>,"contract_details"?: NonNullable<Json>,"contract_kind"?: string | null,"contract_subtype"?: string | null,"contract_type"?: string,"counterparty"?: string | null,"parties"?: Json,"user_party_role"?: string | null,"created_at"?: string,"currency"?: string,"deposit_amount"?: number | null,"early_termination_terms"?: string | null,"end_date"?: string | null,"id"?: string,"lifecycle"?: Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on"?: string | null,"memo"?: string | null,"notice_kind"?: string,"notifications_enabled"?: boolean,"penalty_terms"?: string | null,"reference_amounts"?: NonNullable<Json>,"renewal_period_months"?: number | null,"source"?: Database["public"]['Enums']["contract_source"],"start_date"?: string | null,"termination_notice_days"?: number | null,"title": string,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string,"value_sources"?: NonNullable<Json>,"user_party_relation"?: string | null
                   }
                   Update: {
-                    "ai_checks"?: NonNullable<Json>,"analysis_job_id"?: string | null,"auto_renewal"?: boolean,"category"?: string,"contract_date"?: string | null,"classification"?: NonNullable<Json>,"contract_details"?: NonNullable<Json>,"contract_kind"?: string | null,"contract_subtype"?: string | null,"contract_type"?: string,"counterparty"?: string | null,"parties"?: Json,"user_party_role"?: string | null,"created_at"?: string,"currency"?: string,"deposit_amount"?: number | null,"early_termination_terms"?: string | null,"end_date"?: string | null,"id"?: string,"lifecycle"?: Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on"?: string | null,"memo"?: string | null,"notice_kind"?: string,"notifications_enabled"?: boolean,"penalty_terms"?: string | null,"reference_amounts"?: NonNullable<Json>,"renewal_period_months"?: number | null,"source"?: Database["public"]['Enums']["contract_source"],"start_date"?: string | null,"termination_notice_days"?: number | null,"title"?: string,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string,"value_sources"?: NonNullable<Json>
+                    "ai_checks"?: NonNullable<Json>,"analysis_job_id"?: string | null,"auto_renewal"?: boolean,"category"?: string,"contract_date"?: string | null,"classification"?: NonNullable<Json>,"contract_details"?: NonNullable<Json>,"contract_kind"?: string | null,"contract_subtype"?: string | null,"contract_type"?: string,"counterparty"?: string | null,"parties"?: Json,"user_party_role"?: string | null,"created_at"?: string,"currency"?: string,"deposit_amount"?: number | null,"early_termination_terms"?: string | null,"end_date"?: string | null,"id"?: string,"lifecycle"?: Database["public"]['Enums']["contract_lifecycle"],"lifecycle_changed_on"?: string | null,"memo"?: string | null,"notice_kind"?: string,"notifications_enabled"?: boolean,"penalty_terms"?: string | null,"reference_amounts"?: NonNullable<Json>,"renewal_period_months"?: number | null,"source"?: Database["public"]['Enums']["contract_source"],"start_date"?: string | null,"termination_notice_days"?: number | null,"title"?: string,"total_amount"?: number | null,"updated_at"?: string,"user_id"?: string,"value_sources"?: NonNullable<Json>,"user_party_relation"?: string | null
                   }
                   Relationships: [
                     {
@@ -355,13 +393,13 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "ai_processing_agreed_at": string | null,"avatar_path": string | null,"created_at": string,"display_name": string | null,"id": string,"onboarding_completed_at": string | null,"privacy_agreed_at": string | null,"push_preview_enabled": boolean,"terms_agreed_at": string | null,"timezone": string,"updated_at": string
+                    "ai_processing_agreed_at": string | null,"avatar_path": string | null,"created_at": string,"display_name": string | null,"id": string,"onboarding_completed_at": string | null,"privacy_agreed_at": string | null,"push_preview_enabled": boolean,"terms_agreed_at": string | null,"timezone": string,"updated_at": string,"contract_names": string[],"contract_names_skipped_at": string | null
                   }
                   Insert: {
-                    "ai_processing_agreed_at"?: string | null,"avatar_path"?: string | null,"created_at"?: string,"display_name"?: string | null,"id": string,"onboarding_completed_at"?: string | null,"privacy_agreed_at"?: string | null,"push_preview_enabled"?: boolean,"terms_agreed_at"?: string | null,"timezone"?: string,"updated_at"?: string
+                    "ai_processing_agreed_at"?: string | null,"avatar_path"?: string | null,"created_at"?: string,"display_name"?: string | null,"id": string,"onboarding_completed_at"?: string | null,"privacy_agreed_at"?: string | null,"push_preview_enabled"?: boolean,"terms_agreed_at"?: string | null,"timezone"?: string,"updated_at"?: string,"contract_names"?: string[],"contract_names_skipped_at"?: string | null
                   }
                   Update: {
-                    "ai_processing_agreed_at"?: string | null,"avatar_path"?: string | null,"created_at"?: string,"display_name"?: string | null,"id"?: string,"onboarding_completed_at"?: string | null,"privacy_agreed_at"?: string | null,"push_preview_enabled"?: boolean,"terms_agreed_at"?: string | null,"timezone"?: string,"updated_at"?: string
+                    "ai_processing_agreed_at"?: string | null,"avatar_path"?: string | null,"created_at"?: string,"display_name"?: string | null,"id"?: string,"onboarding_completed_at"?: string | null,"privacy_agreed_at"?: string | null,"push_preview_enabled"?: boolean,"terms_agreed_at"?: string | null,"timezone"?: string,"updated_at"?: string,"contract_names"?: string[],"contract_names_skipped_at"?: string | null
                   }
                   Relationships: [
                     
@@ -442,7 +480,7 @@ isOneToOne: false
 { Args: { "p_device_id": string,"p_platform": string,"p_token": string }; Returns: undefined
                            },
 "save_contract":
-{ Args: { "p_ai_checks"?: Json,"p_amount_changes"?: Json,"p_contract": Json,"p_contract_id"?: string,"p_dates"?: Json,"p_document_ids"?: (string)[],"p_payments"?: Json }; Returns: string
+{ Args: { "p_ai_checks"?: Json,"p_amount_changes"?: Json,"p_contract": Json,"p_contract_id"?: string,"p_dates"?: Json,"p_document_ids"?: (string)[],"p_funds"?: Json,"p_payments"?: Json }; Returns: string
                            },
 "seoul_today":
 { Args: Record<PropertyKey, never>; Returns: string
