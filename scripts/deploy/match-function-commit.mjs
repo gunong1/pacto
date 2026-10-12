@@ -4,6 +4,7 @@
 // Windows에서 CRLF로 배포됐을 수 있어 줄바꿈을 LF로 바꾼 해시도 함께 비교한다.
 // 결과: 함수마다 "일치하는 가장 최근 커밋" 또는 "일치 없음(커밋되지 않은 코드가 배포됨)".
 // 일치 커밋이 있으면 그 커밋을 git worktree로 꺼내 그대로 다시 배포하는 것이 되돌리기 방법이 된다.
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
