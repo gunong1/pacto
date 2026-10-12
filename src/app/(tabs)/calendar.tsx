@@ -46,7 +46,7 @@ export default function CalendarScreen() {
   // 월 지출 합계는 이 묶음과 별개로 결제 규칙에서 직접 계산한다 (spending.ts)
   const { groups, markers, spending } = useMemo(() => {
     const list = records ?? [];
-    const groups = groupCalendarItems(scheduleForRange(list, monthRange(ym), today));
+    const groups = groupCalendarItems(scheduleForRange(list, monthRange(ym), today), today);
     const spending = monthSpending(list, ym);
     return { groups, markers: dayMarkers(groups), spending };
   }, [records, ym, today]);

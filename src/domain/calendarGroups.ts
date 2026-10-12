@@ -6,6 +6,8 @@
  * - 같은 의미의 시작 일정(이용 시작 + 설치일 등)은 대표 문구 하나로 보여준다 (원본은 계약 상세에서 모두 확인).
  * - 금액은 결제 항목(확정 결제만 일정에 들어온다)만 방향별로 합산한다. 시작·종료·통보기한·내 일정은 금액을 만들지 않는다.
  * - 월 지출 합계(spending.ts)는 이 요약과 무관하게 결제 규칙에서 직접 계산한다 → 묶어도 합계가 바뀌지 않는다.
+ * - 금액 문구는 오늘 기준: 앞으로 "결제 예정" / 오늘 "오늘 결제" / 지난 날짜 "결제일".
+ *   앱은 실제로 돈이 나갔는지 모르므로 "결제 완료"처럼 단정하지 않는다.
  */
 import { formatWon } from './money';
 import { NOTIFICATION_SOURCE_LABEL, type NotificationPriority } from './notificationPriority';
@@ -73,7 +75,7 @@ export interface CashflowSummary {
   total: number;
   items: CashflowLine[];
   estimated: boolean;
-  /** "49,900원 결제 예정" / "3,600,000원 급여 예정" / "500만원 · 지출 합계 제외" */
+  /** "49,900원 결제 예정"(앞으로) · "49,900원 오늘 결제" · "49,900원 결제일"(지난 날짜) / "+3,600,000원 급여 예정" / "500만원 · 지출 합계 제외" */
   headline: string;
 }
 
@@ -99,8 +101,8 @@ export interface CalendarContractGroup {
 
 const sameDay = (date: ISODate) => date.slice(0, 10);
 
-/** 같은 계약 + 같은 날짜끼리 묶는다 (날짜 → 대표 일정 중요도 → 계약 이름 순) */
-export function groupCalendarItems(items: readonly ScheduleItem[]): CalendarContractGroup[] {
+/** 같은 계약 + 같은 날짜끼리 묶는다 (날짜 → 대표 일정 중요도 → 계약 이름 순). today가 있으면 금액 문구를 오늘 기준으로 */
+export function groupCalendarItems(items: readonly ScheduleItem[], today?: ISODate): CalendarContractGroup[] {
   const buckets = new Map<string, ScheduleItem[]>();
   for (const i of items) {
     const k = `${i.contractId}|${sameDay(i.date)}`;
@@ -108,7 +110,7 @@ export function groupCalendarItems(items: readonly ScheduleItem[]): CalendarCont
     if (b) b.push(i);
     else buckets.set(k, [i]);
   }
-  const groups = [...buckets.entries()].map(([key, list]) => summarizeGroup(key, list));
+  const groups = [...buckets.entries()].map(([key, list]) => summarizeGroup(key, list, today));
   return groups.sort(
     (a, b) =>
       a.date.localeCompare(b.date) ||
@@ -119,7 +121,7 @@ export function groupCalendarItems(items: readonly ScheduleItem[]): CalendarCont
 
 const rank = (g: CalendarContractGroup) => Math.min(...g.items.map((i) => PRIORITY[i.type]));
 
-function summarizeGroup(key: string, list: ScheduleItem[]): CalendarContractGroup {
+function summarizeGroup(key: string, list: ScheduleItem[], today?: ISODate): CalendarContractGroup {
   const first = list[0];
   const sorted = [...list].sort((a, b) => PRIORITY[a.type] - PRIORITY[b.type]);
   const nonCash = sorted.filter((i) => !isCashflow(i));
@@ -165,7 +167,7 @@ function summarizeGroup(key: string, list: ScheduleItem[]): CalendarContractGrou
         }
       : null,
     priority: list.map((i) => i.priority).sort((a, b) => PRIORITY_RANK[a] - PRIORITY_RANK[b])[0],
-    cashflows: summarizeCashflows(list),
+    cashflows: summarizeCashflows(list, today ? timingOf(sameDay(first.date), today) : 'upcoming'),
     // PACTO 기본 안내는 보조 줄에 있어도 출처를 붙인다 (계약서·법령 기한으로 오해하지 않도록)
     secondaryLabels: labels.slice(1).map((l) => (l.item.source === 'pacto' ? `${l.label} (${NOTIFICATION_SOURCE_LABEL.pacto})` : l.label)),
     types: [...new Set(list.map((i) => i.type))],
@@ -180,8 +182,17 @@ function isCashflow(i: ScheduleItem): boolean {
 const DIRECTION_ORDER: Direction[] = ['expense', 'income', 'neutral'];
 const INCOME_PAY_KINDS = new Set(['salary', 'bonus']);
 
-/** 방향별 합계 — 지출은 "결제 예정", 수입은 "+… 급여 예정"/"+… 입금 예정", 중립(보증금 등)은 합계 제외 표시 */
-export function summarizeCashflows(list: readonly ScheduleItem[]): CashflowSummary[] {
+/** 일정 날짜가 오늘보다 앞인지 */
+export type CashflowTiming = 'upcoming' | 'today' | 'past';
+export const timingOf = (date: ISODate, today: ISODate): CashflowTiming => (date > today ? 'upcoming' : date === today ? 'today' : 'past');
+
+/** 금액 뒤 문구 — 앞으로: "결제 예정" / 오늘: "오늘 결제" / 지난 날짜: "결제일" (결제 완료로 단정하지 않음) */
+function whenLabel(word: string, timing: CashflowTiming): string {
+  return timing === 'upcoming' ? `${word} 예정` : timing === 'today' ? `오늘 ${word}` : `${word}일`;
+}
+
+/** 방향별 합계 — 지출은 결제, 수입은 급여/입금 (문구는 timing 기준), 중립(보증금 등)은 합계 제외 표시 */
+export function summarizeCashflows(list: readonly ScheduleItem[], timing: CashflowTiming = 'upcoming'): CashflowSummary[] {
   const cash = list.filter(isCashflow);
   return DIRECTION_ORDER.flatMap((direction) => {
     const items = cash.filter((i) => i.direction === direction);
@@ -191,9 +202,9 @@ export function summarizeCashflows(list: readonly ScheduleItem[]): CashflowSumma
     const won = `${formatWon(total)}${estimated ? ' (예상)' : ''}`;
     const headline =
       direction === 'expense'
-        ? `${won} 결제 예정`
+        ? `${won} ${whenLabel('결제', timing)}`
         : direction === 'income'
-          ? `+${won} ${items.every((i) => INCOME_PAY_KINDS.has(i.paymentKind!)) ? '급여' : '입금'} 예정`
+          ? `+${won} ${whenLabel(items.every((i) => INCOME_PAY_KINDS.has(i.paymentKind!)) ? '급여' : '입금', timing)}`
           : `${won} · 지출 합계 제외`;
     return [{ direction, total, estimated, headline, items: items.map((i) => ({ label: i.title, amount: i.amount!, estimated: i.estimated })) }];
   });

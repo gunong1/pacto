@@ -134,6 +134,19 @@ describe('캘린더 요약 카드', () => {
     expect(g.cashflows[0].headline).toBe('+3,600,000원 급여 예정');
   });
 
+  test('금액 문구는 오늘 기준: 앞으로 "결제 예정" · 오늘 "오늘 결제" · 지난 날짜 "결제일" (결제 완료로 단정하지 않음)', () => {
+    const items = scheduleForRange([rental], { start: '2026-10-12', end: '2026-10-12' }, TODAY);
+    const head = (today: string) => groupCalendarItems(items, today)[0].cashflows[0].headline;
+    expect(head('2026-10-11')).toBe('49,900원 결제 예정');
+    expect(head('2026-10-12')).toBe('49,900원 오늘 결제');
+    expect(head('2026-10-13')).toBe('49,900원 결제일');
+    expect(head('2026-10-13')).not.toContain('완료');
+    const salary = record('w2', { title: '근로계약서', category: 'employment', contractType: 'employment', startDate: '2026-10-01', endDate: '2027-09-30', payments: [{ kind: 'salary', direction: 'income', label: '급여', amount: '3,600,000', frequency: 'monthly', dayOfMonth: '25' }] });
+    const pay = scheduleForRange([salary], { start: '2026-10-23', end: '2026-10-25' }, TODAY).filter((i) => i.type === 'payment');
+    const income = (today: string) => groupCalendarItems(pay, today)[0].cashflows[0].headline;
+    expect([income('2026-10-01'), income(pay[0].date), income('2026-11-01')]).toEqual(['+3,600,000원 급여 예정', '+3,600,000원 오늘 급여', '+3,600,000원 급여일']);
+  });
+
   test('날짜 점: 계약 4건 일정이어도 종류별로만 (행 수만큼 찍지 않음)', () => {
     const markers = dayMarkers(groupsOn([rental], '2026-10-12'));
     expect([...markers.get('2026-10-12')!].sort()).toEqual(['contract_start', 'key_date', 'payment']);
