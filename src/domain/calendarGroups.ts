@@ -75,7 +75,7 @@ export interface CashflowSummary {
   total: number;
   items: CashflowLine[];
   estimated: boolean;
-  /** "49,900원 결제 예정"(앞으로) · "49,900원 오늘 결제" · "49,900원 결제일"(지난 날짜) / "+3,600,000원 급여 예정" / "500만원 · 지출 합계 제외" */
+  /** "49,900원 결제 예정"(앞으로) · "49,900원 오늘 결제" · "49,900원 결제일"(지난 날짜) / "+3,600,000원 급여 예정" / "500만원 · 방향 확인 필요 (합계 제외)" */
   headline: string;
 }
 
@@ -191,7 +191,10 @@ function whenLabel(word: string, timing: CashflowTiming): string {
   return timing === 'upcoming' ? `${word} 예정` : timing === 'today' ? `오늘 ${word}` : `${word}일`;
 }
 
-/** 방향별 합계 — 지출은 결제, 수입은 급여/입금 (문구는 timing 기준), 중립(보증금 등)은 합계 제외 표시 */
+/**
+ * 방향별 합계 — 출금은 결제(보증금만이면 "보증금 지급"), 입금은 급여/입금(보증금이면 "보증금 입금"),
+ * 방향 확인 필요(neutral)는 합계에 넣지 않는다고 표시 (cashflow.ts — 홈·캘린더 합계와 같은 규칙)
+ */
 export function summarizeCashflows(list: readonly ScheduleItem[], timing: CashflowTiming = 'upcoming'): CashflowSummary[] {
   const cash = list.filter(isCashflow);
   return DIRECTION_ORDER.flatMap((direction) => {
@@ -200,12 +203,13 @@ export function summarizeCashflows(list: readonly ScheduleItem[], timing: Cashfl
     const total = items.reduce((s, i) => s + i.amount!, 0);
     const estimated = items.some((i) => i.estimated);
     const won = `${formatWon(total)}${estimated ? ' (예상)' : ''}`;
+    const allDeposit = items.every((i) => i.moneyNature === 'deposit');
     const headline =
       direction === 'expense'
-        ? `${won} ${whenLabel('결제', timing)}`
+        ? `${won} ${whenLabel(allDeposit ? '보증금 지급' : '결제', timing)}`
         : direction === 'income'
-          ? `+${won} ${whenLabel(items.every((i) => INCOME_PAY_KINDS.has(i.paymentKind!)) ? '급여' : '입금', timing)}`
-          : `${won} · 지출 합계 제외`;
+          ? `+${won} ${whenLabel(allDeposit ? '보증금 입금' : items.every((i) => INCOME_PAY_KINDS.has(i.paymentKind!)) ? '급여' : '입금', timing)}`
+          : `${won} · 방향 확인 필요 (합계 제외)`;
     return [{ direction, total, estimated, headline, items: items.map((i) => ({ label: i.title, amount: i.amount!, estimated: i.estimated })) }];
   });
 }

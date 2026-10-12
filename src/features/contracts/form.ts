@@ -3,7 +3,8 @@ import { z } from 'zod';
 
 import { NOTICE_KINDS } from '@/domain/noticeKind';
 import { legacyDetailParties, partiesFromInputs, partiesToInputs, type ContractParty } from '@/domain/parties';
-import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
+import type { ContractDraft, DateDraft, FundDraft, PaymentDraft } from '@/data/repository';
+import { DIRECTION_BASES, MONEY_NATURES, PARTY_RELATIONS } from '../../../supabase/functions/_shared/contractRegistry';
 import {
   BUSINESS_DAY_RULES,
   PAYMENT_OBLIGATIONS,
@@ -68,6 +69,12 @@ const paymentFormSchema = z.object({
   businessDayRule: z.enum(BUSINESS_DAY_RULES),
   obligation: z.enum(PAYMENT_OBLIGATIONS),
   conditionNote: z.string(),
+  /** 화면에 직접 보이지 않는 값 (돈의 성격·방향 근거·계약서의 지급자/수령자·묶음) — 수정 시 유지. '' = 없음 */
+  moneyNature: z.union([z.enum(MONEY_NATURES), z.literal('')]).optional(),
+  directionBasis: z.union([z.enum(DIRECTION_BASES), z.literal('')]).optional(),
+  payerRole: z.string().optional(),
+  payeeRole: z.string().optional(),
+  fundKey: z.string().optional(),
 });
 
 /**
@@ -114,8 +121,12 @@ export const contractFormSchema = z
     /** 계약 당사자 — 역할 코드 → 이름 (여럿이면 쉼표로). 역할 이름은 레지스트리 (src/domain/parties.ts) */
     // 아직 입력하지 않은 역할 칸은 값이 없을 수 있다 (빈칸 = 확인 필요, 저장을 막지 않음)
     parties: z.record(z.string(), z.string().max(300, '300자 이내로 입력해주세요').optional()),
-    /** 내 역할 — '' = 모름 (AI가 추측하지 않음) */
+    /** 내 역할 — '' = 모름 (AI가 추측하지 않음, 이름 일치는 추천만) */
     userPartyRole: z.string(),
+    /** 나와 계약의 관계 — '' = 묻지 않음 */
+    userPartyRelation: z.union([z.enum(PARTY_RELATIONS), z.literal('')]).optional(),
+    /** 돌려받을 돈 묶음 (보증금·예치금) — 화면에서 직접 고치지 않고 그대로 (undefined면 저장된 묶음 유지) */
+    funds: z.custom<FundDraft[]>().optional(),
     contractDate: optionalDate,
     startDate: optionalDate,
     endDate: optionalDate,
@@ -269,6 +280,11 @@ export function paymentToForm(p: PaymentDraft): PaymentFormValues {
     businessDayRule: p.businessDayRule,
     obligation: p.obligation,
     conditionNote: p.conditionNote ?? '',
+    moneyNature: p.moneyNature ?? '',
+    directionBasis: p.directionBasis ?? '',
+    payerRole: p.payerRole ?? '',
+    payeeRole: p.payeeRole ?? '',
+    fundKey: p.fundKey ?? '',
   };
 }
 
@@ -287,6 +303,8 @@ export function draftToForm(d: ContractDraft): ContractFormValues {
     // 당사자 목록이 없는 예전 계약은 역할이 이름에 붙은 예전 칸(임대인·임차인·근로자)만 그 역할로 채운다 (상대방 이름은 역할을 추측하지 않음)
     parties: partiesToInputs(d.parties.length > 0 ? d.parties : legacyDetailParties(profileKeyOf(d), d.details)),
     userPartyRole: d.userPartyRole ?? '',
+    userPartyRelation: d.userPartyRelation ?? '',
+    ...(d.funds ? { funds: d.funds.map((f) => ({ ...f })) } : {}),
     contractDate: str(d.contractDate),
     startDate: str(d.startDate),
     endDate: str(d.endDate),
@@ -425,6 +443,8 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
     return {
       ...base,
       direction: q.direction,
+      // 방향을 바꿨을 때만 "사용자가 고른 방향"으로 (그대로면 원래 근거 유지)
+      directionBasis: q.direction !== base.direction ? 'user' : base.directionBasis,
       amount,
       frequency: q.frequency,
       dayOfMonth: oneTime ? null : (day ?? base.dayOfMonth),
@@ -442,7 +462,10 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
   const kind = quickPaymentKind(type);
   return {
     kind,
+    // 빠른 입력은 사용자가 방향을 직접 고른다 (역할을 바꿔도 다시 계산하지 않음)
     direction: q.direction,
+    directionBasis: 'user',
+    moneyNature: 'ordinary',
     label: paymentKindLabel(kind),
     amount,
     frequency: q.frequency,
@@ -482,6 +505,12 @@ export function paymentFromForm(p: PaymentFormValues): PaymentDraft {
     businessDayRule: oneTime ? 'none' : p.businessDayRule,
     obligation: p.obligation,
     conditionNote: p.obligation === 'confirmed' ? null : p.conditionNote.trim() || null,
+    // 값이 있을 때만 (없으면 예전 데이터와 같은 모양)
+    ...(p.moneyNature ? { moneyNature: p.moneyNature } : {}),
+    ...(p.directionBasis ? { directionBasis: p.directionBasis } : {}),
+    ...(p.payerRole ? { payerRole: p.payerRole } : {}),
+    ...(p.payeeRole ? { payeeRole: p.payeeRole } : {}),
+    ...(p.fundKey ? { fundKey: p.fundKey } : {}),
   };
 }
 
@@ -500,6 +529,8 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
     counterparty: nullable(v.counterparty),
     parties,
     userPartyRole: v.userPartyRole || null,
+    ...(v.userPartyRelation !== undefined ? { userPartyRelation: v.userPartyRelation || null } : {}),
+    ...(v.funds ? { funds: v.funds } : {}),
     contractDate: nullable(v.contractDate),
     startDate: nullable(v.startDate),
     endDate: nullable(v.endDate),

@@ -1,9 +1,10 @@
 import { EMPTY_CLASSIFICATION, legacyOf } from '@/domain/contractKinds';
 import { paymentKindLabel } from '@/domain/contractTypes';
 import { amountAt } from '@/domain/paymentAmount';
-import type { Contract, ContractDate, ContractPayment, ContractRecord, ISODate } from '@/domain/types';
+import { natureOf } from '@/domain/cashflow';
+import type { Contract, ContractDate, ContractFund, ContractPayment, ContractRecord, ISODate } from '@/domain/types';
 
-import type { ContractDraft, DateDraft, PaymentDraft } from './repository';
+import type { ContractDraft, DateDraft, FundDraft, PaymentDraft } from './repository';
 
 export const EMPTY_DRAFT: ContractDraft = {
   title: '',
@@ -95,6 +96,7 @@ export function applyDraftToContract(contract: Contract, draft: ContractDraft): 
     counterparty: draft.counterparty,
     parties: draft.parties.map((p) => ({ ...p })),
     userPartyRole: draft.userPartyRole,
+    userPartyRelation: draft.userPartyRelation !== undefined ? draft.userPartyRelation : (contract.userPartyRelation ?? null),
     contractDate: draft.contractDate,
     startDate: draft.startDate,
     endDate: draft.endDate,
@@ -134,6 +136,11 @@ export function draftToPayment(p: PaymentDraft, draft: Pick<ContractDraft, 'star
     businessDayRule: p.businessDayRule,
     obligation: p.obligation ?? 'confirmed',
     conditionNote: p.conditionNote ?? null,
+    moneyNature: p.moneyNature ?? null,
+    directionBasis: p.directionBasis ?? null,
+    payerRole: p.payerRole ?? null,
+    payeeRole: p.payeeRole ?? null,
+    fundId: p.fundKey ?? null,
   };
 }
 
@@ -146,6 +153,21 @@ export function draftToDates(draft: ContractDraft, contractId: string, newId: (i
   return draft.dates.map((d, i) => ({ id: newId(i), contractId, kind: d.kind, label: d.label.trim(), date: d.date }));
 }
 
+/** 묶음 draft → 묶음 (id는 key — 결제의 fundKey와 같은 값. 반환 기록은 저장된 것만 — refunds로 전달) */
+export function draftToFunds(draft: Pick<ContractDraft, 'funds'>, contractId: string, refunds: ContractFund['refunds'] = []): ContractFund[] {
+  return (draft.funds ?? []).map((f) => ({
+    id: f.key,
+    contractId,
+    kind: f.kind,
+    label: f.label,
+    totalAmount: f.totalAmount,
+    returnDueOn: f.returnDueOn,
+    depositorRole: f.depositorRole,
+    holderRole: f.holderRole,
+    refunds: refunds.filter((r) => r.fundId === f.key),
+  }));
+}
+
 /** draft로 미리보기용 계약 레코드를 만든다 (일정 미리보기·테스트). */
 export function draftToRecord(draft: ContractDraft, id: string, fallbackStart: string): ContractRecord {
   return {
@@ -155,6 +177,26 @@ export function draftToRecord(draft: ContractDraft, id: string, fallbackStart: s
     events: [],
     documents: [],
     aiChecks: [],
+    funds: draftToFunds(draft, id),
+  };
+}
+
+/** 저장된 묶음 → draft (key = id) */
+export function fundsToDrafts(funds: readonly ContractFund[]): FundDraft[] {
+  return funds.map((f) => ({ id: f.id, key: f.id, kind: f.kind, label: f.label, totalAmount: f.totalAmount, returnDueOn: f.returnDueOn, depositorRole: f.depositorRole, holderRole: f.holderRole }));
+}
+
+/** 묶음 없이 저장된 예전 계약의 보증금 → 보증금 묶음을 만들고 보증금 결제를 연결 (반환을 기록하기 전에 한 번) */
+export const SUMMARY_FUND_KEY = 'summary';
+export function withSummaryFund(draft: ContractDraft): ContractDraft {
+  const funds = draft.funds ?? [];
+  if (funds.some((f) => f.totalAmount == null)) return draft;
+  return {
+    ...draft,
+    funds: [{ key: SUMMARY_FUND_KEY, kind: 'deposit', label: '보증금', totalAmount: null, returnDueOn: null, depositorRole: null, holderRole: null }, ...funds],
+    payments: draft.payments.map((p) =>
+      !p.fundKey && natureOf(p) === 'deposit' && p.moneyNature !== 'deposit_refund' ? { ...p, fundKey: SUMMARY_FUND_KEY } : p,
+    ),
   };
 }
 
@@ -164,7 +206,7 @@ export function draftToRecord(draft: ContractDraft, id: string, fallbackStart: s
  * amountsAt: 수정 화면은 그날 적용 중인 금액을 보여준다 (저장 전 resolveAmountEdits가 최초 금액/변경 이력으로 되돌린다).
  * 없으면 최초 금액 그대로 (다른 저장 경로).
  */
-export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payments' | 'dates'>, amountsAt?: ISODate): ContractDraft {
+export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payments' | 'dates' | 'funds'>, amountsAt?: ISODate): ContractDraft {
   const { contract } = record;
   return {
     title: contract.title,
@@ -177,6 +219,8 @@ export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payment
     counterparty: contract.counterparty,
     parties: contract.parties.map((p) => ({ ...p })),
     userPartyRole: contract.userPartyRole,
+    userPartyRelation: contract.userPartyRelation ?? null,
+    funds: fundsToDrafts(record.funds ?? []),
     contractDate: contract.contractDate,
     startDate: contract.startDate,
     endDate: contract.endDate,
@@ -207,6 +251,11 @@ export function recordToDraft(record: Pick<ContractRecord, 'contract' | 'payment
         businessDayRule: p.businessDayRule,
         obligation: p.obligation,
         conditionNote: p.conditionNote,
+        moneyNature: p.moneyNature ?? null,
+        directionBasis: p.directionBasis ?? null,
+        payerRole: p.payerRole ?? null,
+        payeeRole: p.payeeRole ?? null,
+        fundKey: p.fundId ?? null,
       }),
     ),
     dates: record.dates.map((d): DateDraft => ({ kind: d.kind, label: d.label, date: d.date })),

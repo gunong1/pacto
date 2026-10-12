@@ -1,9 +1,13 @@
 /**
- * 프로필(닉네임·프로필 사진) 저장소 — 화면은 이 인터페이스만 쓴다.
+ * 프로필(닉네임·프로필 사진·내 계약자 정보) 저장소 — 화면은 이 인터페이스만 쓴다.
+ * - 내 계약자 정보: 계약서에 쓰는 이름·다른 표기 (선택, 최대 5개). 본인만 읽고 쓴다 (RLS). 서버 AI에 보내지 않는다 —
+ *   계약서 당사자와의 대조는 기기에서 (domain/partyMatch.ts), 결과는 추천일 뿐
  * - Supabase: profiles.display_name / avatar_path + 비공개 Storage(profile-images/{user_id}/avatar.jpg), 표시할 때만 Signed URL
  * - Mock(미리보기): 메모리
  * 사진은 올리기 전에 정사각형 512px JPEG로 줄인다 (features/profile/avatarImage.ts).
  */
+import { cleanContractNames } from "@/domain/partyMatch";
+
 import type { PactoSupabase } from "./supabase/client";
 
 export const AVATAR_BUCKET = "profile-images";
@@ -16,6 +20,10 @@ export interface Profile {
   displayName: string | null;
   /** 표시용 Signed URL (사진 없으면 null) */
   avatarUrl: string | null;
+  /** 계약서에 쓰는 내 이름·다른 표기 (없으면 빈 목록) */
+  contractNames: string[];
+  /** 첫 계약 등록 안내에서 "건너뛰기"를 눌렀음 — 다시 묻지 않는다 */
+  contractNamesSkipped: boolean;
 }
 
 export interface ProfileChanges {
@@ -23,6 +31,10 @@ export interface ProfileChanges {
   displayName?: string | null;
   /** 새 사진 (512px JPEG 바이트) / 'remove' = 삭제 / undefined = 그대로 */
   avatar?: ArrayBuffer | "remove";
+  /** 계약서에 쓰는 이름 목록 전체 (undefined면 그대로) — 저장 전 정리(앞뒤 공백·중복·최대 5개) */
+  contractNames?: string[];
+  /** 첫 등록 안내 "건너뛰기" */
+  skipContractNames?: true;
 }
 
 export interface ProfileSaveResult {
@@ -76,23 +88,33 @@ export class SupabaseProfileStore implements ProfileStore {
     const id = await this.userId();
     const { data, error } = await this.sb
       .from("profiles")
-      .select("display_name, avatar_path")
+      .select("display_name, avatar_path, contract_names, contract_names_skipped_at")
       .eq("id", id)
       .maybeSingle();
     if (error) throw new ProfileError("프로필을 불러오지 못했어요.");
     return {
       displayName: data?.display_name ?? null,
       avatarUrl: await this.signed(data?.avatar_path ?? null),
+      contractNames: Array.isArray(data?.contract_names) ? data.contract_names : [],
+      contractNamesSkipped: !!data?.contract_names_skipped_at,
     };
   }
 
   async save(changes: ProfileChanges): Promise<ProfileSaveResult> {
     const id = await this.userId();
     const path = `${id}/avatar.jpg`;
-    const patch: { display_name?: string | null; avatar_path?: string | null } =
-      {};
+    const patch: {
+      display_name?: string | null;
+      avatar_path?: string | null;
+      contract_names?: string[];
+      contract_names_skipped_at?: string;
+    } = {};
     if (changes.displayName !== undefined)
       patch.display_name = changes.displayName;
+    if (changes.contractNames !== undefined)
+      patch.contract_names = cleanContractNames(changes.contractNames);
+    if (changes.skipContractNames)
+      patch.contract_names_skipped_at = new Date().toISOString();
     let avatarFailed = false;
     // ① 새 사진: 같은 경로에 덮어쓴다 — 올리기가 실패하면 기존 파일·경로는 그대로 (닉네임 저장은 계속)
     if (changes.avatar instanceof ArrayBuffer) {
@@ -128,16 +150,19 @@ export class SupabaseProfileStore implements ProfileStore {
 
 /** 미리보기(mock) — 메모리. 사진은 data URL로 보관 */
 export class MockProfileStore implements ProfileStore {
-  private state: Profile = { displayName: null, avatarUrl: null };
+  private state: Profile = { displayName: null, avatarUrl: null, contractNames: [], contractNamesSkipped: false };
 
   async get(): Promise<Profile> {
-    return { ...this.state };
+    return { ...this.state, contractNames: [...this.state.contractNames] };
   }
 
   async save(changes: ProfileChanges): Promise<ProfileSaveResult> {
     const next = { ...this.state };
     if (changes.displayName !== undefined)
       next.displayName = changes.displayName;
+    if (changes.contractNames !== undefined)
+      next.contractNames = cleanContractNames(changes.contractNames);
+    if (changes.skipContractNames) next.contractNamesSkipped = true;
     if (changes.avatar === "remove") next.avatarUrl = null;
     else if (changes.avatar instanceof ArrayBuffer)
       next.avatarUrl = `data:image/jpeg;base64,${toBase64(changes.avatar)}`;

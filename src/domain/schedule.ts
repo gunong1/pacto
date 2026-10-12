@@ -1,3 +1,4 @@
+import { fundCashEntries, natureOf, type FlowNature } from './cashflow';
 import { profileFor, profileKeyOf } from './contractKinds';
 import { isConfirmedPayment, type PaymentKind } from './contractTypes';
 import { adjustToBusinessDay } from './businessDays';
@@ -215,8 +216,10 @@ export interface ScheduleItem {
   title: string;
   /** 결제 항목의 의미 (결제가 아니면 null) */
   paymentKind: PaymentKind | null;
-  /** 결제 항목의 돈 방향 (결제가 아니면 null) */
+  /** 결제 항목의 돈 방향 (결제가 아니면 null) — neutral = 방향 확인 필요 (합계에 넣지 않음) */
   direction: Direction | null;
+  /** 결제 항목의 돈 성격 — 일반 / 보증금·예치금(지급·반환) · null = 알 수 없음 (cashflow.ts) */
+  moneyNature?: FlowNature | null;
   amount: number | null;
   estimated: boolean;
   contractId: string;
@@ -234,10 +237,10 @@ export interface ScheduleItem {
   needsReview: boolean;
 }
 
-type ScheduleItemDraft = Omit<ScheduleItem, 'actionType' | 'priority' | 'source' | 'needsReview'>;
+type ScheduleItemDraft = Omit<ScheduleItem, 'actionType' | 'priority' | 'source' | 'needsReview'> & { action?: ActionEventType };
 
 /** 일정 한 건의 종류·출처·중요도 — 날짜를 만든 근거에 따라 */
-function withMeta(record: ContractRecord, item: ScheduleItemDraft): ScheduleItem {
+function withMeta(record: ContractRecord, { action, ...item }: ScheduleItemDraft): ScheduleItem {
   const { contract } = record;
   const term = contractTermSource(contract);
   let actionType: ActionEventType;
@@ -276,6 +279,8 @@ function withMeta(record: ContractRecord, item: ScheduleItemDraft): ScheduleItem
     default:
       actionType = 'custom';
   }
+  // 보증금 반환 (반환 예정·반환 기록·반환 확인)
+  if (action) actionType = action;
   // 사용자가 직접 만든 일정
   if (item.eventId) {
     const e = record.events.find((x) => x.id === item.eventId);
@@ -322,11 +327,31 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
         title: `${o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label}${o.amountNote ? ` (${o.amountNote})` : ''}`,
         paymentKind: p.kind,
         direction: p.direction,
+        moneyNature: natureOf(p),
         amount: o.amount,
         estimated: o.estimated,
         eventId: null,
       });
     }
+  }
+
+  // 돌려받을 돈: 실제 반환 기록 · 계약서에 적힌 반환 예정(금액 포함) · 종료일 기준 반환 확인(금액 없음 — 합계에 넣지 않음)
+  for (const f of fundCashEntries(record, range, today)) {
+    const cash = f.type !== 'check';
+    items.push({
+      ...base,
+      key: f.key,
+      date: f.date,
+      type: cash ? 'payment' : 'key_date',
+      title: f.title,
+      paymentKind: cash ? 'deposit' : null,
+      direction: cash ? f.direction : null,
+      moneyNature: cash ? 'deposit' : null,
+      amount: f.amount,
+      estimated: false,
+      eventId: null,
+      action: 'deposit_return',
+    });
   }
 
   const profile = profileFor(contract);

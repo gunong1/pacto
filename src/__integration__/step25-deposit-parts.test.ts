@@ -58,7 +58,7 @@ test('보증금 근거가 있는 계약금·잔금만 neutral (월 지출은 월
     ['관리비', 'expense', '2026-10-20', 100_000],
   ]);
   const oct = monthSpending([fixed], { year: 2026, month: 10 });
-  expect([oct.total, oct.depositTotal, fixed.contract.depositAmount]).toEqual([950_000, 20_000_000, 20_000_000]);
+  expect([oct.total, oct.undeterminedTotal, fixed.contract.depositAmount]).toEqual([950_000, 20_000_000, 20_000_000]);
   expect(await directions(repo, byLabel)).toEqual(['neutral', 'neutral']);
   // 회귀: 보증금 근거가 없는 일반 계약금(합은 같음) · 분석 결과 없는 직접 입력 · 합 불일치 → 그대로
   expect(await directions(repo, plain)).toEqual(['expense', 'expense']);

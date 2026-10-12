@@ -11,8 +11,10 @@ import type {
   ContractDate,
   ContractDocument,
   ContractEvent,
+  ContractFund,
   ContractPayment,
   ContractRecord,
+  FundRefund,
   DocumentProtection,
   PaymentAmountChange,
   ProtectionPage,
@@ -23,6 +25,8 @@ import type {
 } from '@/domain/types';
 import type { Database } from '@/types/database';
 
+import { DIRECTION_BASES, FUND_KINDS, MONEY_NATURES, PARTY_RELATIONS } from '../../../supabase/functions/_shared/contractRegistry';
+
 export type Row<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type PaymentRow = Row<'contract_payments'> & { contract_payment_changes?: Row<'contract_payment_changes'>[] };
 export type ContractRow = Row<'contracts'> & {
@@ -30,7 +34,10 @@ export type ContractRow = Row<'contracts'> & {
   contract_dates: Row<'contract_dates'>[];
   contract_events: Row<'contract_events'>[];
   contract_documents: DocumentRow[];
+  /** 마이그레이션 20261026000001 전 서버는 없음 */
+  contract_funds?: FundRow[];
 };
+export type FundRow = Row<'contract_funds'> & { fund_refunds?: Row<'fund_refunds'>[] };
 /** 원본 + 민감정보 보호 결과 (영역·파생본) */
 export type DocumentRow = Row<'contract_documents'> & {
   document_sensitive_regions?: Row<'document_sensitive_regions'>[];
@@ -39,7 +46,10 @@ export type DocumentRow = Row<'contract_documents'> & {
 export const DOCUMENT_SELECT = '*, document_sensitive_regions(*), document_derivatives(*)';
 
 /** 계약 + 결제·날짜·일정·문서 */
-export const CONTRACT_SELECT = `*, contract_payments(*, contract_payment_changes(*)), contract_dates(*), contract_events(*), contract_documents(${DOCUMENT_SELECT})`;
+export const CONTRACT_SELECT = `*, contract_payments(*, contract_payment_changes(*)), contract_dates(*), contract_events(*), contract_documents(${DOCUMENT_SELECT}), contract_funds(*, fund_refunds(*))`;
+
+/** 앱이 아는 값만 (모르는 값은 null — 예전 데이터처럼 다룬다) */
+const oneOf = <T extends string>(list: readonly T[], v: unknown): T | null => (typeof v === 'string' && (list as readonly string[]).includes(v) ? (v as T) : null);
 
 // ===== row → domain =====
 function toAmountChange(r: Row<'contract_payment_changes'>): PaymentAmountChange {
@@ -73,7 +83,30 @@ function toPayment(r: PaymentRow): ContractPayment {
     businessDayRule: r.business_day_rule as ContractPayment['businessDayRule'],
     obligation: r.obligation as ContractPayment['obligation'],
     conditionNote: r.condition_note,
+    moneyNature: oneOf(MONEY_NATURES, r.money_nature),
+    directionBasis: oneOf(DIRECTION_BASES, r.direction_basis),
+    payerRole: r.payer_role ?? null,
+    payeeRole: r.payee_role ?? null,
+    fundId: r.fund_id ?? null,
     amountChanges: (r.contract_payment_changes ?? []).map(toAmountChange).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1)),
+  };
+}
+
+function toRefund(r: Row<'fund_refunds'>): FundRefund {
+  return { id: r.id, fundId: r.fund_id, amount: r.amount, refundedOn: r.refunded_on, note: r.note };
+}
+
+function toFund(r: FundRow): ContractFund {
+  return {
+    id: r.id,
+    contractId: r.contract_id,
+    kind: oneOf(FUND_KINDS, r.kind) ?? 'other',
+    label: r.label,
+    totalAmount: r.total_amount,
+    returnDueOn: r.return_due_on,
+    depositorRole: r.depositor_role,
+    holderRole: r.holder_role,
+    refunds: (r.fund_refunds ?? []).map(toRefund).sort((a, b) => a.refundedOn.localeCompare(b.refundedOn)),
   };
 }
 
@@ -201,6 +234,7 @@ function toContract(r: Row<'contracts'>): Contract {
     // 계약 당사자 — 컬럼이 없거나(마이그레이션 전) 형식이 틀리면 빈 목록 (예전 계약처럼 보여줌)
     parties: toParties(r.parties),
     userPartyRole: r.user_party_role ?? null,
+    userPartyRelation: oneOf(PARTY_RELATIONS, r.user_party_relation),
     lifecycle: r.lifecycle,
     lifecycleChangedOn: r.lifecycle_changed_on,
     contractDate: r.contract_date,
@@ -234,6 +268,7 @@ export function toRecord(r: ContractRow): ContractRecord {
     events: [...r.contract_events].sort((a, b) => a.event_date.localeCompare(b.event_date)).map(toEvent),
     documents: [...r.contract_documents].sort((a, b) => a.sort_order - b.sort_order).map(toDocument),
     aiChecks: (Array.isArray(r.ai_checks) ? (r.ai_checks as unknown as AiCheck[]) : []).map((c) => ({ ...c, contractId: r.id })),
+    funds: [...(r.contract_funds ?? [])].sort((a, b) => a.sort_order - b.sort_order).map(toFund),
   };
 }
 

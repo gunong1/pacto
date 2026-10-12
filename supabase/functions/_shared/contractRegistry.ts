@@ -500,8 +500,13 @@ export const PARTY_ROLE_DEFS: Record<string, readonly PartyRoleDef[]> = {
   business: [role('party_a', '갑'), role('party_b', '을')],
   other: [role('party_a', '갑'), role('party_b', '을')],
 };
-/** AI 스키마의 역할 코드 (모든 종류의 역할 + party) */
-export const PARTY_ROLE_CODES = [...new Set([...Object.values(PARTY_ROLE_DEFS).flatMap((l) => l.map((r) => r.code)), GENERIC_PARTY_ROLE.code])];
+/**
+ * 모든 종류에 공통으로 나올 수 있는 보조 역할 — 계약서에 있을 때만 (입력 칸을 미리 만들지 않음)
+ * 보증인·대리인은 돈을 내거나 받는 쪽이 아니다 → 사용자가 이 역할이면 금액 방향은 "확인 필요" (계약서가 지급자로 밝힌 경우만 예외)
+ */
+export const COMMON_PARTY_ROLES: readonly PartyRoleDef[] = [role('guarantor', '보증인', false), role('agent', '대리인', false)];
+/** AI 스키마의 역할 코드 (모든 종류의 역할 + 공통 보조 역할 + party) */
+export const PARTY_ROLE_CODES = [...new Set([...Object.values(PARTY_ROLE_DEFS).flatMap((l) => l.map((r) => r.code)), ...COMMON_PARTY_ROLES.map((r) => r.code), GENERIC_PARTY_ROLE.code])];
 export const partyRolesOf = (kind: string | null | undefined): readonly PartyRoleDef[] => PARTY_ROLE_DEFS[kind ?? ''] ?? PARTY_ROLE_DEFS.other;
 /**
  * 역할 정의 — 그 종류의 역할 이름이 먼저, 종류에 없지만 계약서가 밝힌 역할(예: 렌탈로 분류된 계약의 임대인)은 그 역할 이름 그대로
@@ -510,6 +515,56 @@ export const partyRolesOf = (kind: string | null | undefined): readonly PartyRol
 export const partyRoleDef = (kind: string | null | undefined, code: string | null | undefined): PartyRoleDef => {
   const own = partyRolesOf(kind).find((r) => r.code === code);
   if (own) return own;
-  const other = Object.values(PARTY_ROLE_DEFS).flat().find((r) => r.code === code);
+  const other = [...Object.values(PARTY_ROLE_DEFS).flat(), ...COMMON_PARTY_ROLES].find((r) => r.code === code);
   return other ? { ...other, main: false } : GENERIC_PARTY_ROLE;
 };
+
+// ===================================================================================================
+// 돈의 흐름 — 계약 종류별 "누가 내고 누가 받는가" (역할 기준). 사용자 방향은 이 표 + 사용자가 확정한 역할로 계산한다
+//
+// - ordinary: 일반 금액(월세·급여·대금·보험료 …) / deposit: 돌려받을 돈(보증금·예치금)을 맡기는 쪽 → 맡아 두는 쪽
+//   보증금 반환은 deposit의 반대 방향
+// - consumerRole: 사용자가 계약 구조상 언제나 이쪽인 종류 (구독·통신·렌탈·할부·교육·보험 — 상대방이 회사)
+//   → 역할을 고르지 않아도 방향이 명확하다 (근거 = 계약 구조). 사용자가 다른 역할을 확정하면 그 역할이 우선
+// - 표에 없는 흐름(갑/을처럼 누가 내는지 계약마다 다른 경우)은 계약서가 지급자·수령자를 밝힌 경우(payer/payee)에만 정한다
+// - 계약상 역할과 실제로 돈을 내는 사람은 다를 수 있다 → 결제별 payer_role/payee_role이 있으면 그것이 우선
+// ===================================================================================================
+export interface MoneyFlowDef {
+  payer: string;
+  payee: string;
+}
+export interface KindMoneyFlows {
+  ordinary: MoneyFlowDef | null;
+  deposit: MoneyFlowDef | null;
+  consumerRole?: string;
+}
+const flow = (payer: string, payee: string): MoneyFlowDef => ({ payer, payee });
+export const KIND_MONEY_FLOWS: Record<string, KindMoneyFlows> = {
+  lease: { ordinary: flow('lessee', 'lessor'), deposit: flow('lessee', 'lessor') },
+  employment: { ordinary: flow('employer', 'employee'), deposit: null },
+  loan: { ordinary: flow('borrower', 'lender'), deposit: null },
+  insurance: { ordinary: flow('policyholder', 'insurer'), deposit: null, consumerRole: 'policyholder' },
+  sale: { ordinary: flow('buyer', 'seller'), deposit: null },
+  service: { ordinary: flow('client', 'contractor'), deposit: null },
+  subscription_membership: { ordinary: flow('member', 'provider'), deposit: flow('member', 'provider'), consumerRole: 'member' },
+  rental: { ordinary: flow('customer', 'provider'), deposit: flow('customer', 'provider'), consumerRole: 'customer' },
+  telecom: { ordinary: flow('subscriber', 'provider'), deposit: flow('subscriber', 'provider'), consumerRole: 'subscriber' },
+  installment: { ordinary: flow('buyer', 'creditor'), deposit: null, consumerRole: 'buyer' },
+  education: { ordinary: flow('learner', 'provider'), deposit: flow('learner', 'provider'), consumerRole: 'learner' },
+  business: { ordinary: null, deposit: null },
+  other: { ordinary: null, deposit: null },
+};
+export const kindMoneyFlows = (kind: string | null | undefined): KindMoneyFlows => KIND_MONEY_FLOWS[kind ?? ''] ?? KIND_MONEY_FLOWS.other;
+
+/** 돈의 성격 — 방향(direction)과 따로 저장한다 */
+export const MONEY_NATURES = ['ordinary', 'refundable_deposit', 'deposit_refund'] as const;
+export type MoneyNature = (typeof MONEY_NATURES)[number];
+/** 방향을 정한 근거 — user: 사용자가 고름 · role: 확정한 역할로 계산 · contract: 계약서·계약 구조로 명확 */
+export const DIRECTION_BASES = ['user', 'role', 'contract'] as const;
+export type DirectionBasis = (typeof DIRECTION_BASES)[number];
+/** 돌려받을 돈 묶음의 종류 */
+export const FUND_KINDS = ['deposit', 'escrow', 'other'] as const;
+export type FundKind = (typeof FUND_KINDS)[number];
+/** 나와 계약의 관계 */
+export const PARTY_RELATIONS = ['self', 'on_behalf', 'unknown'] as const;
+export type PartyRelation = (typeof PARTY_RELATIONS)[number];

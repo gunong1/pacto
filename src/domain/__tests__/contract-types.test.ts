@@ -98,14 +98,15 @@ describe('2. 전세 (임대차): 계약금 + 잔금은 보증금 — 캘린더 �
     expect(titles(on(r, '2026-09-01'))).toEqual(['계약금']);
   });
   test('전세는 월 지출 없음 (보증금은 지출 합계 제외, 따로 표시)', () => {
-    expect(monthSpending([r], { year: 2026, month: 11 }).depositTotal).toBe(180_000_000);
+    expect(monthSpending([r], { year: 2026, month: 11 }).undeterminedTotal).toBe(180_000_000);
     expect(spend(r, 2026, 9)).toBe(0);
     expect(spend(r, 2026, 11)).toBe(0);
     expect(spend(r, 2026, 12)).toBe(0);
   });
   test('갱신 여부 확인 시점(만기 60일 전)과 만기', () => {
     expect(titles(on(r, '2028-09-01'))).toEqual(['갱신 여부 확인']);
-    expect(titles(on(r, '2028-10-31'))).toEqual(['계약 만기']);
+    // 만기일에 보증금 "반환 확인" 일정 (계약서에 반환일이 없으면 종료일 기준 — 금액 합계에는 넣지 않음)
+    expect(titles(on(r, '2028-10-31'))).toEqual(['계약 만기', '보증금 반환 확인']);
   });
 });
 

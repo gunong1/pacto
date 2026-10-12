@@ -20,6 +20,10 @@ import type {
   ContractRecord,
   ISODate,
   PaymentFrequency,
+  DirectionBasis,
+  FundKind,
+  MoneyNature,
+  PartyRelation,
 } from '@/domain/types';
 
 /** 결제 한 건 (확인/수정 폼). 한 계약에 여러 건 — 월 렌탈료 + 설치비, 계약금 + 잔금 … */
@@ -50,6 +54,25 @@ export interface PaymentDraft {
   /** 의무 수준 — confirmed만 캘린더·지출에 반영 */
   obligation: PaymentObligation;
   conditionNote: string | null;
+  /** 돈의 성격 · 방향 근거 · 계약서가 밝힌 지급자/수령자 · 속한 묶음(FundDraft.key) — 없으면 예전 데이터처럼 (저장된 값 유지) */
+  moneyNature?: MoneyNature | null;
+  directionBasis?: DirectionBasis | null;
+  payerRole?: string | null;
+  payeeRole?: string | null;
+  fundKey?: string | null;
+}
+
+/** 돌려받을 돈 묶음 (보증금·예치금). key: 저장된 묶음은 id, 새 묶음은 임시 키 — 결제의 fundKey가 가리킨다 */
+export interface FundDraft {
+  id?: string | null;
+  key: string;
+  kind: FundKind;
+  label: string;
+  /** null = 계약 요약의 보증금(depositAmount)을 총액으로 (계약당 하나) */
+  totalAmount: number | null;
+  returnDueOn: ISODate | null;
+  depositorRole: string | null;
+  holderRole: string | null;
 }
 
 /** 주요 날짜 한 건 (설치일·입주일·잔금일·갱신일 …) */
@@ -74,6 +97,10 @@ export interface ContractDraft {
   /** 계약 당사자 (역할 + 이름) · 내 역할 (null = 모름) */
   parties: ContractParty[];
   userPartyRole: string | null;
+  /** 나와 계약의 관계 (self · on_behalf · unknown) — undefined면 저장된 값 유지 */
+  userPartyRelation?: PartyRelation | null;
+  /** 돌려받을 돈 묶음 — undefined면 저장된 묶음을 건드리지 않는다 */
+  funds?: FundDraft[];
   /** 선택값 — 계약서에 명확히 있을 때만 */
   contractDate: ISODate | null;
   startDate: ISODate | null;
@@ -140,4 +167,16 @@ export interface ContractRepository {
   applyAiSuggestion(id: string, checkId: string): Promise<ContractRecord>;
   setAiCheckStatus(id: string, checkId: string, status: AiCheck['status']): Promise<ContractRecord>;
   remove(id: string): Promise<void>;
+  /**
+   * 보증금·예치금 실제 반환 기록 (원래 지급 결제는 바꾸지 않는다). fundKey 'summary' = 묶음 없이 저장된 예전 계약의 보증금 —
+   * 먼저 묶음을 만들고(보증금 결제를 그 묶음에 연결) 기록한다
+   */
+  addRefund(id: string, fundKey: string, input: RefundInput): Promise<ContractRecord>;
+  removeRefund(id: string, refundId: string): Promise<ContractRecord>;
+}
+
+export interface RefundInput {
+  amount: number;
+  refundedOn: ISODate;
+  note?: string | null;
 }

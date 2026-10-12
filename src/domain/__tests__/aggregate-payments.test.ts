@@ -51,9 +51,9 @@ function expectFixed(r: ContractRecord) {
   const occ = scheduleForRange([r], { start: '2026-10-01', end: '2026-10-31' }, TODAY).filter((i) => i.type === 'payment' && i.direction === 'neutral');
   expect(occ.map((i) => [i.title, i.amount])).toEqual([['계약금', 2000000], ['잔금', 18000000]]);
   expect(occ.reduce((s, i) => s + i.amount!, 0)).toBe(20000000);
-  // B·C. 10/20: 950,000원 결제 예정(월세·관리비) / 18,000,000원 · 지출 합계 제외 (잔금)
+  // B·C. 10/20: 950,000원 결제 예정(월세·관리비) / 18,000,000원 · 방향 확인 필요 (합계 제외) (잔금)
   const day = on1020(r);
-  expect(day.map((c) => c.headline)).toEqual(['950,000원 결제 예정', '18,000,000원 · 지출 합계 제외']);
+  expect(day.map((c) => c.headline)).toEqual(['950,000원 결제 예정', '18,000,000원 · 방향 확인 필요 (합계 제외)']);
   expect(day[1].items).toEqual([{ label: '잔금', amount: 18000000, estimated: false }]);
   expect(JSON.stringify(day)).not.toContain('38,000,000');
   // 10월 지출: 월세·관리비만 (보증금 계약금·잔금은 합계 제외)
@@ -109,7 +109,7 @@ describe('이미 저장된 계약 (보증금·계약금·잔금 3행이 모두 �
   test('원인 재현: 총액을 결제로 세면 10/20에 38,000,000원', () => {
     const r = stored(rows);
     r.payments = r.payments.map((p) => ({ ...p, obligation: 'confirmed' as const })); // 정리 전 상태
-    expect(on1020(r).map((c) => c.headline)).toContain('38,000,000원 · 지출 합계 제외');
+    expect(on1020(r).map((c) => c.headline)).toContain('38,000,000원 · 방향 확인 필요 (합계 제외)');
   });
 
   // 리팩터링 G: 읽기 단계는 저장된 의미를 그대로 쓴다. 이전 기대: 읽을 때 보증금 행을 참고 금액으로 바꿈

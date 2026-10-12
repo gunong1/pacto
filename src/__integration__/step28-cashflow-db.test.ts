@@ -6,6 +6,11 @@
  * - 반환 기록은 별도 행 (원래 지급 행을 바꾸지 않음) · 본인만
  * - 내 계약자 정보(이름)는 본인만 읽고 쓴다 · 최대 5개 · 앞뒤 공백 없음
  */
+import { EMPTY_DRAFT, recordToDraft } from '@/data/draft';
+import { SupabaseContractRepository } from '@/data/supabase/SupabaseContractRepository';
+import { fundViews } from '@/domain/cashflow';
+import { monthSpending } from '@/domain/spending';
+
 import { adminClient, newUser } from './helpers';
 
 jest.setTimeout(120_000);
@@ -129,4 +134,51 @@ test('제약: 계약 요약 보증금 묶음은 계약당 하나 · 다른 계�
   expect((await b.client.from('profiles').select('contract_names').eq('id', me)).data).toEqual([]);
   // 관계 값 제한
   await expect(rpc(a.client, { p_contract: { ...contract, user_party_relation: 'friend' } })).rejects.toThrow(/check/);
+});
+
+test('저장소: 예전 계약(묶음 없음)의 보증금 반환 기록 → 묶음을 만들고 연결 · 결제 id·방향 그대로 · 반환 상태 계산 · 다시 저장해도 중복 없음', async () => {
+  const a = await newUser('cf-repo');
+  const repo = new SupabaseContractRepository(a.client, () => '2026-10-08');
+  const P = { frequency: 'one_time' as const, dayOfMonth: null, monthOfYear: null, endsOn: null, installmentCount: null, isVariable: false, components: [], businessDayRule: 'none' as const, obligation: 'confirmed' as const, conditionNote: null };
+  // 예전 앱처럼: 묶음·새 칸 없이 neutral 보증금 몫만
+  const created = await repo.create({
+    draft: {
+      ...EMPTY_DRAFT,
+      title: '예전 전세',
+      contractKind: 'lease',
+      contractType: 'lease',
+      category: 'real_estate',
+      startDate: '2026-10-20',
+      endDate: '2028-10-19',
+      depositAmount: 20_000_000,
+      userPartyRole: 'lessee',
+      payments: [
+        { ...P, kind: 'down_payment', direction: 'neutral', label: '계약금', amount: 2_000_000, startsOn: '2026-10-08' },
+        { ...P, kind: 'balance_payment', direction: 'neutral', label: '잔금', amount: 18_000_000, startsOn: '2026-10-20' },
+      ],
+    },
+    source: 'manual',
+    documents: [],
+    aiChecks: [],
+  });
+  const before = created.payments.map((p) => [p.id, p.direction]);
+  expect(created.funds).toEqual([]);
+  expect(fundViews(created, '2026-10-08').map((v) => [v.key, v.total, v.userSide])).toEqual([['summary', 20_000_000, 'depositor']]);
+
+  const r1 = await repo.addRefund(created.contract.id, 'summary', { amount: 5_000_000, refundedOn: '2028-10-19' });
+  expect(r1.funds!.map((f) => [f.kind, f.totalAmount, f.refunds.map((x) => x.amount)])).toEqual([['deposit', null, [5_000_000]]]);
+  expect(r1.payments.map((p) => [p.id, p.direction])).toEqual(before);
+  expect(r1.payments.every((p) => p.fundId === r1.funds![0].id)).toBe(true);
+  const v = fundViews(r1, '2028-10-20')[0];
+  expect([v.status, v.remaining, v.refundDirection]).toEqual(['partial', 15_000_000, 'income']);
+  expect(monthSpending([r1], { year: 2028, month: 10 }, '2028-10-20')).toMatchObject({ incomeTotal: 5_000_000, depositIn: 5_000_000 });
+
+  // 두 번째 반환은 저장된 묶음 id로 · 다시 저장해도 묶음·반환 기록이 늘지 않음
+  const r2 = await repo.addRefund(created.contract.id, r1.funds![0].id, { amount: 15_000_000, refundedOn: '2028-11-01' });
+  const again = await repo.update(created.contract.id, recordToDraft(r2));
+  expect(again.funds!.length).toBe(1);
+  expect(again.funds![0].refunds.map((x) => x.amount)).toEqual([5_000_000, 15_000_000]);
+  expect(fundViews(again, '2028-11-02')[0].status).toBe('returned');
+  const r3 = await repo.removeRefund(created.contract.id, again.funds![0].refunds[1].id);
+  expect(fundViews(r3, '2028-11-02')[0].status).toBe('partial');
 });

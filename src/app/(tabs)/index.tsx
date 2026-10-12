@@ -35,7 +35,7 @@ export default function HomeScreen() {
   const view = useMemo(() => {
     if (!records) return null;
     const ym = yearMonthOf(today);
-    const spending = monthSpending(records, ym);
+    const spending = monthSpending(records, ym, today);
     const attention = attentionItems(records, today);
     const ends = upcomingEnds(
       records,
@@ -152,10 +152,10 @@ export default function HomeScreen() {
         </View>
       ) : null}
 
-      {/* 2. 이번 달 실제 계약 지출 */}
+      {/* 2. 이번 달 현금흐름 — 홈·캘린더·상세가 같은 monthSpending (총 출금 = 일반 지출 + 보증금 지급) */}
       <View style={styles.hero} testID="home-spending">
         <AppText variant="body2" color="textSecondary">
-          {view.ym.month}월 계약 지출
+          {view.ym.month}월 총 출금 예정
         </AppText>
         <AppText
           variant="display"
@@ -174,15 +174,26 @@ export default function HomeScreen() {
             통신비 등 변동 금액은 예상치예요
           </AppText>
         ) : null}
-        {view.spending.depositTotal > 0 ? (
+        {view.spending.depositOut > 0 ? (
+          <View style={styles.breakdown} testID="home-outflow-split">
+            <View style={styles.breakdownRow}>
+              <AppText variant="body2Strong">일반 지출</AppText>
+              <Amount value={view.spending.ordinaryExpense} variant="body2" />
+            </View>
+            <View style={styles.breakdownRow} testID="home-deposit-out">
+              <AppText variant="body2Strong">보증금 지급</AppText>
+              <Amount value={view.spending.depositOut} variant="body2" />
+            </View>
+          </View>
+        ) : null}
+        {view.spending.undeterminedTotal > 0 ? (
           <AppText
             variant="caption"
-            color="textTertiary"
-            style={{ marginTop: 2 }}
-            testID="home-deposit-note"
+            color="caution"
+            style={{ marginTop: 4 }}
+            testID="home-undetermined"
           >
-            보증금 {formatWonCompact(view.spending.depositTotal)}은 돌려받는 돈이라
-            지출에서 제외했어요
+            방향 확인 필요 {formatWonCompact(view.spending.undeterminedTotal)}은 출금·입금 합계에서 뺐어요
           </AppText>
         ) : null}
 
@@ -203,7 +214,7 @@ export default function HomeScreen() {
         {view.spending.incomeTotal > 0 ? (
           <View style={styles.income} testID="home-income">
             <AppText variant="body2" color="textSecondary">
-              {view.ym.month}월 계약 수입
+              {view.ym.month}월 총 입금 예정
             </AppText>
             <AppText
               variant="title2"
@@ -213,8 +224,10 @@ export default function HomeScreen() {
             >
               +{formatKRW(view.spending.incomeTotal)}
             </AppText>
-            <AppText variant="caption" color="textTertiary">
-              급여·대금 등 · 지출과 별도
+            <AppText variant="caption" color="textTertiary" testID="home-income-split">
+              {view.spending.depositIn > 0
+                ? `일반 수입 ${formatWonCompact(view.spending.ordinaryIncome)} · 보증금 ${formatWonCompact(view.spending.depositIn)}`
+                : '급여·대금 등 · 출금과 별도'}
             </AppText>
           </View>
         ) : null}

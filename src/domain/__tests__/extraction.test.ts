@@ -270,7 +270,7 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
     expect(m.draft.dates).toEqual([{ kind: 'move_in', label: '입주일', date: '2026-11-01' }]);
     expect(m.draft.details).toEqual({ leaseKind: 'jeonse' });
     expect(m.allDetails).toMatchObject({ interestRate: 3.1 });
-    expect(monthSpending([draftToRecord(m.draft, 'j', TODAY)], { year: 2026, month: 11 })).toMatchObject({ total: 0, depositTotal: 180_000_000 });
+    expect(monthSpending([draftToRecord(m.draft, 'j', TODAY)], { year: 2026, month: 11 })).toMatchObject({ total: 0, undeterminedTotal: 180_000_000 });
   });
 
   test('통보기한 날짜만 있으면 일수로 계산하고 확인 필요', () => {

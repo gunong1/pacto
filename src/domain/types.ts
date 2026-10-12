@@ -8,9 +8,11 @@ import type { NoticeKind } from './noticeKind';
 import type { ClassificationMeta } from './contractKinds';
 import type { ContractParty } from './parties';
 import type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, PaymentObligation, SourceType } from './contractTypes';
+import type { DirectionBasis, FundKind, MoneyNature, PartyRelation } from '../../supabase/functions/_shared/contractRegistry';
 
 export { CONTRACT_CATEGORIES } from './contractTypes';
 export type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, PaymentObligation, SourceType } from './contractTypes';
+export type { DirectionBasis, FundKind, MoneyNature, PartyRelation } from '../../supabase/functions/_shared/contractRegistry';
 
 /** 금액의 구성 항목 (예: 월 임금 = 기본급 + 고정연장근로수당). 표시용 — 합산하지 않는다 */
 export interface PaymentComponent {
@@ -91,8 +93,13 @@ export interface Contract {
   counterparty: string | null;
   /** 계약 당사자 (역할 + 계약서의 이름) — 비어 있으면 예전 계약 (counterparty를 "계약 상대방"으로) · src/domain/parties.ts */
   parties: ContractParty[];
-  /** 사용자가 고른 내 역할 (null = 모름 — AI가 추측하지 않음) */
+  /** 사용자가 확정한 역할 (null = 모름 — AI가 추측하지 않음, 이름 일치 추천은 저장하지 않음) */
   userPartyRole: string | null;
+  /**
+   * 나와 이 계약의 관계 — self: 내 계약 · on_behalf: 다른 사람(가족 등)의 계약을 관리 (userPartyRole = 그 사람의 역할)
+   * · unknown: "잘 모르겠어요" (다시 묻지 않음, 방향을 정할 수 없는 금액은 확인 필요) · null: 아직 묻지 않음
+   */
+  userPartyRelation?: PartyRelation | null;
   lifecycle: ContractLifecycle;
   lifecycleChangedOn: ISODate | null;
   /** 계약 체결일 — 선택값, 기록용 (캘린더·알림에 쓰지 않음) */
@@ -121,8 +128,20 @@ export interface ContractPayment {
   id: string;
   contractId: string;
   kind: PaymentKind;
-  /** 사용자 기준 돈의 방향: 지출 / 수입(급여·용역 대금) / 중립(보증금 등 돌려받는 돈) */
+  /**
+   * 사용자 기준 실제 돈의 방향: 지출(출금) / 수입(입금) / neutral = 방향 확인 필요 (예전 데이터의 "중립"도 여기 — 합계에 넣지 않는다)
+   * 돈의 성격(보증금인지)은 moneyNature로 따로 — 방향을 계약 종류·이름만으로 정하지 않는다 (cashflow.ts)
+   */
   direction: Direction;
+  /** 돈의 성격 — ordinary 일반 · refundable_deposit 돌려받을/돌려줄 돈(보증금·예치금) · deposit_refund 그 돈의 반환 · null 예전 데이터 */
+  moneyNature?: MoneyNature | null;
+  /** 방향을 정한 근거 — user 사용자가 고름 · role 확정 역할로 계산 · contract 계약서·계약 구조로 명확 · null 예전 데이터 */
+  directionBasis?: DirectionBasis | null;
+  /** 계약서가 밝힌 실제 지급자·수령자 역할 (계약상 역할과 지급자가 다를 수 있음) — 없으면 계약 종류의 기본 흐름 */
+  payerRole?: string | null;
+  payeeRole?: string | null;
+  /** 이 금액이 속한 돌려받을 돈 묶음 (보증금 계약금·잔금 → 보증금 묶음) */
+  fundId?: string | null;
   label: string;
   amount: number;
   frequency: PaymentFrequency;
@@ -307,6 +326,34 @@ export type AiCheckSuggestion =
     }
   | { kind: 'add_event'; eventType: ContractEventType; title: string; eventDate: ISODate };
 
+/**
+ * 돌려받을/돌려줄 돈 묶음 (보증금·예치금) — 한 계약에 여러 개 가능.
+ * 지급은 묶음에 속한 결제(계약금·잔금 …)로, 반환은 refunds(실제 기록)로. 원래 지급 결제를 바꾸거나 뒤집지 않는다.
+ */
+export interface ContractFund {
+  id: string;
+  contractId: string;
+  kind: FundKind;
+  label: string;
+  /** null = 계약 요약의 보증금(depositAmount)을 총액으로 (계약당 하나) */
+  totalAmount: number | null;
+  /** 계약서에 적힌 반환 예정일만 — 없으면 계약 종료일에 "반환 확인" (확정 반환일로 보지 않음) */
+  returnDueOn: ISODate | null;
+  /** 맡기는 쪽·맡아 두는 쪽 역할 (null = 계약 종류의 기본 흐름) */
+  depositorRole: string | null;
+  holderRole: string | null;
+  refunds: FundRefund[];
+}
+
+/** 실제 반환 기록 — 일부 반환은 여러 건 */
+export interface FundRefund {
+  id: string;
+  fundId: string;
+  amount: number;
+  refundedOn: ISODate;
+  note: string | null;
+}
+
 /** 계약 + 하위 데이터 묶음 (화면/저장소 단위). */
 export interface ContractRecord {
   contract: Contract;
@@ -315,4 +362,6 @@ export interface ContractRecord {
   events: ContractEvent[];
   documents: ContractDocument[];
   aiChecks: AiCheck[];
+  /** 돌려받을 돈 묶음 (없으면 빈 목록 — 예전 계약) */
+  funds?: ContractFund[];
 }

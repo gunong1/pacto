@@ -85,7 +85,7 @@ export function schedule(o: Observed, start: ISODate, end: ISODate): string[] {
 /** 그 달 홈 요약 (지출 · 수입 · 중립) */
 export function month(o: Observed, year: number, m: number) {
   const s = monthSpending([o.record], { year, month: m });
-  return { expense: s.total, income: s.incomeTotal, neutral: s.depositTotal };
+  return { expense: s.total, income: s.incomeTotal, neutral: s.undeterminedTotal };
 }
 
 /** 그 날 캘린더 카드 (같은 계약 + 같은 날짜는 카드 하나) */

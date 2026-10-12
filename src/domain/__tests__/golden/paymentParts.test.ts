@@ -61,7 +61,7 @@ describe('임대차 보증금의 계약금·잔금 = 보증금 자금 이동 (�
     const days = r.schedule.filter((i) => i.type === 'payment' && (i.title.includes('계약금') || i.title.includes('잔금'))).map((i) => i.date);
     expect(days).toEqual(['2026-10-08', '2026-10-20']);
     // 보증금 이동은 지출과 따로 집계 (이번 달 오가는 보증금)
-    expect(r.oct.depositTotal).toBe(20000000);
+    expect(r.oct.undeterminedTotal).toBe(20000000);
   };
 
   test('보증금 총액 + 계약금 + 잔금이 함께 결제로 온 경우', () => {

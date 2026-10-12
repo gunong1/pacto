@@ -1,11 +1,22 @@
+import type { FlowNature } from './cashflow';
 import { kindDisplay } from './contractKinds';
 import { isConfirmedPayment } from './contractTypes';
 import { amountAt } from './paymentAmount';
 import { monthRange, type YearMonth } from './dates';
-import { expandPayment, type PaymentOccurrence } from './schedule';
+import { contractSchedule } from './schedule';
 import type { ContractCategory, ContractPayment, ContractRecord, Direction, ISODate } from './types';
 
-export interface SpendingItem extends PaymentOccurrence {
+export interface SpendingItem {
+  key: string;
+  date: ISODate;
+  amount: number;
+  label: string;
+  /** 사용자 기준 방향 — neutral = 방향 확인 필요 */
+  direction: Direction;
+  /** 일반 / 보증금·예치금 · null = 알 수 없음 */
+  nature: FlowNature | null;
+  estimated: boolean;
+  contractId: string;
   contractTitle: string;
   category: ContractCategory;
   /** 계약 종류 이름 (화면 표시용 — 분류 개편 전 계약은 예전 이름) */
@@ -17,54 +28,93 @@ export interface CategorySpending {
   amount: number;
 }
 
+/**
+ * 한 달 현금흐름 — 홈·캘린더·계약 상세가 같은 값을 쓴다 (캘린더 일정 scheduleForRange와 같은 목록에서 계산).
+ * - 총 출금 예정 = 일반 지출 + 보증금 지급 / 총 입금 예정 = 일반 수입 + 보증금 받음·반환(실제 기록·계약서에 적힌 반환 예정)
+ * - 종료일 기준 "반환 확인" 일정은 금액이 오가지 않아 넣지 않는다
+ * - 방향 확인 필요(neutral) 금액은 합계에 넣지 않고 따로 (undetermined)
+ * - 보증금 총액과 그 몫(계약금·잔금)을 함께 세지 않는다 — 일정은 몫(결제)만 있다
+ */
 export interface MonthSpending {
   yearMonth: YearMonth;
-  /** 이번 달 실제 결제 예정액 (연납은 결제되는 달에만 포함). */
+  /** 총 출금 예정 (연납은 결제되는 달에만) */
   total: number;
-  byCategory: CategorySpending[];
-  /** 계약 종류별 지출 (화면 표시) — 내부 분야값을 사용자에게 보여주지 않는다 */
-  byKind: { label: string; amount: number }[];
-  items: SpendingItem[];
-  hasEstimated: boolean;
-  /** 이번 달 오가는 보증금 등 중립 금액 (지출·수입 합계 제외) */
-  depositTotal: number;
-  /** 이번 달 들어오는 돈 (급여·용역 대금 등) — 지출과 섞지 않는다 */
+  /** 일반 지출 (보증금 제외) */
+  ordinaryExpense: number;
+  /** 보증금·예치금 지급 (또는 임대인의 반환) */
+  depositOut: number;
+  /** 총 입금 예정 */
   incomeTotal: number;
+  ordinaryIncome: number;
+  /** 보증금 받음 · 보증금 반환 받음 */
+  depositIn: number;
+  /** 방향 확인 필요 금액 (합계 제외) */
+  undeterminedTotal: number;
+  undetermined: SpendingItem[];
+  /** 일반 지출 분야별 / 계약 종류별 (보증금은 섞지 않는다) */
+  byCategory: CategorySpending[];
+  byKind: { label: string; amount: number }[];
+  /** 출금 항목 (일반 + 보증금) */
+  items: SpendingItem[];
+  /** 입금 항목 */
+  incomeItems: SpendingItem[];
+  hasEstimated: boolean;
 }
 
-/** 기간 내 결제 (기본: 지출만 — 수입·보증금(중립)은 제외) */
-function occurrencesIn(records: ContractRecord[], start: ISODate, end: ISODate, direction: Direction = 'expense'): SpendingItem[] {
-  return records.flatMap(({ contract, payments, dates }) =>
-    payments.filter((p) => p.direction === direction).flatMap((p) =>
-      expandPayment(p, contract, { start, end }, dates).map((o) => ({
-        ...o,
+/** 기간 안의 돈이 오가는 일정 (결제·보증금 지급·반환) — 캘린더와 같은 목록 */
+export function cashItems(records: ContractRecord[], start: ISODate, end: ISODate, today: ISODate = start): SpendingItem[] {
+  return records.flatMap((record) => {
+    const { contract } = record;
+    const kindLabel = kindDisplay(contract).label;
+    return contractSchedule(record, { start, end }, today)
+      .filter((i) => i.type === 'payment' && i.eventId === null && i.amount != null && i.direction != null)
+      .map((i) => ({
+        key: i.key,
+        date: i.date,
+        amount: i.amount!,
+        label: i.title,
+        direction: i.direction!,
+        nature: i.moneyNature ?? null,
+        estimated: i.estimated,
+        contractId: contract.id,
         contractTitle: contract.title,
         category: contract.category,
-        kindLabel: kindDisplay(contract).label,
-      })),
-    ),
-  );
+        kindLabel,
+      }));
+  });
 }
 
-/** 특정 월의 실제 결제 예정 지출. 종료/해지 계약은 처리일 이후 결제가 자동 제외된다. */
-export function monthSpending(records: ContractRecord[], ym: YearMonth): MonthSpending {
+const sum = (list: readonly SpendingItem[]) => list.reduce((s, i) => s + i.amount, 0);
+
+/** 특정 월의 현금흐름. 종료/해지 계약은 처리일 이후 결제가 자동 제외된다. */
+export function monthSpending(records: ContractRecord[], ym: YearMonth, today?: ISODate): MonthSpending {
   const { start, end } = monthRange(ym);
-  const items = occurrencesIn(records, start, end).sort((a, b) => a.date.localeCompare(b.date));
+  const all = cashItems(records, start, end, today ?? start).sort((a, b) => a.date.localeCompare(b.date));
+  const items = all.filter((i) => i.direction === 'expense');
+  const incomeItems = all.filter((i) => i.direction === 'income');
+  const undetermined = all.filter((i) => i.direction === 'neutral');
+  const ordinary = items.filter((i) => i.nature !== 'deposit');
   const byCat = new Map<ContractCategory, number>();
-  for (const i of items) byCat.set(i.category, (byCat.get(i.category) ?? 0) + i.amount);
+  for (const i of ordinary) byCat.set(i.category, (byCat.get(i.category) ?? 0) + i.amount);
   const byKind = new Map<string, number>();
-  for (const i of items) byKind.set(i.kindLabel, (byKind.get(i.kindLabel) ?? 0) + i.amount);
+  for (const i of ordinary) byKind.set(i.kindLabel, (byKind.get(i.kindLabel) ?? 0) + i.amount);
   return {
     yearMonth: ym,
-    total: items.reduce((sum, i) => sum + i.amount, 0),
+    total: sum(items),
+    ordinaryExpense: sum(ordinary),
+    depositOut: sum(items.filter((i) => i.nature === 'deposit')),
+    incomeTotal: sum(incomeItems),
+    ordinaryIncome: sum(incomeItems.filter((i) => i.nature !== 'deposit')),
+    depositIn: sum(incomeItems.filter((i) => i.nature === 'deposit')),
+    undeterminedTotal: sum(undetermined),
+    undetermined,
     byCategory: [...byCat.entries()]
       .map(([category, amount]) => ({ category, amount }))
       .sort((a, b) => b.amount - a.amount),
     byKind: [...byKind.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount),
     items,
+    incomeItems,
     hasEstimated: items.some((i) => i.estimated),
-    depositTotal: occurrencesIn(records, start, end, 'neutral').reduce((sum, o) => sum + o.amount, 0),
-    incomeTotal: occurrencesIn(records, start, end, 'income').reduce((sum, o) => sum + o.amount, 0),
   };
 }
 

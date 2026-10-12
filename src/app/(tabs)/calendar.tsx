@@ -47,7 +47,7 @@ export default function CalendarScreen() {
   const { groups, markers, spending } = useMemo(() => {
     const list = records ?? [];
     const groups = groupCalendarItems(scheduleForRange(list, monthRange(ym), today), today);
-    const spending = monthSpending(list, ym);
+    const spending = monthSpending(list, ym, today);
     return { groups, markers: dayMarkers(groups), spending };
   }, [records, ym, today]);
 
@@ -77,9 +77,10 @@ export default function CalendarScreen() {
           subtitle={
             // 월 금액은 홈(이번 달 계약 재무 요약)이 주인공 — 캘린더는 작은 한 줄만. 홈과 같은 monthSpending 기준
             <AppText variant="caption" color="textSecondary" tabular align="center" testID="calendar-month-total">
-              지출 {formatKRW(spending.total)}
-              {spending.incomeTotal > 0 ? ` · 수입 +${formatKRW(spending.incomeTotal)}` : ''}
-              {spending.depositTotal > 0 ? ' · 보증금 제외' : ''}
+              총 출금 예정 {formatKRW(spending.total)}
+              {spending.depositOut > 0 ? ` (보증금 ${formatKRW(spending.depositOut)} 포함)` : ''}
+              {spending.incomeTotal > 0 ? ` · 입금 +${formatKRW(spending.incomeTotal)}` : ''}
+              {spending.undeterminedTotal > 0 ? ' · 확인 필요 금액 제외' : ''}
             </AppText>
           }
         />

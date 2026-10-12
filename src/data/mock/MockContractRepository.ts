@@ -1,9 +1,9 @@
 import type { AmountChangeOp } from '@/domain/amountEdits';
 import { todayInSeoul } from '@/domain/dates';
-import type { AiCheck, ContractRecord } from '@/domain/types';
+import type { AiCheck, ContractFund, ContractPayment, ContractRecord } from '@/domain/types';
 
-import { applyDraftToContract, blankContract, draftToDates, draftToPayments } from '../draft';
-import type { ContractDraft, ContractRepository, CreateContractInput, NewEventInput } from '../repository';
+import { applyDraftToContract, blankContract, draftToDates, draftToPayments, recordToDraft, SUMMARY_FUND_KEY, withSummaryFund } from '../draft';
+import type { ContractDraft, ContractRepository, CreateContractInput, NewEventInput, RefundInput } from '../repository';
 import { createMockRecords } from './mockContracts';
 
 let seq = 0;
@@ -14,6 +14,34 @@ function newId(prefix: string): string {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * DB save_contract와 같은 의미의 묶음 저장: draft에 목록이 있을 때만 정리 (id 유지 · 새 묶음 추가 · 빠진 묶음 삭제(반환 기록 함께))
+ * 결제의 fundKey(새 묶음은 임시 키, 저장된 묶음은 id)를 실제 묶음 id로 바꾼다
+ */
+function saveFunds(draft: ContractDraft, existing: readonly ContractFund[], contractId: string, payments: ContractPayment[]): { funds: ContractFund[]; payments: ContractPayment[] } {
+  const keyToId = new Map<string, string>(existing.map((f) => [f.id, f.id]));
+  let funds = [...existing];
+  if (draft.funds) {
+    funds = draft.funds.map((f) => {
+      const prev = f.id ? existing.find((x) => x.id === f.id) : undefined;
+      if (f.id && !prev) throw new Error('보증금 정보를 찾을 수 없어요.');
+      const id = prev?.id ?? newId('f');
+      keyToId.set(f.key, id);
+      return { id, contractId, kind: f.kind, label: f.label, totalAmount: f.totalAmount, returnDueOn: f.returnDueOn, depositorRole: f.depositorRole, holderRole: f.holderRole, refunds: prev?.refunds ?? [] };
+    });
+    if (funds.filter((f) => f.totalAmount == null).length > 1) throw new Error('보증금 묶음이 중복됐어요.');
+  }
+  return {
+    funds,
+    payments: payments.map((p) => {
+      if (!p.fundId) return p;
+      const id = keyToId.get(p.fundId);
+      if (!id || !funds.some((f) => f.id === id)) throw new Error('보증금 정보를 찾을 수 없어요.');
+      return { ...p, fundId: id };
+    }),
+  };
 }
 
 /**
@@ -83,6 +111,7 @@ export class MockContractRepository implements ContractRepository {
       documents: input.documents.map((d) => ({ ...d, id: d.id ?? newId('d'), contractId: id })),
       aiChecks: input.aiChecks.map((c) => ({ ...c, id: newId('ai'), contractId: id })),
     };
+    Object.assign(record, saveFunds(input.draft, [], id, record.payments));
     this.records.unshift(record);
     return clone(record);
   }
@@ -110,8 +139,32 @@ export class MockContractRepository implements ContractRepository {
       }
     }
     r.contract = applyDraftToContract(r.contract, draft);
-    r.payments = payments;
+    Object.assign(r, saveFunds(draft, r.funds ?? [], id, payments));
     r.dates = draftToDates(draft, id, () => newId('dt'));
+    return this.touch(r);
+  }
+
+  async addRefund(id: string, fundKey: string, input: RefundInput) {
+    let fundId = fundKey;
+    if (fundKey === SUMMARY_FUND_KEY) {
+      const saved = await this.update(id, withSummaryFund(recordToDraft(this.find(id))));
+      fundId = (saved.funds ?? []).find((f) => f.totalAmount == null)!.id;
+    }
+    await this.delay();
+    const r = this.find(id);
+    const fund = (r.funds ?? []).find((f) => f.id === fundId);
+    if (!fund) throw new Error('보증금 정보를 찾을 수 없어요.');
+    if (!(input.amount > 0)) throw new Error('반환 금액을 확인해주세요.');
+    fund.refunds = [...fund.refunds, { id: newId('rf'), fundId, amount: input.amount, refundedOn: input.refundedOn, note: input.note?.trim() || null }].sort((a, b) =>
+      a.refundedOn.localeCompare(b.refundedOn),
+    );
+    return this.touch(r);
+  }
+
+  async removeRefund(id: string, refundId: string) {
+    await this.delay();
+    const r = this.find(id);
+    for (const f of r.funds ?? []) f.refunds = f.refunds.filter((x) => x.id !== refundId);
     return this.touch(r);
   }
 

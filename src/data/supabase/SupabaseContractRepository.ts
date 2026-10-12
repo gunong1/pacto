@@ -4,8 +4,8 @@ import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
 import type { Database, Json } from '@/types/database';
 
-import { draftToPayment, legacyFields } from '../draft';
-import type { ContractDraft, ContractRepository, CreateContractInput, NewEventInput } from '../repository';
+import { draftToPayment, legacyFields, recordToDraft, SUMMARY_FUND_KEY, withSummaryFund } from '../draft';
+import type { ContractDraft, ContractRepository, CreateContractInput, NewEventInput, RefundInput } from '../repository';
 import type { PactoSupabase } from './client';
 import { CONTRACT_SELECT, toRecord, type ContractRow } from './rowMapping';
 
@@ -46,6 +46,8 @@ function contractPayload(d: ContractDraft, extra: Record<string, unknown> = {}):
     counterparty: d.counterparty,
     parties: d.parties as unknown as Json,
     user_party_role: d.userPartyRole,
+    // 보낸 경우에만 바뀐다 (undefined면 키를 빼서 저장된 값 유지)
+    ...(d.userPartyRelation !== undefined ? { user_party_relation: d.userPartyRelation } : {}),
     contract_date: d.contractDate,
     start_date: d.startDate,
     end_date: d.endDate,
@@ -84,8 +86,29 @@ function paymentsPayload(d: ContractDraft, today: ISODate): Json {
       business_day_rule: r.businessDayRule,
       obligation: r.obligation,
       condition_note: r.conditionNote,
+      // 돈의 성격·방향 근거·지급자/수령자·묶음 — 이 앱은 언제나 보낸다 (예전 앱은 보내지 않아 서버가 저장된 값을 유지)
+      money_nature: r.moneyNature,
+      direction_basis: r.directionBasis,
+      payer_role: r.payerRole,
+      payee_role: r.payeeRole,
+      fund_key: p.fundKey ?? null,
     };
   });
+}
+
+/** 묶음 — draft에 목록이 있을 때만 보낸다 (undefined면 p_funds를 보내지 않아 저장된 묶음 유지) */
+function fundsPayload(d: ContractDraft): Json | undefined {
+  if (!d.funds) return undefined;
+  return d.funds.map((f) => ({
+    id: f.id ?? null,
+    key: f.key,
+    kind: f.kind,
+    label: f.label,
+    total_amount: f.totalAmount,
+    return_due_on: f.returnDueOn,
+    depositor_role: f.depositorRole,
+    holder_role: f.holderRole,
+  }));
 }
 
 function datesPayload(d: ContractDraft): Json {
@@ -136,6 +159,7 @@ export class SupabaseContractRepository implements ContractRepository {
         p_contract: contractPayload(input.draft, { source: input.source, analysis_job_id: input.analysisJobId ?? null }),
         p_payments: paymentsPayload(input.draft, this.today()),
         p_dates: datesPayload(input.draft),
+        p_funds: fundsPayload(input.draft),
         p_document_ids: input.documents.map((d) => d.id).filter((x): x is string => !!x),
         p_ai_checks: checks as unknown as Json,
       }),
@@ -153,12 +177,32 @@ export class SupabaseContractRepository implements ContractRepository {
         p_contract: contractPayload(draft),
         p_payments: paymentsPayload(draft, this.today()),
         p_dates: datesPayload(draft),
+        p_funds: fundsPayload(draft),
         p_contract_id: id,
         p_amount_changes: amountChanges.map((c) =>
           c.op === 'add' ? { op: 'add', payment_id: c.paymentId, effective_from: c.effectiveFrom, amount: c.amount } : { op: 'correct', change_id: c.changeId, amount: c.amount },
         ),
       }),
     );
+    return this.mustGet(id);
+  }
+
+  async addRefund(id: string, fundKey: string, input: RefundInput) {
+    let fundId = fundKey;
+    if (fundKey === SUMMARY_FUND_KEY) {
+      // 예전 계약: 보증금 묶음을 먼저 만든다 (보증금 결제 연결 — 결제 id·금액·방향은 그대로)
+      const rec = await this.mustGet(id);
+      const saved = await this.update(id, withSummaryFund(recordToDraft(rec)));
+      const f = (saved.funds ?? []).find((x) => x.totalAmount == null);
+      if (!f) throw new RepositoryError('보증금 정보를 찾을 수 없어요.');
+      fundId = f.id;
+    }
+    check(await this.sb.from('fund_refunds').insert({ fund_id: fundId, amount: input.amount, refunded_on: input.refundedOn, note: input.note?.trim() || null }));
+    return this.mustGet(id);
+  }
+
+  async removeRefund(id: string, refundId: string) {
+    check(await this.sb.from('fund_refunds').delete().eq('id', refundId));
     return this.mustGet(id);
   }
 
