@@ -55,7 +55,7 @@ npx supabase functions list                                 # 함수별 최근 �
 | cleanup-orphans · delete-account | 공통 코드 묶음 갱신 (동작 변화 없음 — 추측입니다, 같은 _shared를 쓰므로 함께 배포 권장) | 2 |
 
 ```powershell
-npx supabase functions deploy analyze-contract protect-document protect-scan-page notifications cleanup-orphans delete-account
+# 하나씩 배포·확인 — 순서와 판정은 docs/DEPLOY_RUNBOOK.md 3단계
 ```
 
 ## 3. APK
