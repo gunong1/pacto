@@ -38,7 +38,7 @@ export function buildPayments(raw: unknown, dates: readonly ExtractedDate[]): Bu
       continue;
     }
     if (role.kind === 'total') {
-      totals.push({ label, amount, deposit: role.deposit, evidence });
+      totals.push({ label, amount, deposit: role.deposit, direction: role.direction, evidence });
       continue;
     }
     if (role.kind === 'reference') {

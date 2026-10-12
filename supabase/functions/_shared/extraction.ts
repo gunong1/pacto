@@ -18,7 +18,7 @@ import { assignDateUses, cleanDates } from './analysisRules/dates.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
 import { noticeSuggestions, resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
 import { buildPayments } from './analysisRules/payments.ts';
-import { totalsToFields } from './analysisRules/paymentRoles.ts';
+import { installmentParents, totalsToFields } from './analysisRules/paymentRoles.ts';
 import type { AppExtractionResult } from './analysisRules/types.ts';
 import { isObj } from './analysisRules/values.ts';
 import { FIELDS } from './analysisRules/vocabulary.ts';
@@ -68,6 +68,8 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   // 5·6) 금액 — 결제 + 결제가 아닌 금액(참고·면제·할인·할인 전) + 총액(계약 요약 칸으로)
   const { payments, references, totals } = buildPayments(output.payments, dates);
   totalsToFields(totals, fields, references);
+  // 계약금·잔금 등 몫의 성격은 상위 금액(보증금·매매대금·용역대금)을 따른다 (R7)
+  installmentParents(payments, totals, fields.depositAmount?.value);
   // 3·4) 날짜의 쓰임 (체결·시작·종료·통보·주요 날짜·결제 정보) — 서버가 정하고 앱은 옮기기만
   assignDateUses(dates, profile, payments);
   // 7) 유형별 속성

@@ -1443,3 +1443,11 @@ pacto/
 - 테스트: `security/ocr-detector-golden`(문자열: 구분자·대시·혼동 글자·제외 문맥·누락 검사), `security/ocr-pipeline-golden`(인쇄·손글씨·기울어짐·그림자·저해상도·표, 4종 모두 가려야 통과 · D·C·F·E 판정).
   실제 손글씨 인식률은 OCR마다 달라 고정 테스트로 보장하지 않는다 → 실제 CLOVA 측정은 `scripts/protect-bench.mjs`.
 
+## 나눠 내는 몫의 성격 — 상위 금액 기준 (2026-10-12, 규칙 R7 installmentParents)
+- "계약금"이라는 이름만 보고 일반 지출로 분류하지 않는다. 몫(계약금·중도금·잔금·착수금…)이 무엇의 일부인지로 성격을 정한다.
+  - 임대차 보증금의 몫 → 보증금 자금 이동(neutral): 월 지출 합계에서 제외, 지급 일정(계약금 계약 당일 · 잔금 지정일)은 각각 유지, 이번 달 오가는 보증금으로 따로 집계
+  - 매매대금·용역대금의 몫 → 그 금액의 방향(지출·수입). 상위 금액(총액)은 별도 지급으로 추가하지 않는다
+- 판정: 몫 전체(또는 상위 금액보다 작은 몫 2개 이상)의 합이 상위 금액(총액 결제 · role=total · 계약 요약 보증금 칸)과 정확히 같을 때만 (`paymentAggregate.partsOfTotal`). 애매하면 건드리지 않는다.
+- 기존 데이터: migration `20261023000002`(`mark_deposit_installment_parts`)가 같은 규칙으로 방향만 neutral로 바꾼다 (행·일정·금액 그대로).
+- 테스트: `golden/paymentParts.test.ts`(실제 테스트 계약서 구조 · 매매 · 용역 · 근거 없음 · 합 불일치), 통합 `step25-deposit-parts`.
+

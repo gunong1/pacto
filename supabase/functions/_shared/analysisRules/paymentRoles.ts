@@ -20,9 +20,14 @@
  * 규칙 R5 foldComponents — 정기 금액의 구성항목(기본급·수당)이 총액(급여)과 함께 결제로 오면 구성으로 (합이 정확히 맞을 때만)
  * 규칙 R6 preDiscountSiblings — 할인 전 금액과 실제(할인 적용) 금액이 함께 결제로 오면 할인 전 금액은 참고 금액(할인 전).
  *   실제 금액이 없으면 결제로 두되 금액을 비워 사용자가 실제 결제액을 입력하게 한다 (자동으로 빼서 계산하지 않음)
- * 테스트: payment-roles.test.ts, aggregate-payments.test.ts, discount-price.test.ts, golden
+ * 규칙 R7 installmentParents — 나눠 내는 몫(계약금·중도금·잔금·착수금)은 이름이 아니라 상위 금액(총액)과의 관계로 성격을 정한다
+ *   몫들의 합이 상위 금액과 정확히 같을 때만 (paymentAggregate.partsOfTotal):
+ *   보증금(총액 또는 계약 요약 칸)의 몫 → 보증금 자금 이동(neutral): 월 지출에서 빠지고 지급 일정은 각각 유지
+ *   매매대금·용역대금 등의 몫 → 그 금액의 방향(지출·수입)을 따른다. 상위 금액을 알 수 없으면 그대로 둔다
+ *   예) 보증금 20,000,000 = 계약금 2,000,000(계약 당일) + 잔금 18,000,000(10-20) → 둘 다 neutral, 월 지출은 월세·관리비만
+ * 테스트: payment-roles.test.ts, aggregate-payments.test.ts, discount-price.test.ts, golden (paymentParts.test.ts)
  */
-import { findAggregateTotals, foldRecurringComponents } from '../paymentAggregate.ts';
+import { findAggregateTotals, foldRecurringComponents, partsOfTotal } from '../paymentAggregate.ts';
 import { AMOUNT_ROLES, DIRECTIONS, PAYMENT_OBLIGATIONS } from '../contractRegistry.ts';
 import { DISCOUNT_APPLIED, DISCOUNT_ITEM, isPreDiscountAmount, PRE_DISCOUNT, WAIVED } from './keywords.ts';
 import type { AppExtractionResult, Extracted, ExtractedPayment, ReferenceRole } from './types.ts';
@@ -41,12 +46,14 @@ export interface TotalAmount {
   label: string;
   amount: number;
   deposit: boolean;
+  /** 상위 금액의 방향 (모델 답) — 몫의 방향을 정할 때 (보증금은 늘 neutral) */
+  direction?: string | null;
   evidence?: Extracted['evidence'];
 }
 
 export type Role =
   | { kind: 'component'; component: PendingComponent }
-  | { kind: 'total'; deposit: boolean }
+  | { kind: 'total'; deposit: boolean; direction: string | null }
   | { kind: 'reference'; role: Exclude<ReferenceRole, 'total'> }
   | { kind: 'payment'; beforeDiscount: boolean };
 
@@ -57,7 +64,7 @@ export function roleOf(p: Record<string, unknown>, label: string, amount: number
   if (role === 'component') {
     return { kind: 'component', component: { label, amount, partOf: text(p.part_of, 40), direction: oneOf(DIRECTIONS, p.direction), frequency: oneOf(FREQUENCIES, p.frequency) } };
   }
-  if (role === 'total') return { kind: 'total', deposit: isDeposit(p.kind, label) };
+  if (role === 'total') return { kind: 'total', deposit: isDeposit(p.kind, label), direction: oneOf(DIRECTIONS, p.direction) };
   const beforeDiscount = p.price_basis === 'before_discount' || PRE_DISCOUNT.test(label) || isPreDiscountAmount(quote, amount);
   const oneTime = p.frequency === 'one_time';
   // 면제: AI가 waived로 답함 · 0원 · 참고 금액/일회성 금액인데 문구가 "면제·무료·무상"
@@ -101,7 +108,7 @@ export function attachComponents(payments: ExtractedPayment[], pending: readonly
 export function aggregateTotals(payments: ExtractedPayment[], totals: TotalAmount[]): void {
   for (const total of findAggregateTotals(payments)) {
     payments.splice(payments.indexOf(total), 1);
-    totals.push({ label: total.label, amount: total.amount, deposit: isDeposit(total.kind, total.label), evidence: total.evidence });
+    totals.push({ label: total.label, amount: total.amount, deposit: isDeposit(total.kind, total.label), direction: total.direction, evidence: total.evidence });
   }
 }
 
@@ -112,6 +119,23 @@ export function totalsToFields(totals: readonly TotalAmount[], fields: Record<st
     const cur = fields[key]?.value;
     if (cur == null) fields[key] = { value: t.amount, confidence: 'high', ...(t.evidence ? { evidence: t.evidence } : {}) };
     else if (cur !== t.amount) references.push({ label: t.label, amount: t.amount, role: 'total' });
+  }
+}
+
+/** R7 — 몫의 성격은 상위 금액을 따른다 (보증금 칸 값도 상위 금액으로 본다) */
+export function installmentParents(payments: ExtractedPayment[], totals: readonly TotalAmount[], depositAmount: unknown): void {
+  const parents: { amount: number; deposit: boolean; direction: string | null }[] = [
+    ...totals.map((t) => ({ amount: t.amount, deposit: t.deposit, direction: t.direction ?? null })),
+    ...(typeof depositAmount === 'number' && !totals.some((t) => t.deposit && t.amount === depositAmount) ? [{ amount: depositAmount, deposit: true, direction: 'neutral' }] : []),
+  ].sort((a, b) => Number(b.deposit) - Number(a.deposit));
+  const done = new Set<ExtractedPayment>();
+  for (const parent of parents) {
+    const parts = partsOfTotal(payments.filter((p) => !done.has(p)), parent.amount);
+    for (const p of parts) {
+      done.add(p);
+      if (parent.deposit) p.direction = 'neutral';
+      else if (parent.direction === 'expense' || parent.direction === 'income') p.direction = parent.direction;
+    }
   }
 }
 

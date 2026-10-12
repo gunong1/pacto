@@ -36,6 +36,18 @@ export function findAggregateTotals<T extends AggregateCandidate>(payments: read
   });
 }
 
+/**
+ * 상위 금액(총액)을 이루는 몫 — 일회성·확정 몫 전체의 합 또는 그보다 작은 몫 2개 이상의 합이 정확히 total일 때만.
+ * 몫의 성격(보증금 자금 이동 · 매매대금 · 용역대금)을 상위 금액에서 정하는 데 쓴다 (installmentParents, 저장 데이터 정리 SQL과 같은 규칙).
+ */
+export function partsOfTotal<T extends AggregateCandidate>(payments: readonly T[], total: number): T[] {
+  const parts = payments.filter((p) => isOneTimeConfirmed(p) && INSTALLMENT_PART.test(p.label));
+  if (parts.length < 2 || total <= 0) return [];
+  if (parts.reduce((s, p) => s + p.amount, 0) === total) return parts;
+  const smaller = parts.filter((p) => p.amount < total);
+  return smaller.length >= 2 && smaller.reduce((s, p) => s + p.amount, 0) === total ? smaller : [];
+}
+
 /** 합계로 바꾼 금액의 안내 문구 (상세 화면 · 저장 데이터 정리) */
 export const AGGREGATE_NOTE = '총액 — 계약금·잔금 등으로 나눠 지급';
 
