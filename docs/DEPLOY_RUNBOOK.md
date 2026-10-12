@@ -174,7 +174,10 @@ npx supabase db query --linked -o csv -f scripts/deploy/check-schema.sql | Out-F
 Select-String -Path "$B\check-schema.csv" -Pattern '^(version|extra_history),'
 Select-String -Path "$B\check-schema.csv" -Pattern ',UNEXPECTED,'
 ```
-(SQL Editor를 쓰는 경우: 파일 전체를 붙여 넣고 실행합니다. `kind`가 version인 줄과 `result`가 UNEXPECTED인 줄을 확인합니다.)
+(SQL Editor를 쓰는 경우: 파일 **이름이 아니라 내용**을 붙여 넣어야 합니다. 이름만 넣으면 `syntax error at or near "`"`"`가 납니다.
+아래 명령으로 내용을 클립보드에 복사한 뒤 SQL Editor에서 Ctrl+V → Run.
+`Get-Content scripts\deploy\check-schema.sql -Raw -Encoding UTF8 | Set-Clipboard`
+결과에서 `kind`가 version인 줄과 `result`가 UNEXPECTED인 줄을 확인합니다. 다른 SQL 파일(backup-counts.sql, storage-manifest.sql)도 같은 방법입니다.)
 
 | 버전 | 기대 결과 (result · history_recorded · action) |
 |---|---|
