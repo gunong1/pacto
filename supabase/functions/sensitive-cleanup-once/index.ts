@@ -7,7 +7,8 @@
 //   - 원본 계약서 파일·보호본·사용자가 직접 입력한 칸은 바꾸지 않는다 (reportOnly로 개수만 보여줌)
 //   - 가리기 전 원문을 백업 표·로그에 복사하지 않는다. 로그·응답은 실행 id·행 id·개수·해시만
 //   - 가림은 멱등(이미 가린 값은 그대로)이라 중간에 실패해도 다시 실행하면 된다
-// 호출: service_role 키만 (Authorization: Bearer <service_role>)
+// 호출: 이 함수 전용 비밀값만 (x-cleanup-secret: <SENSITIVE_CLEANUP_SECRET>) — 정리가 끝나면 `supabase secrets unset`으로 지운다
+//   (service_role 키 비교는 배포 환경의 키 형식에 따라 맞지 않을 수 있어 전용 비밀값으로 바꿨다)
 import { restJson, safeEqual } from '../_shared/admin.ts';
 import { json } from '../_shared/cors.ts';
 import { detectSensitive, maskSensitiveDeep, shouldMaskSensitive } from '../_shared/protection/sensitive.ts';
@@ -75,9 +76,9 @@ function totals(hits: Hit[]) {
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  const auth = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
-  if (!key || !safeEqual(auth, key)) return json({ error: 'unauthorized' }, 401);
+  const secret = Deno.env.get('SENSITIVE_CLEANUP_SECRET') ?? '';
+  if (secret.length < 32) return json({ error: 'not_configured' }, 503);
+  if (!safeEqual(req.headers.get('x-cleanup-secret') ?? '', secret)) return json({ error: 'unauthorized' }, 401);
 
   let body: { mode?: string; planHash?: string };
   try {

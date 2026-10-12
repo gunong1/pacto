@@ -2,6 +2,9 @@
  * ⚠ 임시 함수 sensitive-cleanup-once 검증 (정리가 끝나면 함수와 함께 지운다) — 모든 값은 가짜다.
  * 1단계 dry_run: 표·필드·행 id·유형별 개수만 (원문 없음) / 2단계 apply: 같은 planHash일 때만, AI 파생 텍스트만 가림
  */
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { EMPTY_DRAFT } from '@/data/draft';
 import { SupabaseContractRepository } from '@/data/supabase/SupabaseContractRepository';
 
@@ -15,18 +18,21 @@ const leaks = (v: unknown) => {
   const text = JSON.stringify(v);
   return RAW.map((r, i) => (text.includes(r) ? i : -1)).filter((i) => i >= 0);
 };
-const call = async (body: unknown, key = localEnv().SERVICE_ROLE_KEY) => {
+/** 로컬 전용 비밀값 (supabase/functions/.env, 저장소에 없음) */
+const secret = () => /^SENSITIVE_CLEANUP_SECRET=(.+)$/m.exec(fs.readFileSync(path.resolve(__dirname, '../../supabase/functions/.env'), 'utf8'))![1].trim();
+const call = async (body: unknown, key = secret()) => {
   const res = await testFetch(`${localEnv().API_URL}/functions/v1/sensitive-cleanup-once`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    headers: { 'x-cleanup-secret': key, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };
 };
 
 describe('Step 24 — 기존 데이터 민감정보 정리 (임시 함수)', () => {
-  test('service_role만 · dry_run은 개수만 · apply는 확인한 계획일 때만 AI 파생 텍스트를 가림 · 사용자 입력 칸은 그대로', async () => {
-    expect((await call({ mode: 'dry_run' }, localEnv().ANON_KEY)).status).toBe(401);
+  test('전용 비밀값만 · dry_run은 개수만 · apply는 확인한 계획일 때만 AI 파생 텍스트를 가림 · 사용자 입력 칸은 그대로', async () => {
+    expect((await call({ mode: 'dry_run' }, localEnv().SERVICE_ROLE_KEY)).status).toBe(401);
+    expect((await call({ mode: 'dry_run' }, 'wrong')).status).toBe(401);
 
     // 예전 정책으로 저장된 데이터 흉내 (가리지 않은 근거·설명)
     const a = await newUser('sec-clean');

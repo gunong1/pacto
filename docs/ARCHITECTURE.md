@@ -1416,7 +1416,7 @@ pacto/
 가림 자체가 실패하면 원문 대신 "민감정보 보호 확인 필요".
 
 **기존 데이터 정리 (임시 함수 `sensitive-cleanup-once`)** — 정리가 끝나면 함수 폴더·`config.toml` 항목·배포·테스트(`step24`)를 지운다.
-- service_role 키로만 호출. 1단계 `dry_run`: 표·필드·행 id·유형별 개수 + `planHash`만 (원문 없음). 2단계 `apply`: 같은 `planHash`일 때만 실행.
+- 전용 비밀값(`SENSITIVE_CLEANUP_SECRET`, 헤더 `x-cleanup-secret`)으로만 호출 — 정리 후 `secrets unset`. 1단계 `dry_run`: 표·필드·행 id·유형별 개수 + `planHash`만 (원문 없음). 2단계 `apply`: 같은 `planHash`일 때만 실행.
 - 가리는 대상: AI 파생 텍스트 `contracts.ai_checks`·`classification`, `analysis_jobs.result`·`raw_output`. 원본 파일·보호본·사용자가 입력한 칸은 바꾸지 않는다(`reportOnly`로 개수만).
 - 원문을 백업 표·로그에 복사하지 않는다(로그: 실행 id·행 id·개수·해시). 가림이 멱등이라 중간 실패 시 다시 실행.
 
