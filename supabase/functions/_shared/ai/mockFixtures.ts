@@ -15,11 +15,13 @@ const detail = (key: string, value: string | number | boolean, quote: string | n
   source_type,
   ...q(quote),
 });
+const party = (role: string, name: string, quote: string) => ({ role, name, confidence: 'high', ...q(quote) });
 const check = (c: Record<string, unknown>) => ({ confidence: 'high', behavior: 'info', condition: null, action: null, offset_days: null, related_date: null, evidence_page: 1, evidence_file: 1, ...c });
 
 export function rentalOutput(title: string) {
   return {
     classification: { kind: 'rental', subtype: 'appliance', domains: ['appliance'], confidence: 'high', alternatives: [], reason: '공기청정기를 빌려 쓰는 렌탈 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
+    parties: [party('provider', '테스트렌탈(주)', '렌탈회사: 테스트렌탈 주식회사')],
     fields: {
       title: f(title),
       counterparty: f('테스트렌탈(주)', 'high', '렌탈회사: 테스트렌탈 주식회사'),
@@ -70,6 +72,8 @@ export function rentalLeakyContactOutput(title: string) {
   return {
     ...base,
     fields: { ...base.fields, counterparty: f('홍길동', 'high', LEAKY_CONTACT_LINE) },
+    // 당사자 이름 칸에 연락처가 섞여 와도 공통 가림 정책으로 저장 전에 가린다
+    parties: [...base.parties, party('customer', '홍길동 010-1234-5678', LEAKY_CONTACT_LINE)],
     checks: [
       ...base.checks,
       check({ severity: 'check', topic: 'counterparty', title: '임대인 연락처 (010-1234-5678)', description: `임대인 정보: ${LEAKY_CONTACT_LINE}`, evidence_quote: LEAKY_CONTACT_LINE }),
@@ -138,6 +142,7 @@ export function employmentOutput(title: string) {
   const period = '근로계약기간: 2026년 10월 1일부터 2027년 9월 30일까지';
   return {
     classification: { kind: 'employment', subtype: 'fixed_term', domains: [], confidence: 'high', alternatives: [], reason: '근로 제공과 임금 지급을 정한 고용 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
+    parties: [party('employer', '주식회사 네오링크', '사용자: 주식회사 네오링크')],
     fields: {
       title: f(title),
       counterparty: f('주식회사 네오링크', 'high', '사용자: 주식회사 네오링크'),
@@ -194,6 +199,7 @@ export function gymYearOutput(title: string) {
   const term = '이용기간: 2026년 10월 10일부터 2027년 10월 9일까지 (1년)';
   return {
     classification: { kind: 'subscription_membership', subtype: 'fitness_membership', domains: [], confidence: 'high', alternatives: [], reason: '헬스장 시설을 1년 동안 이용할 권리를 받는 회원권 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
+    parties: [party('provider', '바디핏 피트니스', '사업장: 바디핏 피트니스')],
     fields: {
       title: f(title),
       counterparty: f('바디핏 피트니스', 'high', '사업장: 바디핏 피트니스'),
@@ -253,6 +259,7 @@ const NO_SIGNALS = { parties: false, dates: false, amounts: false, obligations: 
 function emptyExtraction() {
   return {
     classification: { kind: 'other', subtype: 'none', domains: [], confidence: 'low', alternatives: [], reason: '계약 문서로 확인되지 않았습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
+    parties: [],
     fields: Object.fromEntries(['title', 'counterparty', 'totalAmount', 'depositAmount', 'autoRenewal', 'renewalPeriodMonths', 'terminationNoticeDays', 'earlyTerminationTerms', 'penaltyTerms'].map((k) => [k, f(null, 'low')])),
     dates: [],
     payments: [],
@@ -266,7 +273,7 @@ function stampFile(out: Record<string, unknown>, file: number, skipPayments = fa
   const stamp = (o: Record<string, unknown>) => ({ ...o, evidence_file: typeof o.evidence_file === 'number' ? o.evidence_file : file, evidence_page: o.evidence_page ?? 1 });
   const fields = out.fields as Record<string, Record<string, unknown>>;
   for (const k of Object.keys(fields)) if (fields[k].value !== null) fields[k] = stamp(fields[k]);
-  for (const key of ['dates', 'payments', 'details', 'checks']) {
+  for (const key of ['dates', 'payments', 'details', 'checks', 'parties']) {
     if (key === 'payments' && skipPayments) {
       out[key] = (out[key] as Record<string, unknown>[]).map((p) => ({ ...p, evidence_file: null, evidence_page: null }));
       continue;

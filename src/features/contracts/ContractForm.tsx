@@ -33,6 +33,8 @@ import {
 import { DatesList } from './formSections/DatesSection';
 import { DetailsSection } from './formSections/DetailsSection';
 import { formKit, FormLabel } from './formSections/kit';
+import { PartiesSection } from './formSections/PartiesSection';
+import { partyKindOf } from '@/domain/parties';
 import { AiKindJudgment, KindChooser } from './formSections/KindSection';
 import { ComponentsEditor, CustomFirstDate, FREQUENCY_OPTIONS, PaymentsList, PlanLine } from './formSections/PaymentsSection';
 import { AutoRenewalFields, RenewalSection } from './formSections/RenewalSection';
@@ -192,6 +194,7 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
 
   // 계약 종류 (한 번만 고른다). 분류 개편 전 계약은 예전 표시 이름을 안내만 하고, 고르면 새 분류로
   const selectedKind = values.contractKind || null;
+  const partiesBlock = <PartiesSection kit={kit} kind={partyKindOf({ contractKind: selectedKind, contractType: values.contractType })} />;
   const legacy = kindDisplay({ contractKind: null, contractSubtype: null, contractType: values.contractType, category: values.category });
   const kindChooser = (
     <KindChooser
@@ -343,7 +346,7 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
               {more ? '상세 정보 접기' : '상세 정보 추가'}
             </AppText>
             <AppText variant="caption" color="textTertiary" style={{ flex: 1, textAlign: 'right' }} numberOfLines={1}>
-              {more ? '' : '상대방 · 통보기한 · 주요 날짜 · 위약금 …'}
+              {more ? '' : '당사자 · 통보기한 · 주요 날짜 · 위약금 …'}
             </AppText>
           </Pressable>
         </View>
@@ -352,7 +355,6 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
           <View testID="quick-more">
             <SectionGap />
             <Section title="상세 정보">
-              {field('counterparty', '계약 상대방', { placeholder: '예: 구글' })}
               {date('contractDate', '계약 체결일', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
               {!oneTime ? (
                 <CustomFirstDate income={income} initialOpen={!!values.quick?.nextDate} onClear={() => setValue('quick.nextDate', '')} testID="quick-firstToggle">
@@ -360,6 +362,7 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
                 </CustomFirstDate>
               ) : null}
             </Section>
+            {partiesBlock}
             <DetailsSection kit={kit} type={type} />
             <SectionGap />
             <Section title="추가 금액" caption="위 금액 말고 따로 오가는 돈이 있으면 (설치비·보증금 등). 위 금액을 이루는 항목(기본급·수당 등)은 넣지 않아요." testID="section-payments">
@@ -398,8 +401,9 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
       <SectionGap />
       <Section title="기본 정보">
         {field('title', '계약명', { placeholder: '예: 자동차보험' })}
-        {field('counterparty', '계약 상대방', { placeholder: '예: 삼성화재' })}
       </Section>
+
+      {partiesBlock}
 
       <SectionGap />
       <Section title="기간">

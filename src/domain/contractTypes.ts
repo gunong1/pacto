@@ -84,11 +84,14 @@ export interface DetailFieldSpec {
   /** condition: 중요한 계약 조건 문장 — 기본 정보가 아니라 "상세 조건"(접힘)에서 (레지스트리 DETAIL_FIELD_DEFS.role) */
   role?: 'fact' | 'condition';
   semanticKey?: string;
+  /** 예전 버전의 당사자 칸 (이 역할의 이름) — 화면은 당사자 행으로만 보여준다 (src/domain/parties.ts) */
+  party?: string;
 }
 
 /** 기본 정보(사실)와 상세 조건(조건 문장)으로 나눈다 — 등록 확인·수정·상세 화면 공통 */
 export function splitDetailFields(type: string): { facts: DetailFieldSpec[]; conditions: DetailFieldSpec[] } {
-  const all = detailFields(type);
+  // 당사자 칸(임대인·임차인·근로자)은 "계약 당사자"에서 보여주므로 여기서 빼고, 값은 지우지 않는다
+  const all = detailFields(type).filter((f) => !f.party);
   return { facts: all.filter((f) => f.role !== 'condition'), conditions: all.filter((f) => f.role === 'condition') };
 }
 

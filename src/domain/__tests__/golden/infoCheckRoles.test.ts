@@ -39,9 +39,9 @@ const lease = (o: { details?: unknown[]; checks?: unknown[]; fields?: Record<str
 const byKey = (r: ReturnType<typeof lease>, key: string) => r.checks.filter((c) => c.semanticKey === key);
 
 describe('화면 구성: 사실은 기본 정보, 조건 문장은 상세 조건 (레지스트리 한 곳)', () => {
-  test('임대차: 기본 정보 = 임대 형태·임대인·임차인 / 상세 조건 = 갱신 관련 조건·보증금 반환 조건', () => {
+  test('임대차: 기본 정보 = 임대 형태 (임대인·임차인은 "계약 당사자"에서) / 상세 조건 = 갱신 관련 조건·보증금 반환 조건', () => {
     const { facts, conditions } = splitDetailFields('lease');
-    expect(facts.map((x) => x.key)).toEqual(['leaseKind', 'landlord', 'tenant']);
+    expect(facts.map((x) => x.key)).toEqual(['leaseKind']);
     expect(conditions.map((x) => x.key)).toEqual(['renewalTerms', 'depositReturnTerms']);
   });
   test('모든 계약 종류: 대출 중도상환수수료·보험 면책·렌탈 소유권 이전도 지우지 않고 상세 조건으로 보존', () => {
@@ -115,7 +115,7 @@ describe('계약 종류 전체 — 같은 원칙', () => {
   const loan = (checks: unknown[]) =>
     toAppResult(
       contract({
-        cls: { kind: 'loan_credit', subtype: null },
+        cls: { kind: 'loan', subtype: 'credit' },
         title: '신용대출 약정서',
         payments: [pay({ kind: 'installment', label: '월 상환액', amount: 300000, ...q('매월 300,000원 상환') })],
         details: [detail('prepayment_fee_terms', '중도상환수수료 1.5%')],

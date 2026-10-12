@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { partySearchText, partySummary } from '@/domain/parties';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -76,7 +77,7 @@ export default function ContractsScreen() {
       .filter((x) => matches(status, x.status))
       .filter((x) => category === 'all' || kindDisplay(x.r.contract).label === category)
       .filter((x) => !onlyDocs || x.r.documents.length > 0)
-      .filter((x) => !q || `${x.r.contract.title} ${x.r.contract.counterparty ?? ''}`.toLowerCase().includes(q))
+      .filter((x) => !q || `${x.r.contract.title} ${partySearchText(x.r.contract)}`.toLowerCase().includes(q))
       .sort((a, b) => {
         const closedA = a.status === 'ended' || a.status === 'cancelled';
         const closedB = b.status === 'ended' || b.status === 'cancelled';
@@ -144,7 +145,7 @@ export default function ContractsScreen() {
           rows.map(({ r, status: s, days, next, monthly }) => {
             const closed = s === 'ended' || s === 'cancelled';
             const sub = [
-              r.contract.counterparty,
+              partySummary(r.contract),
               next ? `다음 결제 ${Number(next.date.slice(5, 7))}/${Number(next.date.slice(8))}` : null,
               monthly > 0 ? `월 ${formatWon(monthly)}` : null,
             ]

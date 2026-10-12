@@ -2,7 +2,7 @@
  * 직접 입력(빠른 입력) — 문서 없는 계약을 가계부처럼 30초 안에 등록
  * A 기본 화면: 계약명·유형·금액·결제 주기·결제일(매월: N일) + 선택(시작·종료·자동갱신·메모)만, 상세 정보는 접혀 있음
  * B "유튜브 프리미엄 · 월 14,900원 · 결제일 N일 · 자동갱신 ON"만 입력해 저장 → 상세에 매월 결제로 표시
- * C "+ 상세 정보 추가" → 상대방·체결일·통보기한·주요 날짜·위약금·종료 메모·기타 조건 펼침
+ * C "+ 상세 정보 추가" → 계약 당사자·체결일·통보기한·주요 날짜·위약금·종료 메모·기타 조건 펼침
  * D 금액만 넣고 날짜를 비우면 저장되지 않고 안내
  * F 종류 추천: 계약명 → 계약 종류 하나 추천(구독·회원권 …), 애매하면 선택 없음, 직접 고르면 그 값 유지. 상세 분류는 그 종류의 것만
  * 사용: `npm run web`(mock 모드) 실행 후 `node e2e/quick-entry.js`
@@ -54,7 +54,7 @@ const kst = (n) => {
   await openManual();
   await page.screenshot({ path: path.join(SHOTS, 'quick-01-form.png'), fullPage: true });
   const visible = ['field-title', 'kind-chooser', 'quick-amount', 'quick-frequency-monthly', 'quick-day', 'field-startDate', 'field-endDate', 'field-autoRenewal', 'field-memo'];
-  const hidden = ['field-counterparty', 'field-contractDate', 'field-terminationNoticeDays', 'add-date', 'field-penaltyTerms', 'field-earlyTerminationTerms', 'field-totalAmount', 'add-payment'];
+  const hidden = ['section-parties', 'field-contractDate', 'field-terminationNoticeDays', 'add-date', 'field-penaltyTerms', 'field-earlyTerminationTerms', 'field-totalAmount', 'add-payment'];
   const missing = [];
   for (const id of visible) if (!(await has(id))) missing.push(id);
   const shown = [];
@@ -92,7 +92,7 @@ const kst = (n) => {
   check('C', '"상세 정보 추가" → 숨긴 항목이 모두 펼쳐짐', revealed.length === 0, `안 보임 ${revealed}`);
   await page.screenshot({ path: path.join(SHOTS, 'quick-04-more.png'), fullPage: true });
   await page.click(tid('toggle-more'));
-  check('C2', '다시 누르면 접힘', !(await has('field-counterparty')));
+  check('C2', '다시 누르면 접힘', !(await has('section-parties')));
 
   // D
   await input('field-title').fill('넷플릭스');

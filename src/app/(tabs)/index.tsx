@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { partySummary } from '@/domain/parties';
 import { router } from "expo-router";
 import { useMemo } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
@@ -312,7 +313,7 @@ export default function HomeScreen() {
               category={contract.category}
               title={contract.title}
               subtitle={[
-                contract.counterparty,
+                partySummary(contract),
                 kindDisplay(contract).label,
               ]
                 .filter(Boolean)

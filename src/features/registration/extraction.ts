@@ -18,6 +18,7 @@ import { contractKindDef, legacyOf, type ClassificationMeta, type KindClassifica
 import { formatWon } from '@/domain/money';
 import type { EvidenceMap } from '@/domain/evidence';
 import { maskSensitiveDeep } from '@/domain/sensitive';
+import { partyRolesOf } from '../../../supabase/functions/_shared/contractRegistry';
 import { addDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
 
@@ -262,9 +263,32 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
   draft.details = cleanDetails(type, allDetails);
   draft.valueSources = valueSources;
 
+  // 7-1) 계약 당사자 — 서버가 계약 종류의 역할로 정리한 값 그대로. 원래 있어야 하는 역할을 찾지 못했으면 비워 두고 "확인 필요"
+  // (다른 쪽 이름으로 채우지 않음). 내 역할은 고르지 않는다 (기본 모름). 이전 버전 결과(parties 없음)는 상대방 이름(counterparty) 그대로
+  const parties = (result as { parties?: ExtractionResult['parties'] }).parties;
+  if (parties) {
+    draft.parties = parties.map((p) => ({ role: p.role, name: p.name }));
+    // 당사자를 찾았으면 "상대방" 한 칸(사용자 쪽을 가정한 값)은 쓰지 않는다
+    if (parties.length > 0) draft.counterparty = null;
+    const roles = [...partyRolesOf(c.kind).map((r) => r.code), ...parties.map((p) => p.role)];
+    for (const role of roles.filter((r, i) => roles.indexOf(r) === i)) {
+      const path = `parties.${role}`;
+      const mine = parties.filter((p) => p.role === role);
+      if (mine.length === 0) {
+        if (partyRolesOf(c.kind).find((r) => r.code === role)?.main) {
+          flagged.add(path);
+          notes[path] ??= '계약서에서 찾지 못했어요. 계약서를 보고 입력해주세요.';
+        }
+        continue;
+      }
+      if (mine.some((p) => p.confidence !== 'high')) flagged.add(path);
+      quote(path, mine.find((p) => p.evidence?.length)?.evidence);
+    }
+  }
+
   // 값이 없으면 "확인 필요"
   if (!draft.title) flagged.add('title');
-  if (!draft.counterparty) flagged.add('counterparty');
+  if (!parties && !draft.counterparty) flagged.add('counterparty');
   if (!draft.startDate) flagged.add('startDate');
   if (!draft.payments.some((p) => p.obligation === 'confirmed')) {
     flagged.add('payments');

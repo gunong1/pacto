@@ -174,6 +174,11 @@ export function toClassification(raw: unknown): ClassificationMeta {
   };
 }
 
+function toParties(v: unknown): Contract['parties'] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((p) => (p && typeof p === 'object' && typeof p.role === 'string' && typeof p.name === 'string' && p.name.trim() ? [{ role: p.role, name: p.name }] : []));
+}
+
 function toContract(r: Row<'contracts'>): Contract {
   return {
     id: r.id,
@@ -189,6 +194,9 @@ function toContract(r: Row<'contracts'>): Contract {
     referenceAmounts: toReferenceAmounts(r.reference_amounts),
     valueSources: (r.value_sources && typeof r.value_sources === 'object' && !Array.isArray(r.value_sources) ? r.value_sources : {}) as Contract['valueSources'],
     counterparty: r.counterparty,
+    // 계약 당사자 — 컬럼이 없거나(마이그레이션 전) 형식이 틀리면 빈 목록 (예전 계약처럼 보여줌)
+    parties: toParties(r.parties),
+    userPartyRole: r.user_party_role ?? null,
     lifecycle: r.lifecycle,
     lifecycleChangedOn: r.lifecycle_changed_on,
     contractDate: r.contract_date,

@@ -64,6 +64,7 @@ export function stableEvidence(map: EvidenceMap): EvidenceMap {
 /** 계약 상세의 기본 정보 행 → 근거 경로 (coreInfo 행 키). 근거가 없는 행(계산값 등)은 null */
 export function coreRowEvidencePath(rowKey: string): string | null {
   if (rowKey.startsWith('d:')) return `details.${rowKey.slice(2)}`;
+  if (rowKey.startsWith('party:')) return `parties.${rowKey.slice(6)}`;
   const map: Record<string, string> = { deposit: 'depositAmount', company: 'counterparty', counterparty: 'counterparty', total: 'totalAmount', notice: 'terminationNoticeDays', renewal: 'autoRenewal', period: 'startDate' };
   return map[rowKey] ?? null;
 }

@@ -20,6 +20,8 @@ import {
   DIRECTIONS,
   PAYMENT_KIND_CODES,
   PAYMENT_KIND_DEFS,
+  PARTY_ROLE_CODES,
+  partyRolesOf,
 } from './contractRegistry.ts';
 import { DOCUMENT_CHECK_INSTRUCTIONS, documentCheckJsonSchema } from './documentGate.ts';
 import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUENCIES, MODEL_SOURCES, SEVERITY } from './analysisRules/vocabulary.ts';
@@ -33,7 +35,7 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
 /* v13: 계약 종류를 계약의 본질로 하나만 판단 (classification: kind·subtype·domains·confidence·alternatives·근거·secondary_elements).
  *      분야(category)·관리 구조(contract_type)를 따로 고르지 않음 — 결제 방식은 분류 근거가 아님 · 자동차는 종류가 아니라 대상(domains)
  *      계약 체크는 할 일·주의할 위험만 (user_action), 사실은 fields·details·payments에만 */
-export const PROMPT_VERSION = 'extract-v13';
+export const PROMPT_VERSION = 'extract-v14';
 
 /** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
 const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
@@ -77,6 +79,16 @@ export function extractionJsonSchema() {
   return strictObject({
     document_check: documentCheckJsonSchema(),
     classification: classificationSchema(),
+    parties: {
+      type: 'array',
+      description: '계약서에 실제로 적힌 계약 당사자 (사람·회사). 역할마다 한 명씩, 공동 당사자는 각각. 찾지 못한 당사자는 넣지 않음',
+      items: strictObject({
+        role: { type: 'string', enum: [...PARTY_ROLE_CODES], description: '계약서가 밝힌 역할 (그 계약 종류의 역할 목록에서). 역할을 알 수 없으면 party' },
+        name: { type: 'string', description: '계약서에 적힌 이름·회사명 그대로 (연락처·주민번호·주소는 넣지 않음)' },
+        confidence,
+        ...evidence,
+      }),
+    },
     fields: {
       type: 'array',
       description: `계약 공통 정보 중 계약서에 있는 것만 key마다 한 번 (없으면 넣지 않음). ${FIELD_GUIDE}`,
@@ -185,11 +197,17 @@ export function extractionJsonSchema() {
   });
 }
 
+/** 계약 종류별 당사자 역할 안내 (프롬프트용) */
+function partyGuide(): string {
+  return CONTRACT_KIND_DEFS.map((k) => `   - ${k.code}: ${partyRolesOf(k.code).map((r) => `${r.code}(${r.label})`).join(', ')}`).join('\n');
+}
+
 /** 유형별 속성 키 안내 (프롬프트용) */
 function detailGuide(): string {
-  return CONTRACT_TYPE_DEFS.filter((t) => DETAIL_FIELD_DEFS.some((d) => d.type === t.code))
+  // 당사자 칸(party)은 parties로 묻는다 (같은 이름을 두 곳에 넣지 않게)
+  return CONTRACT_TYPE_DEFS.filter((t) => DETAIL_FIELD_DEFS.some((d) => d.type === t.code && !d.party))
     .map((t) => {
-      const keys = DETAIL_FIELD_DEFS.filter((d) => d.type === t.code).map((d) => {
+      const keys = DETAIL_FIELD_DEFS.filter((d) => d.type === t.code && !d.party).map((d) => {
         const value = d.options ? `text_value: ${d.options.map((o) => o.value).join('|')}` : d.input === 'boolean' ? 'boolean_value' : d.input === 'text' ? 'text_value' : 'number_value';
         return `${d.db}(${d.label}, ${value})`;
       });
@@ -263,6 +281,10 @@ export function extractionInstructions(today: string): string {
     '   같은 문장에 실제 납입금과 조건부 비용이 함께 있어도(예: "월 렌탈료 31,900원, 연체 시 연체료 부과") 월 렌탈료는 confirmed 결제입니다.',
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
+    '7-1) parties — 계약 당사자: 계약서에 이름이 적힌 당사자만, 계약서가 쓴 역할로 (예: 임대인 김OO, 임차인 박OO). 계약 종류별 역할:',
+    partyGuide(),
+    '   공동 임대인·공동 임차인처럼 같은 역할이 여럿이면 각각 넣습니다. 한쪽만 적혀 있으면 그쪽만 넣고 다른 쪽을 짐작해 채우지 않습니다.',
+    '   이 앱 사용자가 어느 쪽인지는 판단하지 않습니다. 이름 칸이 비어 있거나 서명란만 있으면 넣지 않습니다. 연락처·주민등록번호·주소는 name에 넣지 않습니다.',
     '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·만기 조건(자동갱신, 연장 기간, 통보기한 일수). 계약서에 있는 key만 목록으로. 중도해지·위약금 조건은 checks에만.',
     '9) checks — PACTO 계약 체크: 계약 정보는 사실, 계약 체크는 그 사실 때문에 사용자가 해야 할 일·주의할 위험입니다.',
     '   단순 사실(관리비 금액·급여일·근로시간·계약기간·보증금을 종료 시 돌려받는다는 사실)은 fields·details·payments에만 넣고 checks에 넣지 않습니다.',

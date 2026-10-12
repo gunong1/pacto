@@ -16,7 +16,7 @@
   - 정의는 `supabase/functions/_shared/contractRegistry.ts` `CONTRACT_KIND_DEFS` 한 곳 — 자동 분석·직접 입력 추천(nameHints)·수정 화면이 공유. DB 기준표 `contract_kind_defs`·`contract_subtype_defs`(통합 테스트가 일치 검사).
 - **하위 호환**: `category`·`contract_type`은 레지스트리 호환값으로만 저장 (예전 앱·예전 데이터용). 새 코드는 계약 종류가 있으면 읽지 않는다. 화면 이름·유형별 속성 묶음은 종류의 `profile`로 고른다 (결제 방식 아님). 결제 일정은 언제나 저장된 결제에서.
   - 기존 계약(`contract_kind = null`)은 자동 변경하지 않고 예전 표시(`legacyKindLabel`). 수정하거나 다시 분석할 때 새 종류로.
-- **AI (extract-v13)**: 종류 하나만 판단 (결제 주기·단어로 정하지 않음). 서버(`analysisRules/classification.ts`)는 형식·명백한 모순만 검증 (다른 종류의 상세 분류 → 비움, 없는 종류 → 기타+low). 앱은 다시 분류하지 않는다.
+- **AI (extract-v13 → v14: 계약 당사자 추가)**: 종류 하나만 판단 (결제 주기·단어로 정하지 않음). 서버(`analysisRules/classification.ts`)는 형식·명백한 모순만 검증 (다른 종류의 상세 분류 → 비움, 없는 종류 → 기타+low). 앱은 다시 분류하지 않는다.
 - **확인 화면**: "AI 판단 · 구독·회원권 · 소프트웨어·SaaS · 신뢰도 높음" 한 줄. 보통 → "○○으로 분류했어요", 다른 가능성. 낮음 → 후보 2개 + 이유, 고르기 전에는 최종 등록 불가.
 - **계약 정보 ↔ 체크** (`analysisRules/checkScope.ts`, 정책 표 `SEMANTIC_KEY_DEFS`): 의미 키로 같은 의미는 하나, 사실만 있는 체크(정책 none)는 계약 정보에 같은 사실이 있으면 만들지 않음, 기한(deadline)은 통보기한 일수·종료일에서 할 일 체크 하나(derivedFrom 기록). 카드는 "2028. 8. 20.까지 갱신 여부 확인" + 짧은 이유, 원문은 "계약서에서 보기"로만.
 - **테스트 두 층**: 결정론 golden(`src/domain/__tests__/golden/classification·checkScope`) — AI 답이 주어졌다고 가정. 모델 평가(`scripts/eval-classification.ts`, 가짜 계약서 18종, `OPENAI_API_KEY` 환경변수) — 주 분류·상세 분류 정확도, **신뢰도 높음 오분류율**, 보류율, 후보 적중률.
@@ -460,7 +460,7 @@ P0만으로 동작시키기 위한 임시 대체:
 - AI 체크 결과·필드 근거 → `analysis_jobs.result` JSON에서 읽음 (P1에서 `contract_ai_reviews`/`contract_field_sources`로 정규화)
 - 메모 → `contracts.memo` 단일 필드
 - 계약별 알림 on/off → `contracts.notifications_enabled` + `contract_events.notification_enabled` (오프셋 90/30/7일은 앱 상수)
-- 상대방 → `contracts.counterparty` 텍스트
+- 상대방 → `contracts.counterparty` 텍스트 (예전 계약). 2026-10-12부터 당사자는 `contracts.parties` (역할 + 이름) — 아래 "계약 당사자 역할 구조"
 
 Step 1~4(현재 범위)에서는 DB를 만들지 않는다. 같은 형태의 **TypeScript 타입 + 인메모리 mock 저장소**로 구현하고, Step 5에서 위 P0 테이블로 옮긴다.
 
@@ -1472,3 +1472,12 @@ pacto/
 - UI: `EvidenceProvider`(시트 하나) · `EvidenceButton`(아이콘) — 폼 도구 `kit.evidenceIcon`으로 계약명·당사자·기간·금액·상세 조건·주요 날짜·자동갱신 모든 칸에 같은 방식. 상세 화면은 기본 정보·계약 조건 행(`coreRowEvidencePath`).
 - 테스트: `golden/evidence.test.ts`(근거 있음·신뢰도 낮음·사용자 수정·민감정보·직접 입력·위치), `golden/evidence-mask-failure.test.ts`, E2E `e2e/evidence-view.js`(등록 확인 → 수정 → 상세 → 수정 화면).
 
+
+## 계약 당사자 역할 구조 (2026-10-12, 3단계)
+- 역할 이름은 레지스트리 `PARTY_ROLE_DEFS` 한 곳 (임대차 임대인/임차인 · 근로 사용자(고용주)/근로자 · 대출 대출기관/차주 · 보험 보험회사/계약자/피보험자(+수익자) · 매매 매도인/매수인 · 용역 발주자/수급인 · 구독 제공자/이용자 · 렌탈·통신·할부·교육·기타). `main` = 원래 있어야 하는 역할.
+- DB(`20261024000001_contract_parties.sql`): `contracts.parties jsonb` (배열, 최대 20) · `user_party_role text` (사용자가 고를 때만, 기본 null = 모름). `save_contract`는 키가 없으면 기존 값 유지(예전 앱 수정이 당사자를 지우지 않음). 기존 행 변환 없음.
+- AI(extract-v14): `parties: [{role, name, evidence}]` — 계약서에 이름이 있는 당사자만, 공동 당사자는 각각, 한쪽만 있으면 그쪽만. 사용자 쪽은 판단하지 않음. 쪽 제외 필터·근거 위치 규칙에 포함.
+- 서버(`analysisRules/parties.ts`): 모르는 역할 코드 → 당사자(party), 다른 종류의 역할은 계약서가 밝힌 이름 그대로, 빈칸·서명란 제거, 같은 이름 중복 제거, 근거 없으면 low. 예전 당사자 칸(details 임대인·임차인·근로자)은 그 역할이 없을 때만 그 역할로. 저장 전 공통 가림(`maskSensitiveDeep`).
+- 표시(`src/domain/parties.ts`, 등록 확인 · 수정 · 상세 · 목록 · 검색 공통): parties가 있으면 기준 — 빠진 main 역할은 "확인 필요"(다른 쪽 이름으로 채우지 않음). parties가 없는 예전 계약은 역할 칸(임대인·임차인·근로자)만 그 역할로, `counterparty`는 역할 추측 없이 "계약 상대방" (확인 필요 행 없음). 목록 요약: 내 역할을 골랐으면 상대 쪽 이름, 아니면 예전 상대방 이름 또는 "임대인 김민수 · 임차인 박지훈".
+- 폼(`PartiesSection`): 역할별 입력(여럿이면 쉼표), 내 역할 칩(기본 모름), 예전 상대방 값이 있던 계약만 "계약 상대방" 칸. 저장 시 예전 역할 칸(details)을 당사자와 맞춤(예전 앱 호환).
+- 테스트: `golden/parties.test.ts` (양쪽·한쪽·공동·법인·역할 모름·예전 필드·보험 3역할 + 정리·보안·호환), 통합 `step26-contract-parties.test.ts`.

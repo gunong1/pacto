@@ -46,6 +46,8 @@ export type DetailInput = 'amount' | 'integer' | 'percent' | 'text' | 'enum' | '
  *   fact(기본): 기본 정보로 보여주는 객관적 사실 (임대인·근무시간·금리 …)
  *   condition: 중요한 계약 조건 문장 — 보존하되 기본 화면이 아니라 "상세 조건"(접힘)에서. 행동·기한·위험은 계약 체크가 맡는다
  * semanticKey — 같은 의미의 계약 체크(SEMANTIC_KEY_DEFS)와 연결. 같은 문장을 두 곳에 반복하지 않도록 체크는 할 일·이유로 쓴다 (checkScope S5)
+ * party — 예전 버전의 당사자 칸 (이 역할의 이름). 이제 당사자는 contracts.parties가 기준 — 화면은 이 칸을 당사자 행으로만 보여주고
+ *   (parties가 비어 있는 예전 계약의 읽기 호환), AI에는 묻지 않는다. 저장된 값은 지우지 않는다
  */
 export type DetailRole = 'fact' | 'condition';
 export const DETAIL_FIELD_DEFS: readonly {
@@ -58,6 +60,7 @@ export const DETAIL_FIELD_DEFS: readonly {
   options?: readonly { value: string; label: string }[];
   role?: DetailRole;
   semanticKey?: string;
+  party?: string;
 }[] = [
   // 월 납입형
   { type: 'recurring', key: 'commitmentMonths', db: 'commitment_months', label: '최소 이용기간', input: 'integer', suffix: '개월' },
@@ -68,8 +71,8 @@ export const DETAIL_FIELD_DEFS: readonly {
     type: 'lease', key: 'leaseKind', db: 'lease_kind', label: '임대 형태', input: 'enum',
     options: [{ value: 'jeonse', label: '전세' }, { value: 'monthly', label: '월세' }, { value: 'semi_jeonse', label: '반전세' }, { value: 'commercial', label: '상가' }, { value: 'other', label: '기타' }],
   },
-  { type: 'lease', key: 'landlord', db: 'landlord', label: '임대인', input: 'text' },
-  { type: 'lease', key: 'tenant', db: 'tenant', label: '임차인', input: 'text' },
+  { type: 'lease', key: 'landlord', db: 'landlord', label: '임대인', input: 'text', party: 'lessor' },
+  { type: 'lease', key: 'tenant', db: 'tenant', label: '임차인', input: 'text', party: 'lessee' },
   { type: 'lease', key: 'renewalTerms', db: 'renewal_terms', label: '갱신 관련 조건', input: 'text', role: 'condition', semanticKey: 'renewal_decision' },
   { type: 'lease', key: 'depositReturnTerms', db: 'deposit_return_terms', label: '보증금 반환 조건', input: 'text', role: 'condition', semanticKey: 'deposit_return' },
   // 할부
@@ -103,7 +106,7 @@ export const DETAIL_FIELD_DEFS: readonly {
   { type: 'insurance', key: 'surrenderTerms', db: 'surrender_terms', label: '해지환급 조건', input: 'text', role: 'condition', semanticKey: 'surrender' },
   { type: 'insurance', key: 'exclusions', db: 'exclusions', label: '면책·보장 제외', input: 'text', role: 'condition', semanticKey: 'exclusion' },
   // 근로
-  { type: 'employment', key: 'employeeName', db: 'employee_name', label: '근로자', input: 'text' },
+  { type: 'employment', key: 'employeeName', db: 'employee_name', label: '근로자', input: 'text', party: 'employee' },
   {
     type: 'employment', key: 'employmentKind', db: 'employment_kind', label: '고용 형태', input: 'enum',
     options: [{ value: 'permanent', label: '정규직' }, { value: 'fixed_term', label: '계약직' }, { value: 'part_time', label: '단시간·아르바이트' }, { value: 'other', label: '기타' }],
@@ -465,3 +468,48 @@ export const NOTICE_SEMANTIC_KEY: Record<string, string> = {
   unknown: 'termination_notice',
 };
 export const semanticKeyDef = (key: string | null | undefined) => SEMANTIC_KEY_DEFS.find((d) => d.key === key);
+
+// ===================================================================================================
+// 계약 당사자 역할 — 계약 종류별 역할 이름 (AI 추출·확인·수정·상세 화면이 모두 이 정의 하나를 쓴다)
+//
+// - 당사자는 계약서에 실제로 적힌 사람·회사만 (없는 당사자를 만들지 않는다). 공동 임차인처럼 같은 역할이 여럿일 수 있다
+// - main: 이 종류의 계약이면 원래 있어야 하는 역할 — 계약서에서 찾지 못하면 비워 두고 "확인 필요"로 보여준다 (임의로 채우지 않음)
+// - 사용자가 어느 쪽인지(user_party_role)는 AI가 추측하지 않는다 — 사용자가 고를 때만 (기본 "모름")
+// - party: 역할을 알 수 없는 당사자 (종류에 없는 역할이거나 계약서가 역할을 밝히지 않은 경우)
+// ===================================================================================================
+export interface PartyRoleDef {
+  code: string;
+  label: string;
+  main: boolean;
+}
+const role = (code: string, label: string, main = true): PartyRoleDef => ({ code, label, main });
+export const GENERIC_PARTY_ROLE: PartyRoleDef = role('party', '당사자', false);
+
+export const PARTY_ROLE_DEFS: Record<string, readonly PartyRoleDef[]> = {
+  lease: [role('lessor', '임대인'), role('lessee', '임차인'), role('broker', '중개업자', false)],
+  employment: [role('employer', '사용자(고용주)'), role('employee', '근로자')],
+  loan: [role('lender', '대출기관'), role('borrower', '차주'), role('guarantor', '보증인', false)],
+  insurance: [role('insurer', '보험회사'), role('policyholder', '계약자'), role('insured', '피보험자'), role('beneficiary', '수익자', false)],
+  sale: [role('seller', '매도인'), role('buyer', '매수인')],
+  service: [role('client', '발주자'), role('contractor', '수급인')],
+  subscription_membership: [role('provider', '제공자'), role('member', '이용자')],
+  rental: [role('provider', '렌탈회사'), role('customer', '고객')],
+  telecom: [role('provider', '통신사'), role('subscriber', '가입자')],
+  installment: [role('creditor', '할부사'), role('buyer', '구매자'), role('seller', '판매자', false)],
+  education: [role('provider', '교육기관'), role('learner', '수강생')],
+  business: [role('party_a', '갑'), role('party_b', '을')],
+  other: [role('party_a', '갑'), role('party_b', '을')],
+};
+/** AI 스키마의 역할 코드 (모든 종류의 역할 + party) */
+export const PARTY_ROLE_CODES = [...new Set([...Object.values(PARTY_ROLE_DEFS).flatMap((l) => l.map((r) => r.code)), GENERIC_PARTY_ROLE.code])];
+export const partyRolesOf = (kind: string | null | undefined): readonly PartyRoleDef[] => PARTY_ROLE_DEFS[kind ?? ''] ?? PARTY_ROLE_DEFS.other;
+/**
+ * 역할 정의 — 그 종류의 역할 이름이 먼저, 종류에 없지만 계약서가 밝힌 역할(예: 렌탈로 분류된 계약의 임대인)은 그 역할 이름 그대로
+ * (계약서에 없는 역할로 바꾸지 않음). 모르는 코드는 "당사자"
+ */
+export const partyRoleDef = (kind: string | null | undefined, code: string | null | undefined): PartyRoleDef => {
+  const own = partyRolesOf(kind).find((r) => r.code === code);
+  if (own) return own;
+  const other = Object.values(PARTY_ROLE_DEFS).flat().find((r) => r.code === code);
+  return other ? { ...other, main: false } : GENERIC_PARTY_ROLE;
+};

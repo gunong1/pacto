@@ -16,6 +16,7 @@ import { assignSemanticKeys, conditionRisks, deadlineChecks, dropPlainFacts, mer
 import { attachSuggestions, cleanChecks, conditionalCostsToChecks, waivedCheck } from './analysisRules/checks.ts';
 import { assignDateUses, cleanDates } from './analysisRules/dates.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
+import { cleanParties, partiesFromDetails } from './analysisRules/parties.ts';
 import { noticeSuggestions, resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
 import { buildPayments } from './analysisRules/payments.ts';
 import { installmentParents, totalsToFields } from './analysisRules/paymentRoles.ts';
@@ -74,6 +75,9 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   assignDateUses(dates, profile, payments);
   // 7) 유형별 속성
   const details = buildDetails(output.details, payments);
+  // 7-1) 계약 당사자 — 계약서에 이름이 있는 쪽만, 종류의 역할로 (사용자 쪽은 추측하지 않음)
+  const parties = cleanParties(output.parties, classification.kind);
+  partiesFromDetails(parties, details, profile);
   // 9) 계약 체크
   let checks = cleanChecks(output.checks as unknown[]);
   // 조건부 비용(위약금·연체료 …)은 결제가 아니라 계약 체크로
@@ -96,5 +100,5 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
 
   // 민감정보(Level 1 + 2: 주민·외국인·카드·계좌·전화·이메일) 원문이 인용문·설명·값에 남지 않도록 저장·반환 전에 가린다 (의미는 유지)
   // 보안 판단은 AI가 아니라 공통 탐지기·가림 정책(protection/sensitive.ts)이 한다
-  return maskSensitiveDeep({ classification, category, contractType, fields, dates, payments, references, details, checks, provider, promptVersion: PROMPT_VERSION });
+  return maskSensitiveDeep({ classification, category, contractType, fields, dates, payments, references, details, parties, checks, provider, promptVersion: PROMPT_VERSION });
 }

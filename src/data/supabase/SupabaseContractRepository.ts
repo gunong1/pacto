@@ -44,6 +44,8 @@ function contractPayload(d: ContractDraft, extra: Record<string, unknown> = {}):
     contract_details: detailsToDb(profileKeyOf(d), d.details),
     value_sources: d.valueSources,
     counterparty: d.counterparty,
+    parties: d.parties as unknown as Json,
+    user_party_role: d.userPartyRole,
     contract_date: d.contractDate,
     start_date: d.startDate,
     end_date: d.endDate,

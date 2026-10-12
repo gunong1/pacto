@@ -60,6 +60,7 @@ export class MockAIProvider implements AIProvider {
     const renew = '계약 만료 1개월 전까지 별도 의사표시가 없으면 12개월 단위로 연장된다.';
     const raw = {
       classification: { kind: 'rental', subtype: 'appliance', domains: ['appliance'], confidence: 'high', alternatives: [], reason: '공기청정기를 빌려 쓰는 렌탈 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
+      parties: [{ role: 'provider', name: '클린에어렌탈(주)', confidence: 'high', evidence_quote: '렌탈회사: 클린에어렌탈 주식회사', evidence_page: 1, evidence_file: 1 }],
       fields: {
         title: f('공기청정기 렌탈'),
         counterparty: f('클린에어렌탈(주)', 'high', '렌탈회사: 클린에어렌탈 주식회사'),

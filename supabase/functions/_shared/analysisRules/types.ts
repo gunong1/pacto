@@ -84,6 +84,14 @@ export interface ExtractedDetail {
   evidence?: Evidence[];
 }
 
+/** 계약 당사자 — 역할(레지스트리 PARTY_ROLE_DEFS 코드)과 계약서에 적힌 이름 */
+export interface ExtractedParty {
+  role: string;
+  name: string;
+  confidence: Confidence;
+  evidence?: Evidence[];
+}
+
 export interface ExtractedCheck {
   severity: (typeof SEVERITY)[number];
   topic: string;
@@ -151,6 +159,8 @@ export interface AppExtractionResult {
   references: (ExtractedComponent & { role: ReferenceRole })[];
   /** 유형별 속성 (DB 키 snake_case) — 앱이 선택된 유형의 스키마로 다시 검증한다 */
   details: Record<string, ExtractedDetail>;
+  /** 계약 당사자 (계약서에 이름이 있는 쪽만 — 이전 버전 결과에는 없음) */
+  parties: ExtractedParty[];
   checks: ExtractedCheck[];
   provider: string;
   promptVersion: string;

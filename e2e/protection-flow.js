@@ -94,7 +94,7 @@ const leaks = (text) => SECRETS.filter((s) => text.includes(s));
   const reviewText = await body();
   check('H', 'AI 인용문·설명의 주민등록번호·계좌번호도 화면에서 가림', leaks(reviewText).length === 0 && reviewText.includes('901225-1******'), leaks(reviewText).join(','));
   const val = (id) => page.locator(`input${tid(id)}, textarea${tid(id)}`).first().inputValue().catch(() => "");
-  const [cp, emp, amt] = [await val('field-counterparty'), await val('detail-employeeName'), await val('payment-0-amount')];
+  const [cp, emp, amt] = [await val('field-parties.employer'), await val('field-parties.employee'), await val('payment-0-amount')];
   check('A2', '이름·회사·급여는 계약 분석에 그대로 사용 (입력값)', cp === '주식회사 네오링크' && emp === '박민준' && amt === '3,600,000', `${cp} / ${emp} / ${amt}`);
 
   // 저장 → 상세

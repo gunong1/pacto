@@ -6,6 +6,7 @@ import type { NoticeKind } from './noticeKind';
  */
 
 import type { ClassificationMeta } from './contractKinds';
+import type { ContractParty } from './parties';
 import type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, PaymentObligation, SourceType } from './contractTypes';
 
 export { CONTRACT_CATEGORIES } from './contractTypes';
@@ -88,6 +89,10 @@ export interface Contract {
   /** 결제가 아닌 금액 (차량가·대출금액·할인 전 금액·면제·할인액 …) — 보여주기만, 홈·캘린더·알림 계산에 넣지 않는다 */
   referenceAmounts: ReferenceAmount[];
   counterparty: string | null;
+  /** 계약 당사자 (역할 + 계약서의 이름) — 비어 있으면 예전 계약 (counterparty를 "계약 상대방"으로) · src/domain/parties.ts */
+  parties: ContractParty[];
+  /** 사용자가 고른 내 역할 (null = 모름 — AI가 추측하지 않음) */
+  userPartyRole: string | null;
   lifecycle: ContractLifecycle;
   lifecycleChangedOn: ISODate | null;
   /** 계약 체결일 — 선택값, 기록용 (캘린더·알림에 쓰지 않음) */

@@ -20,6 +20,8 @@ function contract(partial: Partial<Contract> & Pick<Contract, 'id' | 'title' | '
     valueSources: {},
     referenceAmounts: [],
     counterparty: null,
+    parties: [],
+    userPartyRole: null,
     lifecycle: 'active',
     lifecycleChangedOn: null,
     contractDate: null,

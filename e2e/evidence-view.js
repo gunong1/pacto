@@ -61,12 +61,12 @@ const PDF = require('./cleanPdf')();
   const body = await page.locator('body').innerText();
   check('A', '입력칸 아래에 "원문:" 문장이 늘 보이지 않음', !body.includes('원문:'));
 
-  const s1 = await sheetText('evidence-counterparty');
-  check('B1', '계약 상대방 근거 아이콘 → 시트에 근거 문장 · 쪽 · 계약서에서 보기', s1.includes('사용자: 주식회사 네오링크') && s1.includes('계약서 1쪽') && s1.includes('계약서에서 보기'), s1.replace(/\n/g, ' / '));
+  const s1 = await sheetText('evidence-parties.employer');
+  check('B1', '사용자(고용주) 근거 아이콘 → 시트에 근거 문장 · 쪽 · 계약서에서 보기', s1.includes('사용자: 주식회사 네오링크') && s1.includes('계약서 1쪽') && s1.includes('계약서에서 보기'), s1.replace(/\n/g, ' / '));
   await page.waitForTimeout(500); // 열림 애니메이션이 끝난 뒤
   await page.screenshot({ path: path.join(SHOTS, 'evidence-02-sheet.png') });
   await closeSheet();
-  const s2 = await sheetText('evidence-details.employeeName');
+  const s2 = await sheetText('evidence-parties.employee');
   check('B2', '근로자 근거 문장의 주민등록번호는 가려서 표시', s2.includes('901225-1******') && !s2.includes('1234567'), s2.replace(/\n/g, ' / '));
   await closeSheet();
 
@@ -74,8 +74,8 @@ const PDF = require('./cleanPdf')();
   check('D', '근거 없는 칸에는 아이콘 없음 (계약 총액)', (await page.locator(tid('evidence-totalAmount')).count()) === 0);
 
   // C. 값을 고친 뒤에도 AI 값·근거 유지
-  await page.fill(`input${tid('field-counterparty')}`, '주식회사 네오링크 본사');
-  const s3 = await sheetText('evidence-counterparty');
+  await page.fill(`input${tid('field-parties.employer')}`, '주식회사 네오링크 본사');
+  const s3 = await sheetText('evidence-parties.employer');
   check('C', '값을 고쳐도 시트에 AI가 읽은 값 · 근거 문장 유지', s3.includes('AI가 읽은 값: 주식회사 네오링크') && s3.includes('사용자: 주식회사 네오링크'), s3.replace(/\n/g, ' / '));
   await closeSheet();
 
@@ -87,8 +87,8 @@ const PDF = require('./cleanPdf')();
   const icons = await page.locator('[data-testid^="evidence-"]').count();
   check('E1', '계약 상세에서도 근거 아이콘 (기본 정보 행)', icons > 0, `${icons}개`);
   if (icons > 0) {
-    const s4 = await sheetText('evidence-company');
-    check('E2', '상세: 회사 근거 시트 · 저장 값은 고친 값, AI 값 함께', s4.includes('사용자: 주식회사 네오링크') && s4.includes('AI가 읽은 값'), s4.replace(/\n/g, ' / '));
+    const s4 = await sheetText('evidence-party:employer');
+    check('E2', '상세: 사용자(고용주) 근거 시트 · 저장 값은 고친 값, AI 값 함께', s4.includes('사용자: 주식회사 네오링크') && s4.includes('AI가 읽은 값'), s4.replace(/\n/g, ' / '));
     await closeSheet();
   }
 
@@ -96,7 +96,7 @@ const PDF = require('./cleanPdf')();
   await page.click(tid('edit-contract'));
   await page.waitForSelector(tid('submit-contract'), { timeout: 15000 });
   await page.waitForTimeout(1500);
-  const editIcon = await page.locator(tid('evidence-counterparty')).count();
+  const editIcon = await page.locator(tid('evidence-parties.employer')).count();
   check('E3', '수정 화면에서도 같은 근거 아이콘', editIcon === 1);
   const editBody = await page.locator('body').innerText();
   check('E4', '수정 화면에도 "원문:" 문장 없음', !editBody.includes('원문:'));

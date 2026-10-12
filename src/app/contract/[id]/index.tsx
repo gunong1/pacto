@@ -1,4 +1,5 @@
 import { recordToDraft } from '@/data/draft';
+import { partySummary } from '@/domain/parties';
 import { coreRowEvidencePath, evidenceView } from '@/domain/evidence';
 import { draftToForm } from '@/features/contracts/form';
 import { EvidenceButton, EvidenceProvider } from '@/features/evidence/EvidenceUI';
@@ -168,7 +169,7 @@ export default function ContractDetailScreen() {
             <CategoryIcon category={c.category} size={44} />
             <View style={{ flex: 1 }}>
               <AppText variant="caption" color="textTertiary">
-                {[kindDisplay(c).label, kindDisplay(c).subtypeLabel, c.counterparty].filter(Boolean).join(' · ')}
+                {[kindDisplay(c).label, kindDisplay(c).subtypeLabel, partySummary(c)].filter(Boolean).join(' · ')}
               </AppText>
               <AppText variant="title2" testID="detail-title">
                 {c.title}
@@ -310,6 +311,7 @@ export default function ContractDetailScreen() {
                   ) : (
                     <SourceBadge source={row.source} />
                   )}
+                  {row.needsReview ? <Badge label="확인 필요" tone="check" /> : null}
                   {evidenceBadge(row.key, row.label)}
                 </View>
               }

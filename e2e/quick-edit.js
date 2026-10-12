@@ -2,7 +2,7 @@
  * 직접 입력 계약 수정 = 등록과 같은 화면 (빠른 입력 + "상세 정보 추가")
  * A 등록 → 수정: 같은 구성(계약명·유형·금액·금액 구분·주기·결제일 / 선택 / 상세 정보 추가), 저장한 값이 채워짐, 상세 정보 접힘
  * B 금액·결제일·금액 구분 수정 → "수정 완료" → 상세에 반영
- * C 상세 정보(상대방)가 있는 계약 → 수정 화면에서 상세 정보가 처음부터 펼쳐짐
+ * C 상세 정보(계약 당사자)가 있는 계약 → 수정 화면에서 상세 정보가 처음부터 펼쳐짐
  * D 계약서로 등록한 계약은 기존 전체 수정 화면
  * 사용: `npm run web`(mock 모드) 실행 후 BASE_URL=http://localhost:8081 node e2e/quick-edit.js
  */
@@ -65,7 +65,7 @@ const check = (id, name, ok, detail = '') => {
     '저장한 값이 채워짐 (넷플릭스 프리미엄 · 17,000 · 지출 · 매월 · 12일)',
     (await input('field-title').inputValue()) === '넷플릭스 프리미엄' && (await input('quick-amount').inputValue()) === '17,000' && (await selected('quick-direction')) === 'expense' && (await selected('quick-frequency')) === 'monthly' && (await input('quick-day').inputValue()) === '12',
   );
-  check('A4', '상세 정보가 없으면 접힌 상태', !(await has('quick-more')) && !(await has('field-counterparty')));
+  check('A4', '상세 정보가 없으면 접힌 상태', !(await has('quick-more')) && !(await has('section-parties')));
   const title = await page.title();
   const submit = await page.locator(tid('submit-contract')).innerText();
   check('A5', '제목 "계약 정보 수정" · 버튼 "수정 완료"', (await page.locator('body').innerText()).includes('계약 정보 수정') && submit.includes('수정 완료'), `${title} / ${submit}`);
@@ -84,13 +84,14 @@ const check = (id, name, ok, detail = '') => {
   await page.click(tid('edit-contract'));
   await page.waitForSelector(tid('quick-basic'));
   await page.click(tid('toggle-more'));
-  await input('field-counterparty').fill('넷플릭스코리아');
+  const firstParty = page.locator('input[data-testid^="field-parties."]').first();
+  await firstParty.fill('넷플릭스코리아');
   await page.click(tid('submit-contract'));
   await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
   await page.click(tid('edit-contract'));
   await page.waitForSelector(tid('quick-basic'));
   await page.waitForTimeout(400);
-  check('C', '상세 정보(상대방)가 있으면 수정 화면에서 처음부터 펼침 · 값 유지', (await has('quick-more')) && (await input('field-counterparty').inputValue()) === '넷플릭스코리아' && (await input('quick-amount').inputValue()) === '13,500');
+  check('C', '상세 정보(계약 당사자)가 있으면 수정 화면에서 처음부터 펼침 · 값 유지', (await has('quick-more')) && (await page.locator('input[data-testid^="field-parties."]').first().inputValue()) === '넷플릭스코리아' && (await input('quick-amount').inputValue()) === '13,500');
   await page.screenshot({ path: path.join(SHOTS, 'quick-edit-02-more.png'), fullPage: true });
 
   // C2 구성항목 추가 (기본급·수당) — 금액은 그대로, 따로 더하지 않음

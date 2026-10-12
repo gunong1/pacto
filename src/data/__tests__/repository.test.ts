@@ -24,7 +24,8 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
 
     // 2) 확인 화면: 폼으로 변환 후 사용자가 결제일 수정 (설치비는 날짜가 없어 시작일 + 확인 필요)
     const model = toReviewModel(result);
-    expect([...model.flagged].sort()).toEqual(['endDate', 'noticeKind', 'payments.0.amount', 'payments.1.startsOn'].sort());
+    // 당사자: 렌탈회사만 계약서에 있음 → 고객은 비워 두고 확인 필요 (다른 쪽 이름으로 채우지 않음)
+    expect([...model.flagged].sort()).toEqual(['endDate', 'noticeKind', 'parties.customer', 'payments.0.amount', 'payments.1.startsOn'].sort());
     expect(model.draft.contractDate).toBe('2026-10-04');
     const form = draftToForm(model.draft);
     form.payments[0].dayOfMonth = '12';

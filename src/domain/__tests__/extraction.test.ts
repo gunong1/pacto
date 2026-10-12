@@ -68,10 +68,10 @@ const rental = () => ({
 
 describe('분석 v4 — 서버 스키마·프롬프트', () => {
   test('프롬프트 버전 · 분석 순서 · 표현 규칙', () => {
-    // 분류 개편: v13 — 계약 종류 하나(classification)만 판단 (분야·관리 구조를 따로 고르지 않음)
-    expect(PROMPT_VERSION).toBe('extract-v13');
+    // 분류 개편: v13 — 계약 종류 하나(classification)만 판단 (분야·관리 구조를 따로 고르지 않음) / v14 — 계약 당사자(parties) 역할별
+    expect(PROMPT_VERSION).toBe('extract-v14');
     const ins = extractionInstructions(TODAY);
-    for (const s of ['1·2) classification', '결제 주기', 'domains', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다']) expect(ins).toContain(s);
+    for (const s of ['1·2) classification', '결제 주기', 'domains', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다', '7-1) parties', 'lessor(임대인)']) expect(ins).toContain(s);
   });
 
   test('strict 요건: 모든 객체가 required = 전체 속성, additionalProperties false', () => {

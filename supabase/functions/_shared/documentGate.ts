@@ -113,9 +113,9 @@ export const DOCUMENT_CHECK_INSTRUCTIONS = [
   '   supporting(견적서·청구서·납부내역·확인서·안내문처럼 계약과 관련된 자료) / non_contract(음식·동물·사람·풍경·물건 사진, 광고, 뉴스·SNS 캡처, 일반 영수증, 신분증만, 은행 거래내역만, 빈 종이, 무관한 문서) /',
   '   uncertain(판단하기 어려움) / unreadable(문서처럼 보이지만 흐림·어두움·잘림·저해상도로 글자를 읽기 어려움).',
   '   개인정보(주민등록번호 등)가 보인다는 이유만으로 계약으로 보지 않습니다. pages에 파일·쪽마다 역할을 적고, 같은 쪽을 두 번 찍었으면 duplicate_of_file/page.',
-  '   계약 문서가 아니거나(non_contract) 읽을 수 없는(unreadable) 경우 계약정보를 추측하여 생성하지 않습니다: fields의 value는 모두 null, dates·payments·details·checks는 빈 배열, classification.kind는 other(confidence low).',
+  '   계약 문서가 아니거나(non_contract) 읽을 수 없는(unreadable) 경우 계약정보를 추측하여 생성하지 않습니다: fields의 value는 모두 null, dates·payments·details·checks·parties는 빈 배열, classification.kind는 other(confidence low).',
   '   계약과 무관하거나 읽을 수 없는 쪽의 날짜·숫자는 추출에 쓰지 않습니다. 같은 쪽이 중복되어도 같은 금액·날짜를 두 번 넣지 않습니다.',
-  '   모든 추출값(fields·dates·payments·details·checks)에는 근거가 있는 파일 번호(evidence_file, 첨부 순서 1부터)와 쪽(evidence_page, 사진은 1)을 넣습니다.',
+  '   모든 추출값(fields·dates·payments·details·checks·parties)에는 근거가 있는 파일 번호(evidence_file, 첨부 순서 1부터)와 쪽(evidence_page, 사진은 1)을 넣습니다.',
 ].join('\n');
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -204,7 +204,7 @@ export function filterOutputByPages(output: unknown, exclude: readonly PageRef[]
     }
     out.fields = fields;
   }
-  for (const key of ['dates', 'payments', 'details', 'checks'] as const) {
+  for (const key of ['dates', 'payments', 'details', 'checks', 'parties'] as const) {
     if (!Array.isArray(output[key])) continue;
     out[key] = (output[key] as unknown[]).filter((item) => {
       if (!isObj(item)) return false;
@@ -226,7 +226,7 @@ export function downgradeUnknownOrigin(output: unknown): unknown {
   const low = (o: Record<string, unknown>) => (typeof o.evidence_file === 'number' ? o : { ...o, confidence: 'low' });
   const out: Record<string, unknown> = { ...output };
   if (isObj(output.fields)) out.fields = Object.fromEntries(Object.entries(output.fields).map(([k, f]) => [k, isObj(f) && f.value !== null ? low(f) : f]));
-  for (const key of ['dates', 'payments', 'details', 'checks'] as const) {
+  for (const key of ['dates', 'payments', 'details', 'checks', 'parties'] as const) {
     if (Array.isArray(output[key])) out[key] = (output[key] as unknown[]).map((x) => (isObj(x) ? low(x) : x));
   }
   return out;
@@ -242,6 +242,7 @@ export interface ExtractionLike {
   payments: { evidence?: unknown[] }[];
   details: Record<string, unknown>;
   checks: { evidenceQuote: string | null }[];
+  parties?: { evidence?: unknown[] }[];
 }
 
 export function verifiedSignals(check: DocumentCheck, r: ExtractionLike): Record<SignalKey, boolean> {
@@ -249,7 +250,7 @@ export function verifiedSignals(check: DocumentCheck, r: ExtractionLike): Record
   const evid = (x: { evidence?: unknown[] }) => (x.evidence?.length ?? 0) > 0;
   const m = check.signals;
   return {
-    parties: m.parties && has('counterparty'),
+    parties: m.parties && (has('counterparty') || (r.parties ?? []).some(evid)),
     dates: m.dates && r.dates.some(evid),
     amounts: m.amounts && (r.payments.some(evid) || (has('totalAmount') && evid(r.fields.totalAmount)) || (has('depositAmount') && evid(r.fields.depositAmount))),
     obligations: m.obligations && (r.checks.some((c) => !!c.evidenceQuote) || r.payments.length > 0 || Object.keys(r.details).length > 0),

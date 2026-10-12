@@ -1,3 +1,4 @@
+import { partyRows, partyRowText } from './parties';
 import { detailFieldsFor, profileKeyOf } from './contractKinds';
 import { BUSINESS_DAY_RULE_LABEL } from './businessDays';
 import { detailFields, isConfirmedPayment, OBLIGATION_LABEL, profileOf, type PaymentKind, type PaymentObligation, type SourceType } from './contractTypes';
@@ -27,6 +28,8 @@ export interface CoreInfoRow {
   source?: SourceType;
   /** 이 행이 대신 보여주는 유형별 속성 (계약 조건 · 기록에 중복 표시하지 않음) */
   covers?: string[];
+  /** 확인 필요 (예: 계약서에서 찾지 못한 당사자) */
+  needsReview?: boolean;
 }
 
 export function paymentRule(p: ContractPayment): string {
@@ -127,6 +130,11 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
     add('notice', noticeLabelOf(c.noticeKind, t), `종료 ${c.terminationNoticeDays}일 전까지${n ? ` (${formatDateKo(n.date)})` : ''}${c.noticeKind === 'unknown' ? ' · 확인 필요' : ''}`, !!n && !n.passed);
   };
 
+  // 계약 당사자 — 모든 종류 공통, 역할 이름은 레지스트리 (src/domain/parties.ts)
+  for (const p of partyRows(c)) {
+    add(p.key, p.isUser ? `${p.label} (나)` : p.label, partyRowText(p));
+    if (p.missing) rows[rows.length - 1].needsReview = true;
+  }
   switch (t) {
     case 'recurring':
       for (const p of payments) payRow(p);
@@ -176,8 +184,6 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
       notice();
       break;
     case 'employment': {
-      add('company', '회사', c.counterparty);
-      detailRow('employeeName');
       detailRow('employmentKind');
       detailRow('jobTitle');
       for (const p of ofKind('salary')) {
@@ -305,7 +311,7 @@ export function otherDetails(record: ContractRecord): CoreInfoRow[] {
   const core = coreInfo(record, '1900-01-01');
   const inCore = new Set([...core.map((r) => r.key), ...core.flatMap((r) => (r.covers ?? []).map((k) => `d:${k}`))]);
   return detailFieldsFor(record.contract)
-    .filter((f) => !inCore.has(`d:${f.key}`))
+    .filter((f) => !inCore.has(`d:${f.key}`) && !f.party)
     .map((f) => ({ key: `d:${f.key}`, label: f.label, value: detailText(record, f.key) ?? '' }))
     .filter((r) => r.value !== '');
 }

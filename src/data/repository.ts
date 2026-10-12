@@ -1,3 +1,4 @@
+import type { ContractParty } from '@/domain/parties';
 import type { ClassificationMeta } from '@/domain/contractKinds';
 import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { NoticeKind } from '@/domain/noticeKind';
@@ -70,6 +71,9 @@ export interface ContractDraft {
   contractType: ContractType;
   details: ContractDetails;
   counterparty: string | null;
+  /** 계약 당사자 (역할 + 이름) · 내 역할 (null = 모름) */
+  parties: ContractParty[];
+  userPartyRole: string | null;
   /** 선택값 — 계약서에 명확히 있을 때만 */
   contractDate: ISODate | null;
   startDate: ISODate | null;

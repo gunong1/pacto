@@ -2,6 +2,7 @@ import { contractKindDef, isSubtypeOf, profileKeyOf, type ClassificationMeta } f
 import { z } from 'zod';
 
 import { NOTICE_KINDS } from '@/domain/noticeKind';
+import { legacyDetailParties, partiesFromInputs, partiesToInputs, type ContractParty } from '@/domain/parties';
 import type { ContractDraft, DateDraft, PaymentDraft } from '@/data/repository';
 import {
   BUSINESS_DAY_RULES,
@@ -110,6 +111,11 @@ export const contractFormSchema = z
     title: z.string().trim().min(1, '계약명을 입력해주세요').max(100, '100자 이내로 입력해주세요'),
     category: z.enum(CONTRACT_CATEGORIES),
     counterparty: z.string().max(100),
+    /** 계약 당사자 — 역할 코드 → 이름 (여럿이면 쉼표로). 역할 이름은 레지스트리 (src/domain/parties.ts) */
+    // 아직 입력하지 않은 역할 칸은 값이 없을 수 있다 (빈칸 = 확인 필요, 저장을 막지 않음)
+    parties: z.record(z.string(), z.string().max(300, '300자 이내로 입력해주세요').optional()),
+    /** 내 역할 — '' = 모름 (AI가 추측하지 않음) */
+    userPartyRole: z.string(),
     contractDate: optionalDate,
     startDate: optionalDate,
     endDate: optionalDate,
@@ -221,6 +227,21 @@ export function detailsToForm(type: ContractType, details: ContractDetails): Rec
   return Object.fromEntries(detailFields(type).map((spec) => [spec.key, detailToInput(spec, details[spec.key])]));
 }
 
+/**
+ * 예전 버전의 당사자 칸(임대인·임차인·근로자)을 당사자 목록과 맞춘다 — 사용자가 저장할 때만 (예전 앱도 같은 이름을 보도록).
+ * 당사자 목록에서 그 역할을 지웠으면 예전 칸도 비운다 (지운 이름이 예전 칸에서 다시 나타나지 않게)
+ */
+function syncLegacyPartyDetails(type: ContractType, details: ContractDetails, parties: readonly ContractParty[]): ContractDetails {
+  const out = { ...details };
+  for (const spec of detailFields(type)) {
+    if (!spec.party) continue;
+    const names = parties.filter((p) => p.role === spec.party).map((p) => p.name).join(', ');
+    if (names) out[spec.key] = names.slice(0, 500);
+    else delete out[spec.key];
+  }
+  return out;
+}
+
 export function detailsFromForm(type: ContractType, values: Record<string, string | boolean>): ContractDetails {
   const out: ContractDetails = {};
   for (const spec of detailFields(type)) {
@@ -263,6 +284,9 @@ export function draftToForm(d: ContractDraft): ContractFormValues {
     title: d.title,
     category: d.category,
     counterparty: str(d.counterparty),
+    // 당사자 목록이 없는 예전 계약은 역할이 이름에 붙은 예전 칸(임대인·임차인·근로자)만 그 역할로 채운다 (상대방 이름은 역할을 추측하지 않음)
+    parties: partiesToInputs(d.parties.length > 0 ? d.parties : legacyDetailParties(profileKeyOf(d), d.details)),
+    userPartyRole: d.userPartyRole ?? '',
     contractDate: str(d.contractDate),
     startDate: str(d.startDate),
     endDate: str(d.endDate),
@@ -369,6 +393,8 @@ export function quickHasDetails(v: ContractFormValues): boolean {
   const filled = (x: string | undefined) => !!x && x.trim() !== '';
   return (
     filled(v.counterparty) ||
+    Object.values(v.parties ?? {}).some(filled) ||
+    !!v.userPartyRole ||
     filled(v.contractDate) ||
     v.payments.length > 0 ||
     v.dates.length > 0 ||
@@ -463,6 +489,7 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
   const profile = formProfile(v);
   const quick = v.quick ? quickToPayment(profile, v.quick, today, nullable(v.startDate)) : null;
   const kind = v.contractKind || null;
+  const parties = partiesFromInputs(v.parties);
   return {
     contractKind: kind,
     contractSubtype: kind && v.contractSubtype && isSubtypeOf(kind, v.contractSubtype) ? v.contractSubtype : null,
@@ -471,10 +498,12 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
     title: v.title.trim(),
     category: v.category,
     counterparty: nullable(v.counterparty),
+    parties,
+    userPartyRole: v.userPartyRole || null,
     contractDate: nullable(v.contractDate),
     startDate: nullable(v.startDate),
     endDate: nullable(v.endDate),
-    details: detailsFromForm(profile, v.details),
+    details: syncLegacyPartyDetails(profile, detailsFromForm(profile, v.details), parties),
     payments: [
       ...(quick ? [quick] : []),
       ...v.payments.map(paymentFromForm),
