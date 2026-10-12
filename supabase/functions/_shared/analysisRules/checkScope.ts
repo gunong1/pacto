@@ -11,9 +11,16 @@
  * 규칙 S4 deadlineChecks — 기한 정책(deadline): 통보기한 일수와 종료일이 있으면 "할 일" 체크 하나로 (없으면 파생, derivedFrom 기록)
  *   제목은 할 일, 설명은 짧은 이유 (원문 조항 반복 없음 — 원문은 근거 문장으로만)
  *   자동갱신 + 통보기한이면 자동갱신 체크는 통보 체크 하나로 합친다 (놓치면 자동 연장된다는 이유를 함께)
- * 테스트: golden/checkScope.test.ts
+ * 규칙 S5 splitRoles — 계약 정보의 조건 문장(DETAIL role=condition)과 같은 의미의 체크가 같은 문장을 반복하면,
+ *   체크 설명은 짧은 이유(SEMANTIC_KEY_DEFS.reason)로 바꾼다. 원문은 근거(evidence)로만 — 계약 정보: 무슨 조건 / 체크: 무엇을 해야 하나
+ *   예) 계약 정보 "중도상환수수료 1.5%" · 체크 "조기 상환 전 수수료 발생 조건 확인 — 미리 갚으면 수수료가 생길 수 있어요."
+ * 규칙 S6 conditionRisks — 조건 문장 안에 행동·위험이 있으면(COST_TOPICS: 원상복구·위약·연체·중도상환·손해배상) 그 의미의 체크가 없을 때 주의 체크를 만든다
+ *   예) 보증금 반환 조건 "퇴거 시 통상적 사용을 초과한 훼손에 대하여 원상복구를 부담" → 원상복구 주의 체크 (단순 "종료 시 반환"은 체크 없음)
+ *   모든 조건을 체크로 옮기지 않는다 — 위험·행동이 있는 문장만
+ * 테스트: golden/checkScope.test.ts, golden/infoCheckRoles.test.ts
  */
-import { NOTICE_SEMANTIC_KEY, semanticKeyDef, SEMANTIC_KEY_DEFS } from '../contractRegistry.ts';
+import { DETAIL_FIELD_DEFS, NOTICE_SEMANTIC_KEY, semanticKeyDef, SEMANTIC_KEY_DEFS } from '../contractRegistry.ts';
+import { COST_TOPICS } from './checks.ts';
 import type { Extracted, ExtractedCheck, ExtractedDate, ExtractedDetail, ExtractedPayment } from './types.ts';
 
 const SEVERITY_RANK: Record<string, number> = { info: 0, check: 1, caution: 2 };
@@ -125,5 +132,66 @@ export function deadlineChecks(
   if (target.behavior === 'info') target.behavior = 'fixed_event';
   // 자동갱신 + 통보기한 → 통보 체크 하나 (자동 연장된다는 이유가 위 설명에 포함됨)
   if (key === 'termination_notice') out = out.filter((c) => c.semanticKey !== 'auto_renewal');
+  return out;
+}
+
+const norm = (x: string | null | undefined) => (x ?? '').replace(/[\s.,·:;"'“”‘’()\[\]-]/g, '');
+/** 두 문장이 사실상 같은 내용인가 (한쪽이 다른 쪽을 거의 그대로 담음) */
+function sameText(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = norm(a), y = norm(b);
+  if (x.length < 6 || y.length < 6) return false;
+  return x === y || (x.includes(y) && y.length >= x.length * 0.6) || (y.includes(x) && x.length >= y.length * 0.6);
+}
+const conditionDefs = DETAIL_FIELD_DEFS.filter((d) => d.role === 'condition');
+const conditionDef = (db: string) => conditionDefs.find((d) => d.db === db);
+
+export function splitRoles(checks: ExtractedCheck[], details: Record<string, ExtractedDetail>): void {
+  for (const c of checks) {
+    const def = semanticKeyDef(c.semanticKey);
+    if (!def?.reason) continue;
+    for (const [db, d] of Object.entries(details)) {
+      const cd = conditionDef(db);
+      // 같은 의미 키이거나, 다른 칸에 들어온 같은 조항(예: 보증금 반환 조건 칸의 원상복구 문장)이어도 문장이 같으면 역할을 나눈다
+      if (!cd || typeof d.value !== 'string') continue;
+      if (cd.semanticKey !== c.semanticKey && !sameText(c.description, d.value)) continue;
+      if (sameText(c.description, d.value) || sameText(c.description, c.evidenceQuote)) {
+        c.description = def.reason;
+        if (sameText(c.title, d.value) && def.action) c.title = def.action;
+      }
+    }
+  }
+}
+
+export function conditionRisks(checks: ExtractedCheck[], details: Record<string, ExtractedDetail>): ExtractedCheck[] {
+  const out = [...checks];
+  for (const [db, d] of Object.entries(details)) {
+    if (!conditionDef(db) || typeof d.value !== 'string') continue;
+    const said = [d.value, ...(d.evidence ?? []).map((e) => e.quote)].join(' ');
+    const topic = COST_TOPICS.find(([re]) => re.test(said))?.[1];
+    if (!topic) continue;
+    const key = TOPIC_KEY.get(topic) ?? topic;
+    const def = semanticKeyDef(key);
+    if (!def || def.policy === 'none' || out.some((c) => c.semanticKey === key || c.topic === topic)) continue;
+    const ev = d.evidence?.[0];
+    out.push({
+      severity: 'caution',
+      topic,
+      title: def.action ?? def.label,
+      description: def.reason ?? def.label,
+      confidence: d.confidence,
+      evidenceQuote: ev?.quote ?? null,
+      evidencePage: ev?.page ?? null,
+      evidenceFileIndex: ev?.file ? ev.file - 1 : null,
+      behavior: def.policy === 'conditional' ? 'conditional_rule' : 'info',
+      semanticKey: key,
+      derivedFrom: [`details.${db}`],
+      userAction: null,
+      rule: def.policy === 'conditional' ? { condition: '해당 상황이 생기는 경우', action: def.action ?? def.label, offsetDays: null } : null,
+      relatedDate: null,
+      amount: null,
+      amountNote: null,
+      suggestion: null,
+    });
+  }
   return out;
 }

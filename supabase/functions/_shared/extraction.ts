@@ -12,7 +12,7 @@
 // "무슨 계약인가"(classification)와 "돈이 어떻게 움직이는가"(payments)는 서로의 결과를 쓰지 않는다.
 import { contractKindDef } from './contractRegistry.ts';
 import { cleanClassification, legacyClassifications } from './analysisRules/classification.ts';
-import { assignSemanticKeys, deadlineChecks, dropPlainFacts, mergeSameMeaning } from './analysisRules/checkScope.ts';
+import { assignSemanticKeys, conditionRisks, deadlineChecks, dropPlainFacts, mergeSameMeaning, splitRoles } from './analysisRules/checkScope.ts';
 import { attachSuggestions, cleanChecks, conditionalCostsToChecks, waivedCheck } from './analysisRules/checks.ts';
 import { assignDateUses, cleanDates } from './analysisRules/dates.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
@@ -86,7 +86,10 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   assignSemanticKeys(checks, (fields.noticeKind.value as string | null) ?? null);
   checks = mergeSameMeaning(checks);
   checks = dropPlainFacts(checks, { details, payments });
+  // 조건 문장 안의 위험은 체크로 (모든 조건을 옮기지 않음), 같은 조항은 정보(조건)와 체크(할 일·이유)로 역할을 나눔
+  checks = conditionRisks(checks, details);
   checks = deadlineChecks(checks, { fields, dates, noticeDays: notice.days });
+  splitRoles(checks, details);
   noticeSuggestions(checks, notice, fields);
   // 체크 → 캘린더 일정 제안 (계약서에 명시된 날짜)
   attachSuggestions(checks, dates);

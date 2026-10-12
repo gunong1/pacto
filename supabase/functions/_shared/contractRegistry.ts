@@ -40,7 +40,14 @@ export const CONTRACT_TYPE_DEFS = [
 
 export type DetailInput = 'amount' | 'integer' | 'percent' | 'text' | 'enum' | 'boolean';
 
-/** 유형별 상세 속성 (contracts.contract_details JSONB). key = 앱(camelCase), db = 저장 키(snake_case, 정식 컬럼 승격 시 이름) */
+/**
+ * 유형별 상세 속성 (contracts.contract_details JSONB). key = 앱(camelCase), db = 저장 키(snake_case, 정식 컬럼 승격 시 이름)
+ * role — 계약 정보에서의 역할 (계약 정보 = 사실, 계약 체크 = 행동·기한·주의·위험):
+ *   fact(기본): 기본 정보로 보여주는 객관적 사실 (임대인·근무시간·금리 …)
+ *   condition: 중요한 계약 조건 문장 — 보존하되 기본 화면이 아니라 "상세 조건"(접힘)에서. 행동·기한·위험은 계약 체크가 맡는다
+ * semanticKey — 같은 의미의 계약 체크(SEMANTIC_KEY_DEFS)와 연결. 같은 문장을 두 곳에 반복하지 않도록 체크는 할 일·이유로 쓴다 (checkScope S5)
+ */
+export type DetailRole = 'fact' | 'condition';
 export const DETAIL_FIELD_DEFS: readonly {
   type: string;
   key: string;
@@ -49,11 +56,13 @@ export const DETAIL_FIELD_DEFS: readonly {
   input: DetailInput;
   suffix?: string;
   options?: readonly { value: string; label: string }[];
+  role?: DetailRole;
+  semanticKey?: string;
 }[] = [
   // 월 납입형
   { type: 'recurring', key: 'commitmentMonths', db: 'commitment_months', label: '최소 이용기간', input: 'integer', suffix: '개월' },
-  { type: 'recurring', key: 'equipmentReturnTerms', db: 'equipment_return_terms', label: '장비 반환 조건', input: 'text' },
-  { type: 'recurring', key: 'ownershipTransferTerms', db: 'ownership_transfer_terms', label: '소유권 이전 조건', input: 'text' },
+  { type: 'recurring', key: 'equipmentReturnTerms', db: 'equipment_return_terms', label: '장비 반환 조건', input: 'text', role: 'condition', semanticKey: 'equipment_return' },
+  { type: 'recurring', key: 'ownershipTransferTerms', db: 'ownership_transfer_terms', label: '소유권 이전 조건', input: 'text', role: 'condition', semanticKey: 'ownership' },
   // 임대차
   {
     type: 'lease', key: 'leaseKind', db: 'lease_kind', label: '임대 형태', input: 'enum',
@@ -61,8 +70,8 @@ export const DETAIL_FIELD_DEFS: readonly {
   },
   { type: 'lease', key: 'landlord', db: 'landlord', label: '임대인', input: 'text' },
   { type: 'lease', key: 'tenant', db: 'tenant', label: '임차인', input: 'text' },
-  { type: 'lease', key: 'renewalTerms', db: 'renewal_terms', label: '갱신 관련 조건', input: 'text' },
-  { type: 'lease', key: 'depositReturnTerms', db: 'deposit_return_terms', label: '보증금 반환 조건', input: 'text' },
+  { type: 'lease', key: 'renewalTerms', db: 'renewal_terms', label: '갱신 관련 조건', input: 'text', role: 'condition', semanticKey: 'renewal_decision' },
+  { type: 'lease', key: 'depositReturnTerms', db: 'deposit_return_terms', label: '보증금 반환 조건', input: 'text', role: 'condition', semanticKey: 'deposit_return' },
   // 할부
   { type: 'installment', key: 'vehicleName', db: 'vehicle_name', label: '차량·물품명', input: 'text' },
   { type: 'installment', key: 'vehiclePrice', db: 'vehicle_price', label: '차량·물품 가격', input: 'amount', suffix: '원' },
@@ -70,7 +79,7 @@ export const DETAIL_FIELD_DEFS: readonly {
   { type: 'installment', key: 'principal', db: 'principal', label: '할부원금', input: 'amount', suffix: '원' },
   { type: 'installment', key: 'interestRate', db: 'interest_rate', label: '금리', input: 'percent', suffix: '%' },
   { type: 'installment', key: 'totalInstallments', db: 'total_installments', label: '총 할부기간', input: 'integer', suffix: '개월' },
-  { type: 'installment', key: 'prepaymentTerms', db: 'prepayment_terms', label: '중도상환 조건', input: 'text' },
+  { type: 'installment', key: 'prepaymentTerms', db: 'prepayment_terms', label: '중도상환 조건', input: 'text', role: 'condition', semanticKey: 'prepayment' },
   // 대출
   { type: 'loan', key: 'principal', db: 'principal', label: '대출원금', input: 'amount', suffix: '원' },
   { type: 'loan', key: 'interestRate', db: 'interest_rate', label: '금리', input: 'percent', suffix: '%' },
@@ -82,8 +91,8 @@ export const DETAIL_FIELD_DEFS: readonly {
     type: 'loan', key: 'repaymentMethod', db: 'repayment_method', label: '상환방식', input: 'enum',
     options: [{ value: 'equal_payment', label: '원리금균등' }, { value: 'equal_principal', label: '원금균등' }, { value: 'bullet', label: '만기일시' }, { value: 'other', label: '기타' }],
   },
-  { type: 'loan', key: 'prepaymentFeeTerms', db: 'prepayment_fee_terms', label: '중도상환수수료', input: 'text' },
-  { type: 'loan', key: 'overdueTerms', db: 'overdue_terms', label: '연체 관련 조건', input: 'text' },
+  { type: 'loan', key: 'prepaymentFeeTerms', db: 'prepayment_fee_terms', label: '중도상환수수료', input: 'text', role: 'condition', semanticKey: 'prepayment' },
+  { type: 'loan', key: 'overdueTerms', db: 'overdue_terms', label: '연체 관련 조건', input: 'text', role: 'condition', semanticKey: 'overdue' },
   // 보험
   { type: 'insurance', key: 'productName', db: 'product_name', label: '보험 상품명', input: 'text' },
   { type: 'insurance', key: 'paymentPeriod', db: 'payment_period', label: '납입기간', input: 'text' },
@@ -91,8 +100,8 @@ export const DETAIL_FIELD_DEFS: readonly {
   { type: 'insurance', key: 'renewable', db: 'renewable', label: '갱신형', input: 'boolean' },
   { type: 'insurance', key: 'renewalCycleYears', db: 'renewal_cycle_years', label: '갱신 주기', input: 'integer', suffix: '년' },
   { type: 'insurance', key: 'coverageSummary', db: 'coverage_summary', label: '주요 보장', input: 'text' },
-  { type: 'insurance', key: 'surrenderTerms', db: 'surrender_terms', label: '해지환급 조건', input: 'text' },
-  { type: 'insurance', key: 'exclusions', db: 'exclusions', label: '면책·보장 제외', input: 'text' },
+  { type: 'insurance', key: 'surrenderTerms', db: 'surrender_terms', label: '해지환급 조건', input: 'text', role: 'condition', semanticKey: 'surrender' },
+  { type: 'insurance', key: 'exclusions', db: 'exclusions', label: '면책·보장 제외', input: 'text', role: 'condition', semanticKey: 'exclusion' },
   // 근로
   { type: 'employment', key: 'employeeName', db: 'employee_name', label: '근로자', input: 'text' },
   {
@@ -106,18 +115,18 @@ export const DETAIL_FIELD_DEFS: readonly {
   { type: 'employment', key: 'workHours', db: 'work_hours', label: '근무시간', input: 'text' },
   { type: 'employment', key: 'workDays', db: 'work_days', label: '근무일', input: 'text' },
   { type: 'employment', key: 'holidays', db: 'holidays', label: '휴일', input: 'text' },
-  { type: 'employment', key: 'leaveTerms', db: 'leave_terms', label: '휴가 관련 조건', input: 'text' },
-  { type: 'employment', key: 'severanceTerms', db: 'severance_terms', label: '퇴직 관련 조건', input: 'text' },
-  { type: 'employment', key: 'renewalTerms', db: 'renewal_terms', label: '갱신 관련 조건', input: 'text' },
+  { type: 'employment', key: 'leaveTerms', db: 'leave_terms', label: '휴가 관련 조건', input: 'text', role: 'condition' },
+  { type: 'employment', key: 'severanceTerms', db: 'severance_terms', label: '퇴직 관련 조건', input: 'text', role: 'condition' },
+  { type: 'employment', key: 'renewalTerms', db: 'renewal_terms', label: '갱신 관련 조건', input: 'text', role: 'condition', semanticKey: 'renewal_decision' },
   // 용역·프리랜서
   {
     type: 'service', key: 'userRole', db: 'user_role', label: '나의 역할', input: 'enum',
     options: [{ value: 'provider', label: '수행자 (대금을 받음)' }, { value: 'client', label: '발주자 (대금을 냄)' }],
   },
   { type: 'service', key: 'workScope', db: 'work_scope', label: '업무 내용', input: 'text' },
-  { type: 'service', key: 'acceptanceTerms', db: 'acceptance_terms', label: '검수 조건', input: 'text' },
-  { type: 'service', key: 'deliverableOwnership', db: 'deliverable_ownership', label: '결과물 소유권·저작권', input: 'text' },
-  { type: 'service', key: 'revisionTerms', db: 'revision_terms', label: '수정 요청 조건', input: 'text' },
+  { type: 'service', key: 'acceptanceTerms', db: 'acceptance_terms', label: '검수 조건', input: 'text', role: 'condition' },
+  { type: 'service', key: 'deliverableOwnership', db: 'deliverable_ownership', label: '결과물 소유권·저작권', input: 'text', role: 'condition' },
+  { type: 'service', key: 'revisionTerms', db: 'revision_terms', label: '수정 요청 조건', input: 'text', role: 'condition' },
   // 매매
   {
     type: 'sale', key: 'userRole', db: 'user_role', label: '나의 역할', input: 'enum',
@@ -424,20 +433,28 @@ export const isSubtypeOf = (kind: string, subtype: string): boolean => !!contrac
 export const CHECK_POLICIES = ['none', 'actionable', 'caution', 'deadline', 'conditional'] as const;
 export type CheckPolicy = (typeof CHECK_POLICIES)[number];
 
-export const SEMANTIC_KEY_DEFS: readonly { key: string; label: string; policy: CheckPolicy; topics: readonly string[]; facts?: readonly string[]; action?: string }[] = [
-  { key: 'renewal_decision', label: '갱신 여부 확인', policy: 'deadline', topics: ['renewal_terms'], action: '갱신 여부 확인' },
+/**
+ * reason — 체크 카드의 짧은 이유 (계약 정보의 조건 문장을 그대로 반복하지 않을 때 쓴다, checkScope S5·S6)
+ */
+export const SEMANTIC_KEY_DEFS: readonly { key: string; label: string; policy: CheckPolicy; topics: readonly string[]; facts?: readonly string[]; action?: string; reason?: string }[] = [
+  { key: 'renewal_decision', label: '갱신 여부 확인', policy: 'deadline', topics: ['renewal_terms'], action: '갱신 여부 확인', reason: '계약을 이어갈지 정해진 기한까지 확인·협의해야 해요.' },
   { key: 'termination_notice', label: '해지·갱신 통보', policy: 'deadline', topics: [], action: '해지 여부 결정·통보' },
   { key: 'auto_renewal', label: '자동갱신', policy: 'caution', topics: ['auto_renewal'] },
   { key: 'deposit_return', label: '보증금 반환', policy: 'none', topics: ['deposit_return'], facts: ['details.deposit_return_terms'] },
+  { key: 'prepayment', label: '중도상환', policy: 'conditional', topics: ['prepayment'], action: '조기 상환 전 수수료 발생 조건 확인', reason: '미리 갚으면 수수료가 생길 수 있어요.' },
+  { key: 'exclusion', label: '면책·보장 제외', policy: 'caution', topics: ['exclusion'], action: '보장되지 않는 경우 확인', reason: '보장받지 못하는 경우가 정해져 있어요.' },
+  { key: 'surrender', label: '해지환급', policy: 'caution', topics: ['surrender'], action: '해지할 때 돌려받는 금액 확인', reason: '중도에 해지할 때 돌려받는 금액 조건이 있어요.' },
+  { key: 'equipment_return', label: '장비 반환', policy: 'caution', topics: ['equipment_return'], action: '종료 후 반납 조건 확인', reason: '계약이 끝나면 장비를 반납해야 하는 조건이 있어요.' },
+  { key: 'ownership', label: '소유권', policy: 'none', topics: ['ownership'], facts: ['details.ownership_transfer_terms'] },
   { key: 'maintenance_fee', label: '관리비', policy: 'none', topics: ['maintenance_fee'], facts: ['payments.maintenance_fee'] },
   { key: 'wage', label: '급여', policy: 'none', topics: ['wage'], facts: ['payments.salary'] },
   { key: 'working_hours', label: '근로시간', policy: 'none', topics: ['working_hours'], facts: ['details.work_hours'] },
   // 수습기간은 임금 감액 등 주의할 조건이 함께 있는 경우가 많아 사실 전용(none)으로 두지 않는다
   { key: 'probation', label: '수습기간', policy: 'caution', topics: ['probation'] },
   { key: 'early_termination', label: '중도해지', policy: 'conditional', topics: ['early_termination'] },
-  { key: 'overdue', label: '연체', policy: 'conditional', topics: ['overdue'] },
+  { key: 'overdue', label: '연체', policy: 'conditional', topics: ['overdue'], action: '늦게 낼 때 추가 비용 확인', reason: '늦게 내면 추가 비용이 생길 수 있어요.' },
   { key: 'penalty', label: '손해배상·위약금', policy: 'caution', topics: ['damages'] },
-  { key: 'restoration', label: '원상복구', policy: 'caution', topics: ['restoration'] },
+  { key: 'restoration', label: '원상복구', policy: 'caution', topics: ['restoration'], action: '퇴거 시 원상복구 범위 확인', reason: '퇴거할 때 원래 상태로 되돌리는 부담이 생길 수 있어요.' },
 ];
 
 /** 통보기한 의미(noticeKind)별 체크 의미 키 — 갱신 협의는 renewal_decision, 그 외 통보는 termination_notice */

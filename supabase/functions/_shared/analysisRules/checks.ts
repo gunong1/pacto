@@ -86,8 +86,8 @@ export function waivedCheck(checks: ExtractedCheck[], references: AppExtractionR
   });
 }
 
-/** 조건부 비용의 주제 (이름·조건으로) — 맞는 주제가 없으면 기타 */
-const COST_TOPICS: [RegExp, string][] = [
+/** 조건부 비용·조건 문장의 위험 주제 (이름·조건으로) — 맞는 주제가 없으면 기타. checkScope S6도 같은 표를 쓴다 */
+export const COST_TOPICS: [RegExp, string][] = [
   [/위약|중도\s*해지|해지\s*수수료/, 'early_termination'],
   [/중도\s*상환/, 'prepayment'],
   [/연체|지연\s*(?:손해|이자|배상|료)/, 'overdue'],
