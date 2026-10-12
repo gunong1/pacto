@@ -124,6 +124,27 @@ describe('다른 상위 금액의 몫은 그 금액의 성격을 따른다 (이�
     expect(r.record.payments.find((p) => p.label === '가입 계약금')?.direction).toBe('expense');
   });
 
+  test('회귀: 합이 보증금과 같아도 보증금의 일부라는 근거가 없는 일반 계약금·잔금은 지출 그대로 (합계는 보조 조건)', () => {
+    const PLAIN = '계약금 2,000,000원은 계약 시 지급하고, 잔금 18,000,000원은 2026년 10월 20일 지급한다.';
+    const r = run(lease([{ ...DOWN, evidence_quote: PLAIN }, { ...BALANCE, evidence_quote: PLAIN }], { depositAmount: f(20000000, '보증금 20,000,000원') }));
+    expect(r.record.payments.filter((p) => p.label === '계약금' || p.label === '잔금').map((p) => p.direction)).toEqual(['expense', 'expense']);
+  });
+
+  test('회귀: 상위 금액 이름이 근거에 없으면 매매대금의 몫으로도 바꾸지 않음 (수입 매매대금 + 근거 없는 지출 계약금)', () => {
+    const r = run(
+      contract({
+        cls: { kind: 'sale', subtype: 'goods' },
+        title: '장비 매도 계약서',
+        payments: [
+          once({ kind: 'purchase_price', direction: 'income', role: 'total', label: '매매대금', amount: 5000000, ...q('매매대금 5,000,000원') }),
+          once({ kind: 'down_payment', label: '계약금', amount: 1000000, date: '2026-10-08', ...q('계약금 1,000,000원') }),
+          once({ kind: 'balance_payment', label: '잔금', amount: 4000000, date: '2026-10-30', ...q('잔금 4,000,000원') }),
+        ],
+      }),
+    );
+    expect(r.record.payments.map((p) => p.direction)).toEqual(['expense', 'expense']);
+  });
+
   test('보증금 금액과 합이 맞지 않으면 바꾸지 않음 (애매하면 건드리지 않는다)', () => {
     const r = run(lease([DOWN, once({ kind: 'balance_payment', label: '잔금', amount: 17000000, date: '2026-10-20', ...q(DEP) })], { depositAmount: f(20000000, DEP) }));
     expect(r.record.payments.filter((p) => p.label === '계약금' || p.label === '잔금').map((p) => p.direction)).toEqual(['expense', 'expense']);
