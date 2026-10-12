@@ -425,8 +425,3 @@ verify_jwt = false
 # protect-document만 호출하는 내부 worker — JWT 대신 함수 안에서 service_role 키를 확인한다 (앱에는 이 키가 없다)
 [functions.protect-scan-page]
 verify_jwt = false
-
-# ⚠ 임시: 기존 데이터 민감정보 정리 (dry_run → apply). 정리가 끝나면 이 항목과 함수 폴더를 지운다
-# JWT 대신 함수 안에서 전용 비밀값(SENSITIVE_CLEANUP_SECRET, x-cleanup-secret)을 확인한다 (앱에는 이 값이 없다)
-[functions.sensitive-cleanup-once]
-verify_jwt = false

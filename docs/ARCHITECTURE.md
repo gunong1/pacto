@@ -1415,10 +1415,10 @@ pacto/
 **화면 방어선**: 등록 확인 모델(`toReviewModel` 입구에서 `maskSensitiveDeep`) · 폼 "원문" 안내(`kit.tsx`·`RenewalSection`) · 계약 체크 카드(제목·이유·조건·근거) · 중요 일정 근거.
 가림 자체가 실패하면 원문 대신 "민감정보 보호 확인 필요".
 
-**기존 데이터 정리 (임시 함수 `sensitive-cleanup-once`)** — 정리가 끝나면 함수 폴더·`config.toml` 항목·배포·테스트(`step24`)를 지운다.
-- 전용 비밀값(`SENSITIVE_CLEANUP_SECRET`, 헤더 `x-cleanup-secret`)으로만 호출 — 정리 후 `secrets unset`. 1단계 `dry_run`: 표·필드·행 id·유형별 개수 + `planHash`만 (원문 없음). 2단계 `apply`: 같은 `planHash`일 때만 실행.
-- 가리는 대상: AI 파생 텍스트 `contracts.ai_checks`·`classification`, `analysis_jobs.result`·`raw_output`. 원본 파일·보호본·사용자가 입력한 칸은 바꾸지 않는다(`reportOnly`로 개수만).
-- 원문을 백업 표·로그에 복사하지 않는다(로그: 실행 id·행 id·개수·해시). 가림이 멱등이라 중간 실패 시 다시 실행.
+**기존 데이터 정리 (완료 · 2026-10-12, 임시 함수 `sensitive-cleanup-once` 삭제됨)**
+- 전용 비밀값으로만 호출하는 임시 함수로 1단계 dry_run(표·필드·행 id·개수만) → 사용자 확인 → 2단계 apply(같은 planHash일 때만).
+- 운영 결과: AI 파생 텍스트 8개 행(analysis_jobs.result 4 · raw_output 4)의 전화번호 24개를 공통 정책으로 가림, 실패 0, 남은 대상 0. 사용자 입력 칸 대상 0.
+- 원본 파일·보호본·사용자가 입력한 칸은 바꾸지 않았고, 원문을 백업 표·로그에 복사하지 않았다. 함수·config 항목·비밀값·테스트는 정리 후 삭제했다.
 
-**테스트**: `src/domain/__tests__/security/`(유형별·조합·형식·멱등·제외 문맥·단일 정책·화면 실패 / 파이프라인·AI 전송 게이트), 통합 `step23`(AI 근거 → DB·등록 확인·계약 상세 모두 가림), `step24`(정리 함수), `step9`·`step12`(보호 전·실패 시 분석 거절).
+**테스트**: `src/domain/__tests__/security/`(유형별·조합·형식·멱등·제외 문맥·단일 정책·화면 실패 / 파이프라인·AI 전송 게이트), 통합 `step23`(AI 근거 → DB·등록 확인·계약 상세 모두 가림), `step9`·`step12`(보호 전·실패 시 분석 거절).
 
