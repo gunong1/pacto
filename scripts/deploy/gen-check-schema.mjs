@@ -3,11 +3,12 @@
 //   2) npx supabase db reset --local --version 20261026000001 → psql -At -F' ' < probe.sql > before.txt
 //   3) npx supabase db reset --local                            → psql -At -F' ' < probe.sql > after.txt
 //   4) node scripts/deploy/gen-check-schema.mjs build before.txt after.txt > scripts/deploy/check-schema.sql
+// 함수 본문은 줄바꿈의 CR(\r)을 지운 뒤 비교한다 — Windows에서 CRLF 파일로 적용하면 본문에 \r이 들어가기 때문 (내용은 같음).
 // 항목 SQL은 객체가 없으면 오류 없이 NULL을 돌려준다. 값은 정의(함수 본문·제약·정책)의 md5 지문이라 데이터를 읽지 않는다.
 import fs from 'node:fs';
 
 const fn = (name, nargs) =>
-  `(select md5(string_agg(pronargs::text || ':' || md5(prosrc), ',' order by pronargs)) from pg_proc where pronamespace = 'public'::regnamespace and proname = '${name}'${nargs == null ? '' : ` and pronargs = ${nargs}`})`;
+  `(select md5(string_agg(pronargs::text || ':' || md5(replace(prosrc, chr(13), '')), ',' order by pronargs)) from pg_proc where pronamespace = 'public'::regnamespace and proname = '${name}'${nargs == null ? '' : ` and pronargs = ${nargs}`})`;
 const fnArity = (name) =>
   `(select string_agg(pronargs::text, ',' order by pronargs) from pg_proc where pronamespace = 'public'::regnamespace and proname = '${name}')`;
 const con = (table, name) =>
