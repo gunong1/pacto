@@ -239,13 +239,18 @@ export interface DocumentProtection {
   regions: SensitiveRegion[];
   /** PDF 페이지별 종류·상태 (서버 protection_pages — 원문 없음). 사진·예전 처리 결과는 빈 배열 */
   pages: ProtectionPage[];
+  /** 사용자가 분석에서 뺀 원본 페이지 (사진 한 장을 빼면 [1]) */
+  excludedPages?: number[];
+  /** 보호본에 담긴 원본 페이지 (보호본 순서). null = 원본의 모든 페이지 */
+  viewPages?: number[] | null;
 }
 
 export interface ProtectionPage {
   page: number;
-  kind: 'text' | 'scan' | 'unsupported';
-  /** skipped: 다른 페이지 문제로 처리하지 않음 */
-  status: Exclude<ProtectionStatus, 'pending'> | 'skipped';
+  /** excluded: 사용자가 뺀 페이지 (읽지 않아 종류를 모름) */
+  kind: 'text' | 'scan' | 'unsupported' | 'excluded';
+  /** skipped: 다른 페이지 문제로 처리하지 않음 / excluded: 분석에서 뺀 페이지 */
+  status: Exclude<ProtectionStatus, 'pending'> | 'skipped' | 'excluded';
 }
 
 /**

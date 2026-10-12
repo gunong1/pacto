@@ -90,10 +90,24 @@ async function openUrl(doc: Doc, variant: DocumentVariant, page?: number | null)
  */
 export async function viewDocument(doc: Doc, page?: number | null) {
   const p = doc.protection;
-  if (p?.protectedViewPath) return openUrl(doc, 'protected_view', page);
-  // 민감정보를 찾지 못한 문서·미리보기(mock) 문서는 바로 연다
-  if (p?.status === 'no_sensitive_data' || !doc.storagePath) return openUrl(doc, 'original', page);
+  if (p?.protectedViewPath) {
+    // 보호본이 일부 페이지만 담고 있으면(사용자가 뺀 페이지 제외) 원본 쪽 번호 → 보호본 쪽 번호
+    const view = protectedViewPage(p.viewPages ?? null, page ?? null);
+    if (view.kind === 'view') return openUrl(doc, 'protected_view', view.page);
+    // 보호본에 없는 페이지(분석에서 뺀 페이지) — 보호되지 않은 원본이라 확인 후에만
+    if (await requireReveal()) await openUrl(doc, 'original', page);
+    return;
+  }
+  // 민감정보를 찾지 못한 문서·미리보기(mock) 문서는 바로 연다 (뺀 페이지가 있으면 그 페이지는 확인하지 않았으므로 확인 후)
+  if ((p?.status === 'no_sensitive_data' && !p.excludedPages?.length) || !doc.storagePath) return openUrl(doc, 'original', page);
   if (await requireReveal()) await openUrl(doc, 'original', page);
+}
+
+/** 원본 쪽 번호 → 보호본 쪽 번호 (보호본이 모든 페이지면 그대로). 보호본에 없는 쪽이면 original */
+export function protectedViewPage(viewPages: readonly number[] | null, page: number | null): { kind: 'view'; page: number | null } | { kind: 'original' } {
+  if (!viewPages || page == null) return { kind: 'view', page };
+  const i = viewPages.indexOf(page);
+  return i < 0 ? { kind: 'original' } : { kind: 'view', page: i + 1 };
 }
 
 /** 원본 보기 (명시적으로 선택했을 때) */
@@ -105,7 +119,7 @@ export async function viewOriginal(doc: Doc, page?: number | null) {
 export const defaultViewerFile = (doc: Doc): ViewerFile => ({ doc, variant: doc.protection?.protectedViewPath ? 'protected_view' : 'original' });
 
 /** 원본을 열기 전에 확인이 필요한 파일인지 (보호본이 없고, 민감정보가 없다고 확인되지 않은 저장소 문서) */
-const needsReveal = (f: ViewerFile) => f.variant === 'original' && !!f.doc.storagePath && f.doc.protection?.status !== 'no_sensitive_data';
+const needsReveal = (f: ViewerFile) => f.variant === 'original' && !!f.doc.storagePath && !(f.doc.protection?.status === 'no_sensitive_data' && !f.doc.protection.excludedPages?.length);
 
 /**
  * 계약서 보기 — 파일이 여러 개면 한 뷰어에서 위쪽의 "파일 1 · 파일 2 …"로 넘겨 본다.

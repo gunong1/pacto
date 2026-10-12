@@ -33,7 +33,11 @@ export interface DocumentStore {
    * password: 암호 PDF의 비밀번호 (사용자 입력) — POST body로만 보내고 저장하지 않는다.
    * 결과 access: password_required(비밀번호 필요) · invalid_password(틀림, 저장되지 않는 한 번의 결과) · unsupported_encryption
    */
-  protect(documentId: string, regions?: { id: string; state: 'masked' | 'unmasked' }[], opts?: { password?: string }): Promise<ProtectionSummary>;
+  /**
+   * 민감정보 보호 (다시) — excludePages: 사용자가 분석에서 뺄 원본 페이지 (사진 한 장은 [1]).
+   * 뺀 페이지는 보호본·AI 분석에 쓰지 않는다. 모든 페이지를 빼면 detail 'no_pages_selected'
+   */
+  protect(documentId: string, regions?: { id: string; state: 'masked' | 'unmasked' }[], opts?: { password?: string; excludePages?: number[] }): Promise<ProtectionSummary>;
   /** 문서별 보호 결과 (계약에 연결 전인 업로드 문서 포함) */
   getProtection(documentIds: string[]): Promise<Record<string, DocumentProtection>>;
 }

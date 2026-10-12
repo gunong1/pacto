@@ -79,12 +79,17 @@ export class SupabaseDocumentStore implements DocumentStore {
     await this.sb.from('contract_documents').delete().in('id', rows.map((r) => r.id));
   }
 
-  async protect(documentId: string, regions?: { id: string; state: 'masked' | 'unmasked' }[], opts?: { password?: string }): Promise<ProtectionSummary> {
+  async protect(documentId: string, regions?: { id: string; state: 'masked' | 'unmasked' }[], opts?: { password?: string; excludePages?: number[] }): Promise<ProtectionSummary> {
     // 비밀번호는 POST body로만 (주소·저장 없음)
     const { data, error } = await this.sb.functions.invoke<ProtectionSummary>('protect-document', {
       method: 'POST',
-      body: { documentId, ...(regions?.length ? { regions } : {}), ...(opts?.password ? { password: opts.password } : {}) },
+      body: { documentId, ...(regions?.length ? { regions } : {}), ...(opts?.password ? { password: opts.password } : {}), ...(opts?.excludePages ? { excludePages: opts.excludePages } : {}) },
     });
+    // 페이지 선택이 잘못됨 (모든 페이지 제외 · 없는 페이지) — 보호 상태는 그대로
+    if (error && opts?.excludePages) {
+      const code = await (error as { context?: Response }).context?.json?.().then((b: { error?: string }) => b?.error).catch(() => undefined);
+      if (code === 'no_pages_selected' || code === 'selection_invalid') return { status: 'failed', detail: code };
+    }
     // 보호 처리 없이 비밀번호만 요청한 응답 (status 없음) — 보호가 끝난 문서의 access(password_required)는 원본 상태라 아래로
     if (!error && data && !data.status && (data.access === 'password_required' || data.access === 'invalid_password')) return { status: 'pending', detail: null, access: data.access };
     if (error || !data?.status) return { status: 'failed', detail: 'request_failed' };

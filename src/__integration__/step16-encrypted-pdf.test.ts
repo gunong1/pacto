@@ -108,7 +108,7 @@ describe('Step 16 — 암호 PDF', () => {
     expect(out.validation.decision).toBe('proceed');
     const [job] = await jobs(a.user.id);
     const input = (job.raw_output as { _mock_input: { sha256: string; encrypted: boolean }[] })._mock_input;
-    expect(input).toEqual([{ sha256: sha(view), encrypted: false, mimeType: 'application/pdf' }]);
+    expect(input).toMatchObject([{ sha256: sha(view), encrypted: false, mimeType: 'application/pdf' }]);
     expect(input[0].sha256).not.toBe(sha(original));
 
     // 저장소: 원본 + 보호본만 (복호화 사본 없음)

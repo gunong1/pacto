@@ -1,8 +1,9 @@
 /**
  * 통합 테스트 도우미 (jest에서 별도 프로세스로 실행): 테스트 PDF 만들기 · PDF 텍스트 추출(pdf.js)
- *   node --experimental-strip-types tests/protection/cli.ts make <employment|rental|scan|scan-lease|scan-mixed|scan-ccitt|cmap|repeated|type3> <out.pdf>
+ *   node --experimental-strip-types tests/protection/cli.ts make <employment|rental|scan|scan-lease|scan-mixed|scan-lease-memo|scan-memo-lease|scan-plain-memo|scan-ccitt|cmap|repeated|type3> <out.pdf>
  *     scan: 1×1 흰 이미지 + 숨은 글자층 (읽을 글자 없음 → unreadable) / scan-lease: 임대차계약서 스캔(A4, 숨은 OCR 글자층 포함)
  *     scan-mixed: 텍스트 페이지 + scan-lease / scan-ccitt: 특수 형식(CCITT) 스캔 → unsupported_scan
+ *     scan-lease-memo / scan-memo-lease: 계약서 스캔 + 글자를 거의 읽을 수 없는 메모 스캔 (페이지 선택 테스트)
  *   node --experimental-strip-types tests/protection/cli.ts text <in.pdf>
  *   node --experimental-strip-types tests/protection/cli.ts diagnose <in.pdf>   (상태·진단 숫자만 — 원문 출력 없음)
  *   node --experimental-strip-types tests/protection/cli.ts encrypt <in.pdf> <aes256|aes128|rc4_128> <사용자 비밀번호|-> <out.pdf>   (테스트용 암호 PDF, '-'는 소유자 비밀번호만)
@@ -17,7 +18,7 @@ import { isAxisAligned, pageCoverage } from '../../supabase/functions/_shared/pr
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFStream } from '../../supabase/functions/_shared/vendor/pdf-lib.js';
 import { extractText, getDocumentProxy } from '../../supabase/functions/_shared/vendor/unpdf.js';
 import { ContractPdf, employmentContractPdf, rentalContractPdf } from './fixtures.ts';
-import { buildPdf, readFix, type PageSpec } from './scanFixtures.ts';
+import { buildPdf, jpegOf, readFix, type PageSpec } from './scanFixtures.ts';
 import createQpdf from '../../supabase/functions/_shared/vendor/qpdf.js';
 import { QPDF_WASM_BASE64 } from '../../supabase/functions/_shared/vendor/qpdf-wasm.js';
 
@@ -57,6 +58,16 @@ if (cmd === 'make') {
     const c = await ContractPdf.create();
     if (kind === 'scan-mixed') await c.page(['근로계약서', '근로자: 박민준', '주민등록번호: 901225-1234567']);
     bytes = await buildPdf([leaseScanPage()], (s) => c.font(s), c.doc);
+  } else if (kind === 'scan-plain-memo') {
+    // 민감정보 없는 스캔(plain.jpg, 숨은 글자층 없음) + 거의 빈 메모 스캔 — E2E 페이지 선택용 (가짜 OCR이 plain 글자만 돌려줌)
+    const plain = readFix('plain.jpg');
+    const memo: PageSpec = { size: [595, 595], image: { bytes: jpegOf({ width: 800, height: 800, data: new Uint8Array(800 * 800 * 4).fill(245) }), width: 800, height: 800 } };
+    bytes = await buildPdf([{ size: [595, 198], image: { bytes: plain, width: 2400, height: 800 } }, memo]);
+  } else if (kind === 'scan-lease-memo' || kind === 'scan-memo-lease') {
+    // 메모: 거의 빈 정사각형 이미지 — 가짜 CLOVA가 글자를 찾지 못함 (low_ocr_quality)
+    const memo: PageSpec = { size: [595, 595], image: { bytes: jpegOf({ width: 800, height: 800, data: new Uint8Array(800 * 800 * 4).fill(245) }), width: 800, height: 800 } };
+    const c = await ContractPdf.create();
+    bytes = await buildPdf(kind === 'scan-lease-memo' ? [leaseScanPage(), memo] : [memo, leaseScanPage()], (s) => c.font(s), c.doc);
   } else if (kind === 'scan-ccitt') {
     bytes = await buildPdf([{ size: [595, 842], image: { bytes: new Uint8Array(64), width: 1700, height: 2400, filter: 'CCITTFaxDecode', colorSpace: 'DeviceGray', bpc: 1 } }]);
   } else {

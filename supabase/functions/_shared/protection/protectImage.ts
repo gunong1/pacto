@@ -45,6 +45,9 @@ export interface ImageProtectDiagnostics {
   ocrFieldCount: number;
   ocrCharCount: number;
   meanConfidence: number | null;
+  /** 낮은 신뢰도 글자 비율 · 읽지 못함으로 본 기준 (진단용 숫자·코드만) */
+  lowConfidenceRatio: number | null;
+  unreadableReason: UnreadableReason | null;
   detectedSensitiveCount: number;
   maskedCount: number;
   redactedRegionCount: number;
@@ -80,21 +83,25 @@ const digitsOf = (s: string) => s.replace(/\D/g, '');
 /** 진단 기본값 (사진·스캔 작업자 공통) */
 export function emptyImageDiag(): ImageProtectDiagnostics {
   return {
-    stage: 'info', errorCode: null, width: 0, height: 0, viewWidth: 0, viewHeight: 0, ocrFieldCount: 0, ocrCharCount: 0, meanConfidence: null,
+    stage: 'info', errorCode: null, width: 0, height: 0, viewWidth: 0, viewHeight: 0, ocrFieldCount: 0, ocrCharCount: 0, meanConfidence: null, lowConfidenceRatio: null, unreadableReason: null,
     detectedSensitiveCount: 0, maskedCount: 0, redactedRegionCount: 0, ocrCalls: 0, verification: 'skipped', verifyValueLeakCount: 0, verifyPositionLeakCount: 0,
     unresolvedFieldCount: 0, rereadCount: 0, rereadResolvedCount: 0, fieldFallbackCount: 0, uncertainFieldCount: 0, verifyMissedCount: 0,
     timings: { ocrMs: 0, decodeMs: 0, renderMs: 0, checkMs: 0, verifyOcrMs: 0, rereadMs: 0, totalMs: 0 },
   };
 }
 
-/** 읽기 품질 — 글자가 거의 없거나 신뢰도가 낮으면 읽지 못한 것으로 본다 */
-export function isUnreadable(page: OcrPage): boolean {
+/** 읽지 못함으로 본 기준 (실패 사유 코드) */
+export type UnreadableReason = 'too_few_chars' | 'low_mean_confidence' | 'many_low_confidence';
+
+/** 읽기 품질 — 글자가 거의 없거나 신뢰도가 낮으면 읽지 못한 것으로 본다. 걸린 첫 기준을 돌려준다 (없으면 null) */
+export function unreadableReason(page: OcrPage): UnreadableReason | null {
   const q = readQuality(page.tokens);
-  if (q.chars < UNREADABLE_MIN_CHARS) return true;
-  if (q.meanConfidence != null && q.meanConfidence < UNREADABLE_MIN_MEAN_CONFIDENCE) return true;
-  if (q.lowConfidenceRatio != null && q.lowConfidenceRatio > UNREADABLE_MAX_LOW_CONFIDENCE_RATIO) return true;
-  return false;
+  if (q.chars < UNREADABLE_MIN_CHARS) return 'too_few_chars';
+  if (q.meanConfidence != null && q.meanConfidence < UNREADABLE_MIN_MEAN_CONFIDENCE) return 'low_mean_confidence';
+  if (q.lowConfidenceRatio != null && q.lowConfidenceRatio > UNREADABLE_MAX_LOW_CONFIDENCE_RATIO) return 'many_low_confidence';
+  return null;
 }
+export const isUnreadable = (page: OcrPage): boolean => unreadableReason(page) !== null;
 
 function center(b: Box) {
   return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
@@ -258,9 +265,11 @@ export async function protectImageInput(input: ImageInput, opts: ProtectImageOpt
   diag.ocrFieldCount = page.tokens.length;
   diag.ocrCharCount = q.chars;
   diag.meanConfidence = q.meanConfidence == null ? null : Math.round(q.meanConfidence * 1000) / 1000;
+  diag.lowConfidenceRatio = q.lowConfidenceRatio == null ? null : Math.round(q.lowConfidenceRatio * 1000) / 1000;
+  diag.unreadableReason = unreadableReason(page);
 
   diag.stage = 'quality';
-  if (isUnreadable(page)) return done('unreadable', 'low_ocr_quality');
+  if (diag.unreadableReason) return done('unreadable', 'low_ocr_quality');
 
   diag.stage = 'detect';
   const first = analyzeTokens(page.tokens);

@@ -30,6 +30,16 @@ import {
   type UploadedDocument,
 } from "@/data/documents";
 import { SupabaseAIProvider } from "@/data/supabase/SupabaseAIProvider";
+import type { DocumentProtection } from "@/domain/types";
+import { viewOriginal } from "@/features/documents/openDocument";
+import {
+  EXCLUDE_PAGE_COPY,
+  PAGE_STATUS_LABEL,
+  isExcludedPhoto,
+  isProblemPage,
+  problemPageMessage,
+  readyForAnalysis,
+} from "@/features/documents/protectionCopy";
 import { useToday } from "@/features/contracts/queries";
 import {
   PDF_PASSWORD_COPY,
@@ -86,8 +96,21 @@ type Gate =
       invalid: boolean;
       busy: boolean;
     }
+  /** 민감정보 보호를 마치지 못한 페이지가 있음 — 페이지별 결과 · 미리보기 · 이 페이지 빼고 분석 (사용자가 직접 고름) */
+  | {
+      kind: "protection";
+      docs: GateDoc[];
+      busy: boolean;
+      error: string | null;
+    }
   /** 비밀번호를 모름 / 지원하지 않는 보안 방식 / 보호 처리를 못 해 AI 분석을 자동으로 하지 않음 */
   | { kind: "locked"; reason: "unknown" | "unsupported" | "protection" };
+
+/** 보호 결과를 보여줄 문서 하나 (올린 순서 그대로) */
+interface GateDoc {
+  doc: UploadedDocument;
+  protection: DocumentProtection | undefined;
+}
 
 const UNREADABLE_CAUSES = [
   "흔들림",
@@ -208,6 +231,147 @@ export default function AnalyzingScreen() {
     }
   };
 
+  /** 사용자가 페이지를 뺀 뒤 시작한 분석 — 화면을 벗어나면 멈춘다 */
+  const gateAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => gateAbort.current?.abort(), []);
+
+  /** 문서별 보호 결과를 다시 읽어 페이지별 결과 화면을 보여준다 (읽지 못하면 기존 안내) */
+  const showProtectionGate = async (docs: UploadedDocument[]) => {
+    const prot = await documentStore
+      .getProtection(docs.map((d) => d.id))
+      .catch(() => null);
+    if (!prot) {
+      setGate({ kind: "locked", reason: "protection" });
+      return;
+    }
+    setGate({
+      kind: "protection",
+      docs: docs.map((doc) => ({ doc, protection: prot[doc.id] })),
+      busy: false,
+      error: null,
+    });
+  };
+
+  /**
+   * 사용자가 고른 페이지(사진은 그 사진)를 분석에서 뺀다 — 서버가 남은 페이지만으로 다시 보호·검증한다.
+   * 남은 문서가 모두 보호 검증을 통과하면 그때 분석 (아니면 페이지별 결과를 다시 보여준다). 원본은 그대로
+   */
+  const excludePage = async (
+    g: Extract<Gate, { kind: "protection" }>,
+    target: GateDoc,
+    page: number,
+  ) => {
+    const ok = await confirm(
+      EXCLUDE_PAGE_COPY.confirmTitle,
+      EXCLUDE_PAGE_COPY.confirmBody,
+      EXCLUDE_PAGE_COPY.confirmLabel,
+    );
+    if (!ok) return;
+    setGate({ ...g, busy: true, error: null });
+    const isPdf = target.doc.mimeType === "application/pdf";
+    const excludePages = isPdf
+      ? [...new Set([...(target.protection?.excludedPages ?? []), page])].sort(
+          (a, b) => a - b,
+        )
+      : [1];
+    const password = useRegistration.getState().passwords[target.doc.id];
+    const r = await documentStore
+      .protect(target.doc.id, undefined, {
+        excludePages,
+        ...(password ? { password } : {}),
+      })
+      .catch(() => null);
+    if (r?.detail === "no_pages_selected") {
+      setGate({
+        ...g,
+        busy: false,
+        error: "분석할 페이지가 남지 않아요. 문서를 다시 등록해주세요.",
+      });
+      return;
+    }
+    const docs = useRegistration.getState().uploaded;
+    const prot = await documentStore
+      .getProtection(docs.map((d) => d.id))
+      .catch(() => null);
+    if (!r || !prot) {
+      setGate({
+        ...g,
+        busy: false,
+        error: "페이지를 빼지 못했어요. 잠시 후 다시 시도해주세요.",
+      });
+      return;
+    }
+    if (docs.every((d) => readyForAnalysis(prot[d.id]))) {
+      setGate(null);
+      gateAbort.current?.abort();
+      const c = new AbortController();
+      gateAbort.current = c;
+      await runAnalysis(docs, c.signal);
+      return;
+    }
+    setGate({
+      kind: "protection",
+      docs: docs.map((doc) => ({ doc, protection: prot[doc.id] })),
+      busy: false,
+      error: null,
+    });
+  };
+
+  /** ③ 문서 확인 + 계약 분석 — 보호 단계를 통과한 뒤 (또는 사용자가 문제 페이지를 뺀 뒤) */
+  const runAnalysis = async (docs: UploadedDocument[], signal: AbortSignal) => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    signal.addEventListener("abort", () => clearInterval(timer));
+    // ③ 문서 확인 + 계약 분석 (AI 1회)
+    setPhase("analyze");
+    setStep(0);
+    timer = setInterval(
+      () => setStep((v) => Math.min(v + 1, ANALYZE_MESSAGES.length - 1)),
+      STAGE_MS,
+    );
+    const run = () =>
+      aiProvider.analyze(
+        { ...input(), documentIds: docs.map((d) => d.id) },
+        signal,
+      );
+    try {
+      let outcome: AnalysisOutcome;
+      try {
+        outcome = await run();
+      } catch (e) {
+        if (!(e instanceof AIConsentRequiredError)) throw e;
+        const ok = await confirm(
+          "계약서 자동 정리 동의",
+          "계약서 내용을 자동으로 정리하기 위해 원본을 외부 AI 서비스(OpenAI)로 전송해 처리합니다. 처리 결과는 저장 전에 직접 확인할 수 있어요. 동의하시겠어요?",
+          "동의",
+        );
+        if (!ok) {
+          if (!signal.aborted) router.replace("/register/manual");
+          return;
+        }
+        if (aiProvider instanceof SupabaseAIProvider)
+          await aiProvider.grantConsent();
+        outcome = await run();
+      }
+      if (signal.aborted) return;
+      clearInterval(timer);
+      await handle(outcome);
+    } catch (e) {
+      if (!signal.aborted) {
+        setGate({
+          kind: "failed",
+          title: "계약서를 자동으로 정리하지 못했어요",
+          message:
+            e instanceof AIExtractionError
+              ? e.message
+              : "원본은 보관되었어요. 계약정보는 직접 입력해서 저장할 수 있어요.",
+          uploadFailed: false,
+        });
+      }
+    } finally {
+      clearInterval(timer);
+    }
+  };
+
   useEffect(() => {
     if (done.current) return;
     if (files.length === 0) {
@@ -215,7 +379,6 @@ export default function AnalyzingScreen() {
       return;
     }
     const controller = new AbortController();
-    let timer: ReturnType<typeof setInterval> | undefined;
     (async () => {
       // ⓪ 업로드 전 사진 점검 (AI 비용 없음): 같은 사진은 한 번만, 너무 작은 사진은 다시 촬영 안내 (서버에 파일을 남기지 않음)
       if (useRegistration.getState().uploaded.length === 0) {
@@ -366,62 +529,14 @@ export default function AnalyzingScreen() {
             results[i]?.status === "no_sensitive_data",
         )
       ) {
-        setGate({ kind: "locked", reason: "protection" });
+        // 페이지별 결과를 보여주고, 문제 페이지를 사용자가 직접 뺄 수 있게 한다 (빼지 않으면 분석하지 않음)
+        await showProtectionGate(docs);
         return;
       }
-      // ③ 문서 확인 + 계약 분석 (AI 1회)
-      setPhase("analyze");
-      setStep(0);
-      timer = setInterval(
-        () => setStep((v) => Math.min(v + 1, ANALYZE_MESSAGES.length - 1)),
-        STAGE_MS,
-      );
-      const run = () =>
-        aiProvider.analyze(
-          { ...input(), documentIds: docs.map((d) => d.id) },
-          controller.signal,
-        );
-      try {
-        let outcome: AnalysisOutcome;
-        try {
-          outcome = await run();
-        } catch (e) {
-          if (!(e instanceof AIConsentRequiredError)) throw e;
-          const ok = await confirm(
-            "계약서 자동 정리 동의",
-            "계약서 내용을 자동으로 정리하기 위해 원본을 외부 AI 서비스(OpenAI)로 전송해 처리합니다. 처리 결과는 저장 전에 직접 확인할 수 있어요. 동의하시겠어요?",
-            "동의",
-          );
-          if (!ok) {
-            if (!controller.signal.aborted) router.replace("/register/manual");
-            return;
-          }
-          if (aiProvider instanceof SupabaseAIProvider)
-            await aiProvider.grantConsent();
-          outcome = await run();
-        }
-        if (controller.signal.aborted) return;
-        clearInterval(timer);
-        await handle(outcome);
-      } catch (e) {
-        if (!controller.signal.aborted) {
-          setGate({
-            kind: "failed",
-            title: "계약서를 자동으로 정리하지 못했어요",
-            message:
-              e instanceof AIExtractionError
-                ? e.message
-                : "원본은 보관되었어요. 계약정보는 직접 입력해서 저장할 수 있어요.",
-            uploadFailed: false,
-          });
-        }
-      } finally {
-        clearInterval(timer);
-      }
+      await runAnalysis(docs, controller.signal);
     })();
     return () => {
       controller.abort();
-      if (timer) clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, today, attempt]);
@@ -514,6 +629,35 @@ export default function AnalyzingScreen() {
           }}
         />
       </Shell>
+    );
+  }
+
+  if (gate?.kind === "protection") {
+    return (
+      <ProtectionPagesGate
+        gate={gate}
+        onPreview={(d, page) =>
+          viewOriginal(
+            {
+              storagePath: d.doc.storagePath,
+              localUri: d.doc.localUri,
+              mimeType: d.doc.mimeType,
+              protection: d.protection,
+            },
+            page,
+          )
+        }
+        onExclude={(d, page) => excludePage(gate, d, page)}
+        onRetry={() => {
+          discardUploads();
+          setGate(null);
+          setStep(0);
+          setPhase("upload");
+          setAttempt((a) => a + 1);
+        }}
+        onReregister={chooseOther}
+        onManual={manual}
+      />
     );
   }
 
@@ -967,6 +1111,205 @@ function Choice({
         {label}
       </AppText>
     </Pressable>
+  );
+}
+
+/** 페이지 · 사진 하나 (보호 결과 줄) */
+interface GateItem {
+  key: string;
+  docIndex: number;
+  /** 원본 페이지 번호 (사진은 1) */
+  page: number;
+  label: string;
+  status: string;
+}
+
+/** 문서별 보호 결과 → 줄 목록: PDF는 페이지마다, 사진은 장마다. 페이지 결과가 없는 PDF는 문서 한 줄 */
+function gateItems(docs: GateDoc[]): GateItem[] {
+  return docs.flatMap((d, i) => {
+    const prefix = docs.length > 1 ? `${d.doc.fileName} ` : "";
+    const p = d.protection;
+    if (d.doc.mimeType !== "application/pdf")
+      return [
+        {
+          key: `${i}-1`,
+          docIndex: i,
+          page: 1,
+          label: docs.length > 1 ? `사진 ${i + 1}` : "사진",
+          status: isExcludedPhoto(p) ? "excluded" : (p?.status ?? "failed"),
+        },
+      ];
+    if (!p?.pages.length)
+      return [
+        {
+          key: `${i}-0`,
+          docIndex: i,
+          page: 0,
+          label: d.doc.fileName,
+          status: p?.status ?? "failed",
+        },
+      ];
+    return p.pages.map((x) => ({
+      key: `${i}-${x.page}`,
+      docIndex: i,
+      page: x.page,
+      label: `${prefix}${x.page}쪽`,
+      status: x.status,
+    }));
+  });
+}
+
+/**
+ * 민감정보 보호를 마치지 못한 페이지가 있을 때 — 페이지별 결과 · 문제 페이지 미리보기 · 이 페이지 빼고 분석 · 문서 다시 등록.
+ * 빼지 않으면 분석하지 않는다 ("확인"만으로 넘어가는 방법 없음). 모든 페이지를 뺄 수는 없다.
+ */
+function ProtectionPagesGate({
+  gate,
+  onPreview,
+  onExclude,
+  onRetry,
+  onReregister,
+  onManual,
+}: {
+  gate: Extract<Gate, { kind: "protection" }>;
+  onPreview: (d: GateDoc, page: number | null) => void;
+  onExclude: (d: GateDoc, page: number) => void;
+  onRetry: () => void;
+  onReregister: () => void;
+  onManual: () => void;
+}) {
+  const items = gateItems(gate.docs);
+  const problems = items.filter((x) => isProblemPage(x.status));
+  /** 남은(빼지 않은) 페이지 수 — 마지막 남은 페이지는 뺄 수 없다 */
+  const remaining = items.filter((x) => x.status !== "excluded").length;
+  const first = problems[0];
+  return (
+    <Shell testID="gate-locked-protection">
+      <ScrollView
+        contentContainerStyle={{
+          padding: spacing.gutter,
+          paddingTop: spacing.xl,
+        }}
+      >
+        <Ionicons
+          name="lock-closed-outline"
+          size={36}
+          color={colors.textTertiary}
+        />
+        <AppText
+          variant="title2"
+          style={{ marginTop: spacing.lg }}
+          testID="gate-title"
+        >
+          자동 분석을 진행하지 않았어요
+        </AppText>
+        <AppText
+          variant="body2"
+          color="textSecondary"
+          style={{ marginTop: spacing.sm }}
+          testID="gate-protection-message"
+        >
+          {PROTECTION_REQUIRED_MESSAGE}
+          {first ? `\n${problemPageMessage(first.status, first.label)}` : ""}
+          {"\n"}민감정보 보호가 확인된 페이지만 AI 분석에 사용해요.
+        </AppText>
+        <View
+          style={{ marginTop: spacing.lg, gap: spacing.sm }}
+          testID="gate-protection-pages"
+        >
+          {items.map((x) => {
+            const problem = isProblemPage(x.status);
+            const d = gate.docs[x.docIndex];
+            return (
+              <View
+                key={x.key}
+                style={styles.pageRow}
+                testID={`gate-page-${x.docIndex}-${x.page}`}
+              >
+                <View style={{ flex: 1, gap: spacing.xs }}>
+                  <AppText variant="body2Strong">{x.label}</AppText>
+                  <AppText
+                    variant="caption"
+                    color={problem ? "check" : "textSecondary"}
+                  >
+                    {PAGE_STATUS_LABEL[
+                      x.status as keyof typeof PAGE_STATUS_LABEL
+                    ] ?? PAGE_STATUS_LABEL.failed}
+                  </AppText>
+                  {problem && x.page > 0 ? (
+                    <View style={[styles.choiceRow, { marginTop: spacing.xs }]}>
+                      <Button
+                        label={`${x.label} 미리보기`}
+                        variant="secondary"
+                        size="sm"
+                        onPress={() =>
+                          onPreview(
+                            d,
+                            d.doc.mimeType === "application/pdf"
+                              ? x.page
+                              : null,
+                          )
+                        }
+                        testID={`gate-preview-${x.docIndex}-${x.page}`}
+                      />
+                      {remaining > 1 ? (
+                        <Button
+                          label={
+                            d.doc.mimeType === "application/pdf"
+                              ? "이 페이지 제외하고 분석"
+                              : "이 사진 제외하고 분석"
+                          }
+                          size="sm"
+                          disabled={gate.busy}
+                          onPress={() => onExclude(d, x.page)}
+                          testID={`gate-exclude-${x.docIndex}-${x.page}`}
+                        />
+                      ) : null}
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+        {gate.busy ? (
+          <ActivityIndicator
+            style={{ marginTop: spacing.lg }}
+            color={colors.primary}
+          />
+        ) : null}
+        {gate.error ? (
+          <AppText
+            variant="caption"
+            color="check"
+            style={{ marginTop: spacing.md }}
+            testID="gate-protection-error"
+          >
+            {gate.error}
+          </AppText>
+        ) : null}
+      </ScrollView>
+      <Actions>
+        <Button
+          label="다시 시도"
+          variant="secondary"
+          onPress={onRetry}
+          testID="gate-locked-retry"
+        />
+        <Button
+          label="문서 다시 등록"
+          variant="secondary"
+          onPress={onReregister}
+          testID="gate-locked-other"
+        />
+        <Button
+          label="직접 입력"
+          variant="secondary"
+          onPress={onManual}
+          testID="gate-locked-secondary"
+        />
+      </Actions>
+    </Shell>
   );
 }
 

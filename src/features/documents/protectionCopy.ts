@@ -1,4 +1,4 @@
-import type { DocumentProtection, SensitiveRegion } from '@/domain/types';
+import type { DocumentProtection, ProtectionPage, SensitiveRegion } from '@/domain/types';
 
 /** 민감정보 종류 이름 (사용자 화면) */
 export const SENSITIVE_TYPE_LABEL: Record<string, string> = {
@@ -143,7 +143,8 @@ export const canProtect = (p: DocumentProtection | undefined) =>
  * 하나라도 읽지 못함·실패·미지원·처리 전이면 "일부 완료하지 못함"
  */
 export function overallProtectionCopy(list: (DocumentProtection | undefined)[]): { title: string; tone: ProtectionTone } | null {
-  const ps = list.filter((p): p is DocumentProtection => !!p && !(p.status === 'pending' && p.detail === 'preview_mode'));
+  // 분석에서 뺀 사진은 전체 상태에 넣지 않는다 (보호 처리를 하지 않음)
+  const ps = list.filter((p): p is DocumentProtection => !!p && !(p.status === 'pending' && p.detail === 'preview_mode') && !isExcludedPhoto(p));
   if (ps.length === 0) return null;
   if (ps.length === 1) {
     const c = protectionCopy(ps[0]);
@@ -157,3 +158,56 @@ export function overallProtectionCopy(list: (DocumentProtection | undefined)[]):
 
 export const PROTECTION_DISCLAIMER = 'PACTO가 민감정보를 자동으로 찾아 보호합니다. 중요한 문서는 원본을 직접 확인해주세요.';
 export const IMAGES_UNCHECKED_NOTE = '문서 안에 이미지(서명·신분증 사본 등)로 들어간 내용은 확인하지 못했어요.';
+
+// ───────── 페이지별 보호 결과 · 분석에서 뺄 페이지 ─────────
+
+/** 페이지별 보호 결과 이름 (예: "1쪽: 민감정보 보호 완료" · "2쪽: 글자 인식 불확실 · 확인 필요") */
+export const PAGE_STATUS_LABEL: Record<ProtectionPage['status'], string> = {
+  protected: '민감정보 보호 완료',
+  no_sensitive_data: '민감정보 감지되지 않음',
+  unreadable: '글자 인식 불확실 · 확인 필요',
+  needs_review: '개인정보 칸 확인 필요',
+  unsupported_scan: '자동 가리기를 지원하지 않는 형식 · 확인 필요',
+  failed: '보호 처리 실패 · 확인 필요',
+  skipped: '다른 페이지 문제로 처리하지 않음',
+  excluded: '분석에서 제외함',
+};
+
+/** 문제가 있는 페이지 — 사용자가 미리보고, 분석에서 뺄 수 있다 (뺀 페이지는 AI 분석에 쓰지 않음) */
+const PROBLEM: ReadonlySet<string> = new Set(['unreadable', 'needs_review', 'unsupported_scan', 'failed']);
+export const isProblemPage = (status: string) => PROBLEM.has(status);
+
+/** 문제 페이지 안내 (화면 제목 아래 한 줄) */
+export function problemPageMessage(status: string, label: string): string {
+  if (status === 'unreadable') return `${label}은 글자를 정확하게 읽지 못했어요.`;
+  if (status === 'needs_review') return `${label}의 개인정보 칸 값을 정확하게 읽지 못했어요.`;
+  if (status === 'unsupported_scan') return `${label}은 자동으로 가릴 수 없는 형식이에요.`;
+  return `${label}의 민감정보 보호를 완료하지 못했어요.`;
+}
+
+/** 분석에서 뺀 사진 (사진 한 장 전체를 뺌 — 보호 처리 없음) */
+export const isExcludedPhoto = (p: DocumentProtection | undefined) => !!p && p.pages.length === 0 && !!p.excludedPages?.includes(1);
+
+/** 분석에 쓸 수 있는 문서인지 — 보호 검증 통과(보호됨·민감정보 없음) 또는 분석에서 뺀 사진 */
+export const readyForAnalysis = (p: DocumentProtection | undefined) => !!p && (p.status === 'protected' || p.status === 'no_sensitive_data' || isExcludedPhoto(p));
+
+/** 페이지를 뺄 때 확인 문구 */
+export const EXCLUDE_PAGE_COPY = {
+  confirmTitle: '이 페이지를 빼고 분석할까요?',
+  confirmBody: '선택한 페이지는 AI 분석에 사용되지 않습니다. 중요한 계약 내용이 있다면 더 선명한 문서로 다시 등록해주세요.',
+  confirmLabel: '빼고 분석',
+  /** 분석 결과 화면 — 뺀 페이지에 계약 내용이 있었다면 결과가 불완전할 수 있음 */
+  resultNote: (pages: string) => `${pages}은 분석에 사용하지 않았어요. 이 페이지에 계약 내용이 있었다면 분석 결과에 빠진 내용이 있을 수 있어요.`,
+};
+
+/** 분석에서 뺀 페이지 목록 (여러 문서) — "2쪽" · "계약서.pdf 2쪽 · 사진 3" */
+export function excludedPagesText(docs: { fileName: string; isPdf: boolean; protection: DocumentProtection | undefined }[]): string | null {
+  const parts = docs.flatMap((d, i) => {
+    const ex = d.protection?.excludedPages ?? [];
+    if (ex.length === 0) return [];
+    const pages = ex.map((n) => `${n}쪽`).join(', ');
+    if (!d.isPdf) return [`사진 ${i + 1}`];
+    return [docs.length > 1 ? `${d.fileName} ${pages}` : pages];
+  });
+  return parts.length ? parts.join(' · ') : null;
+}

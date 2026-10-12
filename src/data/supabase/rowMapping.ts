@@ -100,8 +100,8 @@ const firstBox = (r: Row<'document_sensitive_regions'>): { x: number; y: number 
   return { x: Number(b?.x ?? 0), y: Math.round(Number(b?.y ?? 0) * 200) / 200 };
 };
 
-const PAGE_KINDS = new Set(['text', 'scan', 'unsupported']);
-const PAGE_STATUSES = new Set(['protected', 'no_sensitive_data', 'unreadable', 'needs_review', 'unsupported_scan', 'failed', 'skipped']);
+const PAGE_KINDS = new Set(['text', 'scan', 'unsupported', 'excluded']);
+const PAGE_STATUSES = new Set(['protected', 'no_sensitive_data', 'unreadable', 'needs_review', 'unsupported_scan', 'failed', 'skipped', 'excluded']);
 /** 페이지별 상태 (모양이 다르면 버린다) */
 function toProtectionPages(v: unknown): ProtectionPage[] {
   if (!Array.isArray(v)) return [];
@@ -123,6 +123,9 @@ export function toProtection(r: DocumentRow): DocumentProtection {
     imagesUnchecked: r.protection_images_unchecked,
     protectedViewPath: r.protection_status === 'protected' && view ? view.storage_path : null,
     pages: toProtectionPages(r.protection_pages),
+    // 분석 제외 페이지 · 보호본 페이지 (마이그레이션 전 행은 없음 → 제외 없음 · 전체)
+    excludedPages: Array.isArray(r.analysis_excluded_pages) ? r.analysis_excluded_pages.filter((n) => Number.isInteger(n) && n >= 1) : [],
+    viewPages: Array.isArray(r.protection_view_pages) && r.protection_view_pages.length ? r.protection_view_pages : null,
     regions: [...(r.document_sensitive_regions ?? [])]
       // 문서에서 나오는 순서 (쪽 → 위에서 아래 → 왼쪽에서 오른쪽)
       .sort((a, b) => a.page_number - b.page_number || firstBox(a).y - firstBox(b).y || firstBox(a).x - firstBox(b).x)

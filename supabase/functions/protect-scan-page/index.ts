@@ -57,6 +57,11 @@ Deno.serve(async (req) => {
         imageBytes: out.image?.byteLength ?? 0,
         ocrCalls: d.ocrCalls,
         ocrFieldCount: d.ocrFieldCount,
+        // 글자 인식 품질 (숫자만 — 원문·이미지 없음)
+        ocrCharCount: d.ocrCharCount,
+        meanConfidence: d.meanConfidence,
+        lowConfidenceRatio: d.lowConfidenceRatio,
+        unreadableReason: d.unreadableReason,
         detectedSensitiveCount: d.detectedSensitiveCount,
         maskedCount: d.maskedCount,
         verification: d.verification,

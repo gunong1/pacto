@@ -76,7 +76,8 @@ describe('Step 15 — 스캔 PDF 보호 (로컬 Edge)', () => {
     expect(rows!.every((r) => r.source === 'ocr' && r.page_number === 1)).toBe(true);
     expect(JSON.stringify(rows)).not.toMatch(SECRETS);
     const { data: docRow } = await adminClient().from('contract_documents').select('protection_pages').eq('id', up.id).single();
-    expect(docRow!.protection_pages).toEqual([{ page: 1, kind: 'scan', status: 'protected', detail: null }]);
+    // 페이지별 상태 + 글자 인식 품질(숫자·사유 코드만)
+    expect(docRow!.protection_pages).toEqual([{ page: 1, kind: 'scan', status: 'protected', detail: null, quality: { chars: expect.any(Number), meanConfidence: expect.any(Number), lowConfidenceRatio: expect.any(Number), reason: null } }]);
   });
 
   test('혼합 A(텍스트 + 스캔) → protected · 가리기 해제 시 OCR 다시 안 함 · 해제한 항목만 보임', async () => {

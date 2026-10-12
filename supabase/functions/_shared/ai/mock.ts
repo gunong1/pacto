@@ -5,10 +5,11 @@
 //   출처불명 → 근거 파일 번호가 빠진 값 (제외 시 다시 분석 확인용)
 //   연락처노출 → AI가 근거에 주민번호·전화번호를 그대로 옮긴 렌탈 (저장 전 가림 보안 회귀용, 값은 가짜)
 import { mockDocumentOutput } from './mockFixtures.ts';
+import { PDFDocument } from '../vendor/pdf-lib.js';
 import type { ContractFile, ExtractionProvider } from './types.ts';
 
 /**
- * 테스트 확인용: AI에 실제로 보낸 파일의 SHA-256과 암호 여부 (내용·텍스트는 남기지 않음).
+ * 테스트 확인용: AI에 실제로 보낸 파일의 SHA-256·암호 여부·쪽 수 (내용·텍스트는 남기지 않음).
  * 통합 테스트가 "암호 PDF는 원본이 아니라 보호본(또는 메모리 복호화 사본)을 보냈는지" 확인한다. mock에서만 붙는다.
  */
 function hasBytes(hay: Uint8Array, text: string): boolean {
@@ -27,7 +28,9 @@ async function inputDigest(files: ContractFile[]) {
       const sha256 = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
       // 트레일러의 /Encrypt (암호 PDF) — 바이트에서 찾기만
       const encrypted = f.mimeType === 'application/pdf' && hasBytes(bytes, '/Encrypt');
-      return { sha256, encrypted, mimeType: f.mimeType };
+      // 쪽 수 — 사용자가 뺀 페이지가 AI 요청에 들어가지 않았는지 확인용 (내용은 보지 않음)
+      const pages = f.mimeType === 'application/pdf' && !encrypted ? await PDFDocument.load(bytes, { updateMetadata: false }).then((d) => d.getPageCount()).catch(() => null) : 1;
+      return { sha256, encrypted, mimeType: f.mimeType, pages };
     }),
   );
 }

@@ -229,7 +229,7 @@ describe('회전·배치 회귀 (CLOVA bbox → 추출 이미지 → PDF 페이�
       const ocr = new FakeOcr();
       const r = await protectPdf(pdf, new Map(), {}, { scan: localRunner(ocr) });
       assert.equal(r.status, 'protected', JSON.stringify({ d: r.detail, pages: r.pages }));
-      assert.deepEqual(r.pages, [{ page: 1, kind: 'scan', status: 'protected', detail: null }]);
+      assert.deepEqual(r.pages.map(({ quality: _q, ...p }) => p), [{ page: 1, kind: 'scan', status: 'protected', detail: null }]);
       assert.equal(ocr.calls, 2); // 1차 OCR + 재-OCR 검증
       const rrn = r.regions.filter((x) => x.type === 'resident_registration_number');
       assert.equal(rrn.length, 2);
@@ -377,7 +377,7 @@ describe('이미지 형식 · scan page 판단 (dominant image)', () => {
     const r = await protectPdf(await c.save(), new Map(), {}, { scan: run });
     assert.equal(r.status, 'protected');
     assert.equal(run.jobs, 0);
-    assert.deepEqual(r.pages, [{ page: 1, kind: 'text', status: 'protected', detail: null }]);
+    assert.deepEqual(r.pages.map(({ quality: _q, ...p }) => p), [{ page: 1, kind: 'text', status: 'protected', detail: null }]);
   });
 
   test(`스캔 페이지 ${MAX_SCAN_PAGES}장 초과 → unsupported_scan(too_many_scan_pages), OCR 호출 없음`, async () => {

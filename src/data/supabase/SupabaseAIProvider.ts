@@ -13,6 +13,9 @@ const MESSAGES: Record<string, string> = {
   password_required: '비밀번호가 설정된 계약서예요. PDF 비밀번호를 입력한 뒤 다시 시도해주세요.',
   invalid_password: '비밀번호가 맞지 않아요.\n다시 확인해주세요.',
   protection_required: `${PROTECTION_REQUIRED_MESSAGE} 다시 시도하거나 직접 입력으로 계속할 수 있어요.`,
+  no_pages_selected: '분석할 페이지가 남아 있지 않아요. 문서를 다시 등록하거나 직접 입력해주세요.',
+  selection_invalid: '분석할 페이지를 확인하지 못했어요. 다시 시도해주세요.',
+  selection_changed: '분석할 페이지가 바뀌었어요. 다시 분석해주세요.',
 };
 
 /** 암호 PDF 비밀번호 — 있을 때만 body에 (주소에는 넣지 않는다) */

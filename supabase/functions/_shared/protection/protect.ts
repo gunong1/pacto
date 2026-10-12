@@ -11,6 +11,7 @@ import { buildProtectedView, extractPage, removeGlyphs, type Box, type Glyph, ty
 import { normalizeRotate, pageBoxToUpright, uprightBoxToPage } from './scanGeometry.ts';
 import { assembleProtectedPdf, classifyPage, rawImageBytes } from './scanPdf.ts';
 import type { ScanJob, ScanPageOutcome } from './scanWorker.ts';
+import { keptPages, subsetPdf } from './pageSelection.ts';
 import { defaultRegionState, detectSensitive, MASK_LEVEL, type DetectionConfidence, type SensitiveType } from './sensitive.ts';
 
 export type ProtectionStatus = 'protected' | 'no_sensitive_data' | 'unreadable' | 'needs_review' | 'unsupported_scan' | 'failed';
@@ -48,15 +49,27 @@ export interface ProtectResult {
   scanMetrics: ScanPageMetrics[];
 }
 
-export type PageStatus = ProtectionStatus | 'skipped';
+/** skipped: 다른 페이지가 실패·미지원이라 처리하지 않음 / excluded: 사용자가 분석에서 뺀 페이지 (읽지도 보호본에 넣지도 않음) */
+export type PageStatus = ProtectionStatus | 'skipped' | 'excluded';
 
 export interface PageOutcome {
   /** 1부터 */
   page: number;
-  kind: 'text' | 'scan' | 'unsupported';
-  /** skipped: 다른 페이지가 실패·미지원이라 처리하지 않음 */
+  /** excluded: 사용자가 뺀 페이지 — 읽지 않으므로 종류를 모른다 */
+  kind: 'text' | 'scan' | 'unsupported' | 'excluded';
   status: PageStatus;
   detail: string | null;
+  /** 스캔 페이지 글자 인식 품질 (진단용 숫자만 — 원문 없음) */
+  quality?: OcrQuality;
+}
+
+/** 글자 인식 품질 — 글자 수 · 평균 신뢰도 · 낮은 신뢰도 글자 비율 (숫자만) */
+export interface OcrQuality {
+  chars: number;
+  meanConfidence: number | null;
+  lowConfidenceRatio: number | null;
+  /** 읽지 못함으로 본 기준 (too_few_chars · low_mean_confidence · many_low_confidence) — 읽었으면 null */
+  reason: string | null;
 }
 
 export interface ScanPageMetrics {
@@ -646,7 +659,10 @@ export async function protectPdf(
       status = 'failed';
       detail = 'ocr_layer_mismatch';
     }
-    Object.assign(pageOut[i], { status, detail });
+    // 글자 인식 품질 (진단용 숫자만 — 실패 원인을 다시 확인할 수 있도록 페이지별로 남긴다)
+    const d = r.diagnostics;
+    const quality: OcrQuality | undefined = d && d.ocrCalls > 0 ? { chars: d.ocrCharCount, meanConfidence: d.meanConfidence, lowConfidenceRatio: d.lowConfidenceRatio ?? null, reason: d.unreadableReason ?? null } : undefined;
+    Object.assign(pageOut[i], { status, detail, ...(quality ? { quality } : {}) });
     scanRegions.push(...rs);
   });
   const statuses = pageOut.map((p) => p.status);
@@ -695,4 +711,51 @@ export async function protectPdf(
   }
   diag.derivativeBytes = final.byteLength;
   return { status: 'protected', detail: null, imagesUnchecked, regions: all, protectedPdf: final, pageCount, diagnostics: diag, ...base };
+}
+
+/**
+ * 사용자가 뺀 페이지를 제외하고 보호 — 남은 페이지만 담은 PDF(메모리)로 같은 보호·검증을 하고, 번호를 원본 기준으로 돌려준다.
+ * 제외한 페이지는 읽지 않고 보호본에도 넣지 않는다. 보호본(protectedPdf)은 남은 페이지만 (viewPages 순서).
+ * 선택이 없으면 protectPdf와 같다 (viewPages = null).
+ */
+export async function protectPdfSelected(
+  bytes: Uint8Array,
+  excluded: readonly number[],
+  prevStates: ReadonlyMap<string, RegionState> = new Map(),
+  testHooks: ProtectTestHooks = {},
+  options: ProtectPdfOptions = {},
+): Promise<ProtectResult & { viewPages: number[] | null }> {
+  if (excluded.length === 0) return { ...(await protectPdf(bytes, prevStates, testHooks, options)), viewPages: null };
+  let count: number;
+  try {
+    count = (await PDFDocument.load(bytes, { updateMetadata: false })).getPageCount();
+  } catch {
+    return { ...(await protectPdf(bytes, prevStates, testHooks, options)), viewPages: null };
+  }
+  const stop = (detail: string): ProtectResult & { viewPages: null } => ({
+    status: 'failed', detail, imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: count, diagnostics: emptyDiagnostics(), pages: [], scanMetrics: [], viewPages: null,
+  });
+  if (excluded.some((p) => p > count)) return stop('selection_invalid');
+  const keep = keptPages(count, excluded);
+  if (keep.length === 0) return stop('no_pages_selected');
+  const sub = await subsetPdf(bytes, keep);
+  const toSub = (orig: number) => keep.indexOf(orig) + 1;
+  const toOrig = (subPage: number) => keep[subPage - 1];
+  const rekey = (key: string, map: (n: number) => number) => key.replace(/^p(\d+):/, (_, n) => `p${map(Number(n))}:`);
+  const pageOfKey = (key: string) => Number(/^p(\d+):/.exec(key)?.[1] ?? 0);
+  const prevSub = new Map([...prevStates].filter(([k]) => keep.includes(pageOfKey(k))).map(([k, v]) => [rekey(k, toSub), v] as const));
+  const redraw = options.redrawScanRegions?.filter((r) => keep.includes(r.page)).map((r) => ({ ...r, page: toSub(r.page), key: rekey(r.key, toSub) })) ?? null;
+  const r = await protectPdf(sub, prevSub, testHooks, { ...options, redrawScanRegions: redraw });
+  const pages: PageOutcome[] = [
+    ...r.pages.map((p) => ({ ...p, page: toOrig(p.page) })),
+    ...excluded.map((page): PageOutcome => ({ page, kind: 'excluded', status: 'excluded', detail: null })),
+  ].sort((a, b) => a.page - b.page);
+  return {
+    ...r,
+    pageCount: count,
+    pages,
+    regions: r.regions.map((x) => ({ ...x, page: toOrig(x.page), key: rekey(x.key, toOrig) })),
+    scanMetrics: r.scanMetrics.map((m) => ({ ...m, page: toOrig(m.page) })),
+    viewPages: r.protectedPdf ? keep : null,
+  };
 }

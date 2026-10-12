@@ -3,6 +3,7 @@
  * 어떤 사진이든 민감정보 없는 가짜 글자(src/__fixtures__/photo/plain.clova.json)를 사진 크기에 맞춰 돌려준다 → 보호 결과 no_sensitive_data.
  * 2026-10부터 민감정보 보호가 끝나지 않은 사진은 자동 분석을 하지 않으므로(fail-closed), 사진 등록 E2E는 이 서버와 함께 돈다.
  * failWith를 정하면 그 상태 코드로 실패 → 보호 실패 → 분석 차단 화면 확인용.
+ * blankSquare를 켜면 정사각형 이미지(거의 빈 메모)에서는 글자를 하나도 돌려주지 않는다 → 그 페이지 low_ocr_quality (페이지 선택 E2E).
  */
 const fs = require('fs');
 const http = require('http');
@@ -15,7 +16,7 @@ const PLAIN = JSON.parse(fs.readFileSync(path.join(__dirname, '../src/__fixtures
 const BASE = { width: 2400, height: 800 };
 
 module.exports = function startFakeOcr() {
-  const state = { calls: 0, failWith: null };
+  const state = { calls: 0, failWith: null, blankSquare: false };
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
@@ -30,6 +31,8 @@ module.exports = function startFakeOcr() {
       } catch {
         return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ images: [{ inferResult: 'FAILURE', fields: [] }] }));
       }
+      if (state.blankSquare && Math.abs(img.height / img.width - 1) < 0.02)
+        return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ version: 'V2', images: [{ inferResult: 'SUCCESS', fields: [] }] }));
       const sx = img.width / BASE.width;
       const sy = img.height / BASE.height;
       const fields = PLAIN.images[0].fields.map((f) => ({ ...f, boundingPoly: { vertices: f.boundingPoly.vertices.map((v) => ({ x: Math.round(v.x * sx), y: Math.round(v.y * sy) })) } }));

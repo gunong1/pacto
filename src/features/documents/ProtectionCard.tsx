@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/controls';
 import type { DocumentProtection, SensitiveRegion } from '@/domain/types';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
-import { canProtect, IMAGES_UNCHECKED_NOTE, needsReview, PROTECTION_DISCLAIMER, protectionCopy, sensitiveLabel } from './protectionCopy';
+import { canProtect, EXCLUDE_PAGE_COPY, IMAGES_UNCHECKED_NOTE, isProblemPage, needsReview, PAGE_STATUS_LABEL, PROTECTION_DISCLAIMER, protectionCopy, sensitiveLabel } from './protectionCopy';
 
 /**
  * 민감정보 보호 결과 카드 — 보호 결과를 알리고(신뢰), 항목별로 확인·가리기 해제를 할 수 있게 한다.
@@ -65,6 +65,22 @@ export function ProtectionCard({
       {protection.imagesUnchecked && protection.status !== 'unsupported_scan' ? (
         <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.xs }}>
           {IMAGES_UNCHECKED_NOTE}
+        </AppText>
+      ) : null}
+
+      {/* 페이지별 결과 (여러 쪽 PDF · 뺀 페이지가 있을 때) — 예: "1쪽: 민감정보 보호 완료" · "2쪽: 분석에서 제외함" */}
+      {protection.pages.length > 1 ? (
+        <View style={{ marginTop: spacing.sm, gap: 2 }} testID={testID ? `${testID}-pages` : undefined}>
+          {protection.pages.map((p) => (
+            <AppText key={p.page} variant="small" color={isProblemPage(p.status) ? 'check' : 'textSecondary'}>
+              {p.page}쪽: {PAGE_STATUS_LABEL[p.status]}
+            </AppText>
+          ))}
+        </View>
+      ) : null}
+      {protection.excludedPages?.length && protection.pages.length > 0 ? (
+        <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.xs }} testID={testID ? `${testID}-excluded` : undefined}>
+          {EXCLUDE_PAGE_COPY.resultNote(protection.excludedPages.map((n) => `${n}쪽`).join(', '))}
         </AppText>
       ) : null}
 

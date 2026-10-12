@@ -1481,3 +1481,15 @@ pacto/
 - 표시(`src/domain/parties.ts`, 등록 확인 · 수정 · 상세 · 목록 · 검색 공통): parties가 있으면 기준 — 빠진 main 역할은 "확인 필요"(다른 쪽 이름으로 채우지 않음). parties가 없는 예전 계약은 역할 칸(임대인·임차인·근로자)만 그 역할로, `counterparty`는 역할 추측 없이 "계약 상대방" (확인 필요 행 없음). 목록 요약: 내 역할을 골랐으면 상대 쪽 이름, 아니면 예전 상대방 이름 또는 "임대인 김민수 · 임차인 박지훈".
 - 폼(`PartiesSection`): 역할별 입력(여럿이면 쉼표), 내 역할 칩(기본 모름), 예전 상대방 값이 있던 계약만 "계약 상대방" 칸. 저장 시 예전 역할 칸(details)을 당사자와 맞춤(예전 앱 호환).
 - 테스트: `golden/parties.test.ts` (양쪽·한쪽·공동·법인·역할 모름·예전 필드·보험 3역할 + 정리·보안·호환), 통합 `step26-contract-parties.test.ts`.
+
+## 분석 대상 페이지 선택 (2026-10-12)
+배경: 2쪽 PDF(1쪽 계약서 스캔 = 보호 성공 · 2쪽 메모 스캔 = `unreadable/low_ocr_quality`)가 "한 쪽이라도 불확실하면 문서 전체 차단" 규칙으로 분석되지 못했다 (운영 DB `protection_pages`로 확인).
+- 원칙: 페이지는 **사용자가 직접** 뺀다 (AI가 정하지 않음) · 원본은 바꾸거나 지우지 않음 · 뺀 페이지의 이미지·OCR·PDF 내용은 OCR·보호본·AI 요청 어디에도 들어가지 않음 · 남은 페이지 중 보호 검증 실패가 있으면 차단 · 남은 페이지 0개면 분석 불가. 사진 여러 장 · 스캔 PDF · 텍스트+이미지 혼합 PDF 모두 같은 구조.
+- DB(`20261025000001_page_selection.sql`): `contract_documents.analysis_excluded_pages int[]`(사용자가 뺀 원본 페이지) · `protection_view_pages int[]`(보호본에 담긴 원본 페이지, null = 전체). 둘 다 서버만 바꿈(guard 트리거).
+- 보호(`protect-document` body `excludePages`, `protectPdfSelected`): 남은 페이지만 담은 PDF(메모리)로 기존 보호·검증을 그대로 실행 → 페이지 번호·가림 선택 키(`p{n}:`)를 원본 번호로 되돌림. 뺀 페이지는 `protection_pages`에 `excluded`. 사진 한 장을 빼면 보호 처리 없이 선택만 저장. 모든 페이지를 빼면 422 `no_pages_selected`.
+- 분석(`analyze-contract`, `protection/pageSelection.ts`): `planSelection` → AI 파일 목록(모든 페이지를 뺀 문서 제외). 게이트(`aiGate`): 남은 페이지 모두 `protected`/`no_sensitive_data`여야 함, `protected`는 보호본 페이지가 지금 선택과 같을 때만, `no_sensitive_data`는 원본(암호면 메모리 복호화)에서 남은 페이지만 메모리로 잘라 보냄(저장 안 함). 선택이 없는데 보호본이 일부 페이지면 차단.
+- 번호: AI는 남은 페이지만 본다 → 결과의 근거 파일·쪽을 원본 기준으로 변환(`remapResult`, 저장 결과·응답 모두). 판정의 의심 쪽·앱이 고른 파일 번호도 같은 변환(`remapPages`·`toAiFiles`). 보호본을 열 때 원본 쪽 → 보호본 쪽(`protectedViewPage`), 보호본에 없는 쪽은 원본(확인 후).
+- 기록·재사용 방지: 분석 기록 `validation.selection = [{documentId, excludedPages, analyzedPages}]`·`plan`·`requestIds`. 마무리 단계에서 지금 선택과 다르면 409 `selection_changed` (새로 분석).
+- 화면: 보호를 마치지 못하면 페이지별 결과(`PAGE_STATUS_LABEL`) · 문제 페이지만 [N쪽 미리보기](원본 보기 확인 후) [이 페이지 제외하고 분석](확인 문구) · [문서 다시 등록] · [직접 입력]. "확인"만으로 넘어가는 버튼 없음. 확인 화면·상세의 보호 카드에 페이지별 결과와 "뺀 페이지에 계약 내용이 있었다면 결과가 불완전할 수 있음" 안내.
+- 진단(C): 스캔 페이지마다 `quality = { chars, meanConfidence, lowConfidenceRatio, reason }`(숫자·코드만, `reason`: too_few_chars · low_mean_confidence · many_low_confidence)를 `protection_pages`와 protect-scan-page 로그에. 원문·OCR 텍스트·이미지는 남기지 않음.
+- 테스트: `tests/protection/page-selection.test.ts`(실제 PDF·가짜 OCR 6) · `golden/security/page-selection-golden.test.ts`(12) · 통합 `step27-page-selection.test.ts`(로컬 Edge 3) · E2E `e2e/page-selection.js`.
