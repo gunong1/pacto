@@ -22,7 +22,10 @@ const check = (id, name, ok, detail = '') => {
 
 // 한국 시간 오늘과 날짜 계산
 const pad = (n) => String(n).padStart(2, '0');
-const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+const realNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+// 결제일(12일) 당일에는 "다음 결제일"이 오늘이라 바로 적용되는 변경(취소 불가)이 된다 → 시나리오(미래 변경·취소)를 위해 앱 시계를 하루 앞(11일)으로 둔다
+const SHIFT_CLOCK = realNow.getDate() === 12;
+const now = SHIFT_CLOCK ? new Date(realNow.getFullYear(), realNow.getMonth(), 11, 12) : realNow;
 const iso = (y, m, d) => {
   const t = new Date(y, m - 1, d);
   return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
@@ -39,7 +42,8 @@ const pastCount = [iso(Y, M - 2, 12), iso(Y, M - 1, 12), iso(Y, M, 12)].filter((
 
 (async () => {
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+  if (SHIFT_CLOCK) await page.clock.install({ time: new Date(`${iso(Y, M, 11)}T12:00:00+09:00`) });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('dialog', (d) => d.accept().catch(() => undefined));
