@@ -504,7 +504,7 @@ export const PARTY_ROLE_DEFS: Record<string, readonly PartyRoleDef[]> = {
  * 모든 종류에 공통으로 나올 수 있는 보조 역할 — 계약서에 있을 때만 (입력 칸을 미리 만들지 않음)
  * 보증인·대리인은 돈을 내거나 받는 쪽이 아니다 → 사용자가 이 역할이면 금액 방향은 "확인 필요" (계약서가 지급자로 밝힌 경우만 예외)
  */
-export const COMMON_PARTY_ROLES: readonly PartyRoleDef[] = [role('guarantor', '보증인', false), role('agent', '대리인', false)];
+export const COMMON_PARTY_ROLES: readonly PartyRoleDef[] = [role('guarantor', '보증인', false), role('agent', '대리인', false), role('representative', '대표자', false)];
 /** AI 스키마의 역할 코드 (모든 종류의 역할 + 공통 보조 역할 + party) */
 export const PARTY_ROLE_CODES = [...new Set([...Object.values(PARTY_ROLE_DEFS).flatMap((l) => l.map((r) => r.code)), ...COMMON_PARTY_ROLES.map((r) => r.code), GENERIC_PARTY_ROLE.code])];
 export const partyRolesOf = (kind: string | null | undefined): readonly PartyRoleDef[] => PARTY_ROLE_DEFS[kind ?? ''] ?? PARTY_ROLE_DEFS.other;
@@ -518,6 +518,80 @@ export const partyRoleDef = (kind: string | null | undefined, code: string | nul
   const other = [...Object.values(PARTY_ROLE_DEFS).flat(), ...COMMON_PARTY_ROLES].find((r) => r.code === code);
   return other ? { ...other, main: false } : GENERIC_PARTY_ROLE;
 };
+
+/**
+ * 같은 자리의 다른 이름 — 계약서가 계약 종류와 다른 말로 당사자를 부를 때 (예: 자동차 장기렌트 계약서의 "임대인·임차인")
+ * 그 종류에서 자리가 하나로 정해지는 짝만 적는다. 갑·을처럼 누가 어느 쪽인지 계약마다 다른 말은 넣지 않는다.
+ * 표에 없는 역할은 바꾸지 않는다 (계약서가 밝힌 대로 둔다).
+ */
+export const ROLE_EQUIVALENTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  rental: { lessor: 'provider', lessee: 'customer' },
+  lease: { provider: 'lessor', customer: 'lessee' },
+  subscription_membership: { customer: 'member', subscriber: 'member' },
+  telecom: { customer: 'subscriber', member: 'subscriber' },
+  education: { customer: 'learner', member: 'learner' },
+  installment: { lender: 'creditor', borrower: 'buyer' },
+  loan: { creditor: 'lender' },
+};
+
+/** 같은 당사자인지 — 띄어쓰기·문장부호·법인 표기(주식회사 = (주) = ㈜)만 맞춘다. 비슷한 글자는 다른 이름 */
+export function samePartyName(a: string, b: string): boolean {
+  const key = (s: string) => s.normalize('NFC').replace(/주식회사|유한회사|㈜|\(\s*주\s*\)|\(\s*유\s*\)/g, '').replace(/[\s.,·ㆍ()'"\-_/]/g, '').toLowerCase();
+  const ka = key(a);
+  return ka.length > 0 && ka === key(b);
+}
+
+/** 다른 종류의 역할 이름 (계약서 용어로 보여줄 때) */
+const foreignRoleLabel = (code: string): string => [...Object.values(PARTY_ROLE_DEFS).flat(), ...COMMON_PARTY_ROLES].find((r) => r.code === code)?.label ?? code;
+
+export interface NormalizedParties<P> {
+  parties: P[];
+  /** 결제의 지급자·수령자·사용자 역할에도 같은 변환을 쓴다 (충돌한 역할은 넣지 않음) */
+  roleMap: Record<string, string>;
+  /** 같은 자리에 다른 이름이 있어 바꾸지 않은 역할 → 확인 필요 */
+  conflicts: string[];
+}
+
+/**
+ * 당사자 역할 정리 (서버 분석·앱 읽기가 같은 함수) — 계약서 용어(임대인)를 계약 종류의 자리(렌탈회사)로 연결하고 용어는 term에 남긴다.
+ * - 그 자리가 비어 있거나 같은 이름이면 연결 (같은 이름이면 하나로 합침 — 같은 사람을 두 번 저장하지 않음)
+ * - 그 자리에 다른 이름이 있으면 바꾸지 않고 conflicts (어느 쪽이 맞는지 사용자 확인)
+ */
+export function normalizePartyRoles<P extends { role: string; name: string; term?: string | null }>(kind: string | null | undefined, parties: readonly P[]): NormalizedParties<P> {
+  const eq = ROLE_EQUIVALENTS[kind ?? ''] ?? {};
+  let list: P[] = parties.map((p) => ({ ...p }));
+  const roleMap: Record<string, string> = {};
+  const conflicts: string[] = [];
+  for (const [from, to] of Object.entries(eq)) {
+    const src = list.filter((p) => p.role === from);
+    const dst = list.filter((p) => p.role === to);
+    if (src.length > 0 && dst.length > 0 && !src.every((s) => dst.some((d) => samePartyName(s.name, d.name)))) {
+      conflicts.push(from);
+      continue;
+    }
+    roleMap[from] = to;
+    if (src.length === 0) continue;
+    const term = foreignRoleLabel(from);
+    list = list.flatMap((p) => (p.role !== from ? [p] : dst.some((d) => samePartyName(d.name, p.name)) ? [] : [{ ...p, role: to, term: p.term ?? term }]));
+  }
+  return { parties: list, roleMap, conflicts };
+}
+
+/** 역할 코드에 같은 변환 적용 (없으면 그대로) */
+export const mapRole = (roleMap: Readonly<Record<string, string>>, code: string | null | undefined): string | null => (code ? (roleMap[code] ?? code) : null);
+
+/**
+ * 법인명과 대표자 나누기: "주식회사 팩토렌터카 / 대표 박지훈" → 법인 "주식회사 팩토렌터카" + 대표자 "박지훈"
+ * 앞부분이 법인·상호로 보일 때만 (개인 이름 뒤의 "대표"는 나누지 않음). 대표자는 계약 당사자(돈을 내고 받는 쪽)가 아니다
+ */
+const CORP_MARK = /(주식회사|유한회사|합자회사|합명회사|㈜|\(\s*주\s*\)|\(\s*유\s*\)|법인|회사|상회|상사|센터|Inc\.?|Corp\.?|Co\.,?\s*Ltd\.?|LLC)/i;
+export function splitRepresentative(raw: string): { name: string; representative: string | null } {
+  const name = raw.trim();
+  const m = /^(.+?)\s*[/,|]?\s*\(?\s*대표(?:이사|자)?\s*[:：]?\s*([가-힣]{2,5}|[A-Za-z][A-Za-z .]{1,40}?)\s*\)?$/.exec(name);
+  if (!m) return { name, representative: null };
+  const corp = m[1].replace(/[\s/,|(]+$/, '').trim();
+  return corp && CORP_MARK.test(corp) ? { name: corp, representative: m[2].trim() } : { name, representative: null };
+}
 
 // ===================================================================================================
 // 돈의 흐름 — 계약 종류별 "누가 내고 누가 받는가" (역할 기준). 사용자 방향은 이 표 + 사용자가 확정한 역할로 계산한다

@@ -178,12 +178,15 @@ describe('정리 규칙 · 하위 호환 · 보안', () => {
     expect(formToDraft(parsed.data!).parties).toEqual([{ role: 'lessor', name: '김민수' }]);
   });
 
-  test('계약 종류를 바꿔도 입력한 이름을 지우지 않음 (원래 역할 이름으로 보존)', () => {
+  test('계약 종류를 바꿔도 입력한 이름을 지우지 않음 — 같은 자리가 있는 종류면 연결(임대인 → 렌탈회사, 용어는 괄호로)', () => {
     const r = run(lease([party('lessor', '김민수'), party('lessee', '박지훈')]));
     const form = { ...draftToForm(r.model.draft), contractKind: 'rental' };
     const draft = formToDraft(form as never);
     const rec = draftToRecord(draft, 'c2', TODAY);
-    expect(partyRows(rec.contract).map((x) => `${x.label} ${partyRowText(x)}`)).toEqual(['렌탈회사 확인 필요', '고객 확인 필요', '임대인 김민수', '임차인 박지훈']);
+    expect(partyRows(rec.contract).map((x) => `${x.label} ${partyRowText(x)}`)).toEqual(['렌탈회사(임대인) 김민수', '고객(임차인) 박지훈']);
+    // 같은 자리가 없는 종류(근로)는 원래 역할 이름으로 보존
+    const emp = draftToRecord(formToDraft({ ...draftToForm(r.model.draft), contractKind: 'employment' } as never), 'c3', TODAY);
+    expect(partyRows(emp.contract).map((x) => `${x.label} ${partyRowText(x)}`)).toEqual(['사용자(고용주) 확인 필요', '근로자 확인 필요', '임대인 김민수', '임차인 박지훈']);
   });
 
   test('수정 화면 저장 시 예전 당사자 칸(임대인·임차인)도 같은 이름으로 맞춤 (예전 앱 호환), 지운 이름은 다시 나타나지 않음', () => {

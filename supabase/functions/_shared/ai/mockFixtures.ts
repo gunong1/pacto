@@ -170,6 +170,43 @@ export function leaseOutput(title: string) {
   };
 }
 
+/**
+ * 자동차 장기렌트 (모든 값은 가짜) — 계약서는 "임대인·임차인"이라고 쓴다 (렌탈 종류의 역할은 렌탈회사·고객)
+ * 보증금 5,000,000(10/20) · 월 렌트료 649,000(매월 20일, 임차인이 자동이체) · 초기 등록대행비 120,000(10/20) · 탁송비 70,000(선택)
+ */
+export function longRentOutput(title: string) {
+  const RENT = '임차인은 매월 20일 월 렌트료 649,000원을 지정 계좌에서 자동이체한다.';
+  const DEP = '보증금 5,000,000원 2026년 10월 20일 1회 지급 / 계약 종료 후 정산 반환';
+  return {
+    classification: { kind: 'rental', subtype: 'vehicle', domains: ['vehicle'], confidence: 'high', alternatives: [], reason: '차량을 일정 기간 빌려 쓰고 월 렌트료를 내는 자동차 장기렌트 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
+    parties: [party('lessor', '주식회사 팩토렌터카 / 대표 박지훈', '임대인 주식회사 팩토렌터카 / 대표 박지훈'), party('lessee', '김도윤', '임차인 김도윤')],
+    fields: {
+      title: f(title),
+      counterparty: f(null, 'low'),
+      totalAmount: f(null, 'low'),
+      depositAmount: f(5000000, 'high', DEP),
+      autoRenewal: f(false, 'high', '자동 갱신은 적용되지 않는다.'),
+      renewalPeriodMonths: f(null, 'low'),
+      terminationNoticeDays: f(null, 'low'),
+      earlyTerminationTerms: f(null, 'low'),
+      penaltyTerms: f(null, 'low'),
+    },
+    dates: [
+      { date: '2026-10-09', meaning: 'contract_signed', label: '계약 체결일', confidence: 'high', source_type: 'explicit', ...q('계약 체결일 2026년 10월 9일') },
+      { date: '2026-10-20', meaning: 'contract_start', label: '계약 시작일', confidence: 'high', source_type: 'explicit', ...q('계약 시작일 2026년 10월 20일') },
+      { date: '2030-10-19', meaning: 'contract_end', label: '계약 종료일', confidence: 'high', source_type: 'explicit', ...q('계약 종료일 2030년 10월 19일') },
+    ],
+    payments: [
+      pay({ role: 'deposit', kind: 'deposit', direction: 'neutral', label: '보증금', amount: 5000000, frequency: 'one_time', day_of_month: null, date: '2026-10-20', payer_role: 'lessee', payee_role: 'lessor', ...q(DEP) }),
+      pay({ kind: 'rent', direction: 'expense', label: '월 렌트료', amount: 649000, frequency: 'monthly', day_of_month: 20, payer_role: 'lessee', payee_role: 'lessor', ...q(RENT) }),
+      pay({ role: 'one_time_cashflow', kind: 'setup_fee', direction: 'expense', label: '초기 등록대행비', amount: 120000, frequency: 'one_time', day_of_month: null, date: '2026-10-20', payer_role: 'lessee', payee_role: 'lessor', ...q('초기 등록대행비 120,000원 2026년 10월 20일 1회 지급') }),
+      pay({ role: 'one_time_cashflow', kind: 'other', direction: 'expense', label: '탁송비', amount: 70000, frequency: 'one_time', day_of_month: null, date: null, payment_obligation: 'optional', condition: '차량 탁송을 이용하는 경우', ...q('탁송비 70,000원 차량 직접 수령 시 발생하지 않는 선택 비용') }),
+    ],
+    details: [],
+    checks: [],
+  };
+}
+
 export function employmentOutput(title: string) {
   const wage = '월 임금은 3,600,000원으로 하며, 기본급 3,280,000원과 고정연장근로수당 320,000원으로 구성한다.';
   const payday = '임금은 매월 25일에 지급하며, 지급일이 휴일인 경우 그 전일에 지급한다.';
@@ -340,7 +377,7 @@ export function mockDocumentOutput(names: string[]) {
     const out = stampFile(rentalOutput(title) as Record<string, unknown>, main.file);
     return { document_check: check('supporting', 'medium', { ...NO_SIGNALS, parties: true, amounts: true, dates: true }), ...out };
   }
-  const base = /근로/.test(name) ? employmentOutput(title) : /임대차/.test(name) ? leaseOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : /통보미확인/.test(name) ? rentalNoticeUnsureOutput(title) : /연락처노출/.test(name) ? rentalLeakyContactOutput(title) : rentalOutput(title);
+  const base = /근로/.test(name) ? employmentOutput(title) : /장기렌트/.test(name) ? longRentOutput(title) : /임대차/.test(name) ? leaseOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : /통보미확인/.test(name) ? rentalNoticeUnsureOutput(title) : /연락처노출/.test(name) ? rentalLeakyContactOutput(title) : rentalOutput(title);
   const out = stampFile(base as Record<string, unknown>, main.file, /출처불명/.test(names.join(' ')));
   // 계약과 무관한 쪽(예: 책상 사진의 가격표)에서 읽힌 값 — 그 쪽을 제외하면 결과에 남으면 안 된다
   for (const junk of pages.filter((p) => p.role === 'non_contract')) {

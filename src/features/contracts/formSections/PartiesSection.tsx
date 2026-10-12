@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 
 import { Section, SectionGap } from '@/components/ui/layout';
-import { COUNTERPARTY_LABEL } from '@/domain/parties';
+import { COUNTERPARTY_LABEL, partyRoleLabel } from '@/domain/parties';
 
 import { partyRoleDef, partyRolesOf } from '../../../../supabase/functions/_shared/contractRegistry';
 import { type FieldName, type FormKit } from './kit';
@@ -31,11 +31,12 @@ export function PartiesSection({ kit, kind }: { kit: FormKit; kind: string }) {
       <Section title="계약 당사자" caption="계약서에 적힌 이름 그대로. 여러 명이면 쉼표로 나눠 적어주세요." testID="section-parties">
         {shown.map((role) => {
           const def = partyRoleDef(kind, role);
+          const label = partyRoleLabel(kind, role, kit.values.partyTerms?.[role]);
           const path = `parties.${role}`;
           const missing = def.main && !filled(role) && anyName;
           return (
             <View key={`${kind}-${role}`}>
-              {kit.field(path as FieldName, def.label, {
+              {kit.field(path as FieldName, label, {
                 placeholder: missing ? '확인 필요' : '이름 또는 회사명',
                 flagged: kit.flagged?.has(path) || missing,
                 hint: kit.hint(path) ?? (missing ? '계약서에서 이 당사자를 확인해주세요.' : undefined),

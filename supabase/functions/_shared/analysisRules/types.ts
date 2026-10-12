@@ -95,6 +95,8 @@ export interface ExtractedDetail {
 export interface ExtractedParty {
   role: string;
   name: string;
+  /** 계약서가 쓴 역할 이름이 계약 종류의 역할 이름과 다를 때 (예: 렌탈회사 ← 계약서 "임대인") */
+  term?: string;
   confidence: Confidence;
   evidence?: Evidence[];
 }

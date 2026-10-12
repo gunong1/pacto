@@ -7,8 +7,11 @@
 //   - 사용자가 어느 쪽인지는 여기서 정하지 않는다 (사용자가 고를 때만)
 // 예: lease + [{lessor 김민수}, {lessee 박지훈}, {lessee 이수진}] → 임대인 1 · 임차인 2
 //   - 예전 당사자 칸(details: 임대인·임차인·근로자)에 온 이름은 그 역할이 parties에 없을 때만 그 역할로 (칸 이름이 곧 역할 — 추측 아님)
-// 테스트: src/domain/__tests__/golden/parties.test.ts
-import { DETAIL_FIELD_DEFS, partyRoleDef } from '../contractRegistry.ts';
+//   - 계약서 용어가 계약 종류의 역할과 다르면 같은 자리로 연결 (렌탈 계약서의 임대인 → 렌탈회사, term="임대인") — 레지스트리 normalizePartyRoles
+//     그 자리에 다른 이름이 있으면 바꾸지 않는다 (앱이 확인 필요로 보여줌)
+//   - 법인명 뒤의 대표자("주식회사 A / 대표 B")는 대표자(representative)로 따로 — 법인과 대표자를 같은 당사자로 보지 않음
+// 테스트: src/domain/__tests__/golden/parties.test.ts · party-roles.test.ts
+import { DETAIL_FIELD_DEFS, normalizePartyRoles, partyRoleDef, samePartyName, splitRepresentative } from '../contractRegistry.ts';
 import type { ExtractedDetail, ExtractedParty } from './types.ts';
 import { confidenceOf, isObj, quoteOf, text } from './values.ts';
 
@@ -16,20 +19,33 @@ export const MAX_PARTIES = 20;
 /** 이름이 아닌 값 (빈칸 표시·서명란) */
 const NOT_A_NAME = /^(?:\(?\s*(?:인|서명|날인|성명|이름|미기재|없음|-|_+|\.+)\s*\)?)$/;
 
-export function cleanParties(raw: unknown, kind: string): ExtractedParty[] {
-  if (!Array.isArray(raw)) return [];
+export function cleanParties(raw: unknown, kind: string, details: Record<string, ExtractedDetail> = {}, profile = ''): { parties: ExtractedParty[]; roleMap: Record<string, string>; conflicts: string[] } {
   const out: ExtractedParty[] = [];
-  for (const p of raw) {
+  const reps: ExtractedParty[] = [];
+  for (const p of Array.isArray(raw) ? raw : []) {
     if (!isObj(p)) continue;
-    const name = text(p.name, 100);
-    if (!name || NOT_A_NAME.test(name)) continue;
+    const full = text(p.name, 100);
+    if (!full || NOT_A_NAME.test(full)) continue;
+    const split = splitRepresentative(full);
+    const name = split.name;
     const role = partyRoleDef(kind, typeof p.role === 'string' ? p.role : null).code;
-    if (out.some((x) => x.role === role && x.name.replace(/\s/g, '') === name.replace(/\s/g, ''))) continue;
     const ev = quoteOf(p);
-    out.push({ role, name, confidence: ev.evidence ? confidenceOf(p.confidence) : 'low', ...ev });
-    if (out.length >= MAX_PARTIES) break;
+    const confidence = ev.evidence ? confidenceOf(p.confidence) : 'low';
+    const rep = split.representative ?? (role !== 'representative' ? text(p.representative, 50) : null);
+    if (rep && !NOT_A_NAME.test(rep)) reps.push({ role: 'representative', name: rep, confidence, ...ev });
+    if (role === 'representative') {
+      reps.push({ role, name, confidence, ...ev });
+      continue;
+    }
+    if (out.some((x) => x.role === role && samePartyName(x.name, name))) continue;
+    out.push({ role, name, confidence, ...ev });
   }
-  return out;
+  // 대표자를 같은 역할의 당사자로 따로 넣은 경우 → 대표자로만 (법인과 대표자를 같은 당사자로 보지 않음)
+  const parties = out.filter((p) => !reps.some((r) => samePartyName(r.name, p.name)));
+  for (const r of reps) if (!parties.some((p) => p.role === 'representative' && samePartyName(p.name, r.name))) parties.push(r);
+  partiesFromDetails(parties, details, profile);
+  const n = normalizePartyRoles(kind, parties.slice(0, MAX_PARTIES));
+  return { parties: n.parties, roleMap: n.roleMap, conflicts: n.conflicts };
 }
 
 /** 예전 당사자 칸(details.landlord · tenant · employee_name)에 온 이름 → 그 역할의 당사자 (parties에 그 역할이 없을 때만) */

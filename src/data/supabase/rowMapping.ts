@@ -2,6 +2,7 @@
  * DB 행 → 도메인 기록 (앱 저장소와 서버 알림 계획이 같은 변환을 쓴다 — Edge Function용 번들에 포함)
  * 이 파일은 Supabase 클라이언트를 import하지 않는다.
  */
+import { normalizeRecord } from '@/domain/cashflow';
 import { profileKeyOf, type ClassificationMeta } from '@/domain/contractKinds';
 import { isNoticeKind } from '@/domain/noticeKind';
 import { detailsFromDb } from '@/domain/contractTypes';
@@ -213,7 +214,11 @@ export function toClassification(raw: unknown): ClassificationMeta {
 
 function toParties(v: unknown): Contract['parties'] {
   if (!Array.isArray(v)) return [];
-  return v.flatMap((p) => (p && typeof p === 'object' && typeof p.role === 'string' && typeof p.name === 'string' && p.name.trim() ? [{ role: p.role, name: p.name }] : []));
+  return v.flatMap((p) =>
+    p && typeof p === 'object' && typeof p.role === 'string' && typeof p.name === 'string' && p.name.trim()
+      ? [typeof p.term === 'string' && p.term.trim() ? { role: p.role, name: p.name, term: p.term.trim().slice(0, 20) } : { role: p.role, name: p.name }]
+      : [],
+  );
 }
 
 function toContract(r: Row<'contracts'>): Contract {
@@ -260,7 +265,8 @@ function toContract(r: Row<'contracts'>): Contract {
 
 export function toRecord(r: ContractRow): ContractRecord {
   const contract = toContract(r);
-  return {
+  // 당사자 역할·지급자 표기 정리 + 정할 수 있는 방향 채우기 — 공통 규칙 (cashflow.normalizeRecord, 저장된 행은 바꾸지 않음)
+  return normalizeRecord({
     contract,
     // 저장된 의미 그대로 (읽을 때 다시 판단하지 않는다 — 이전 데이터 정리는 마이그레이션으로 한 번)
     payments: [...r.contract_payments].sort((a, b) => a.sort_order - b.sort_order).map(toPayment),
@@ -269,7 +275,7 @@ export function toRecord(r: ContractRow): ContractRecord {
     documents: [...r.contract_documents].sort((a, b) => a.sort_order - b.sort_order).map(toDocument),
     aiChecks: (Array.isArray(r.ai_checks) ? (r.ai_checks as unknown as AiCheck[]) : []).map((c) => ({ ...c, contractId: r.id })),
     funds: [...(r.contract_funds ?? [])].sort((a, b) => a.sort_order - b.sort_order).map(toFund),
-  };
+  });
 }
 
 

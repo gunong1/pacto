@@ -10,13 +10,13 @@
 //
 // 분석 순서: 1 계약 종류(본질) → 3·4 날짜 → 5·6 금액(종류와 독립) → 7 유형별 속성 → 8 종료·갱신·통보 → 9 계약 체크(행동·위험만)
 // "무슨 계약인가"(classification)와 "돈이 어떻게 움직이는가"(payments)는 서로의 결과를 쓰지 않는다.
-import { contractKindDef } from './contractRegistry.ts';
+import { contractKindDef, mapRole } from './contractRegistry.ts';
 import { cleanClassification, legacyClassifications } from './analysisRules/classification.ts';
 import { assignSemanticKeys, conditionRisks, deadlineChecks, dropPlainFacts, mergeSameMeaning, splitRoles } from './analysisRules/checkScope.ts';
 import { attachSuggestions, cleanChecks, conditionalCostsToChecks, waivedCheck } from './analysisRules/checks.ts';
 import { assignDateUses, cleanDates } from './analysisRules/dates.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
-import { cleanParties, partiesFromDetails } from './analysisRules/parties.ts';
+import { cleanParties } from './analysisRules/parties.ts';
 import { noticeSuggestions, resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
 import { buildPayments } from './analysisRules/payments.ts';
 import { installmentParents, totalsToFields } from './analysisRules/paymentRoles.ts';
@@ -72,15 +72,19 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   totalsToFields(totals, fields, references);
   // 계약금·잔금 등 몫의 성격은 상위 금액(보증금·매매대금·용역대금)을 따른다 (R7)
   installmentParents(payments, totals, fields.depositAmount?.value);
+  // 7) 유형별 속성
+  const details = buildDetails(output.details, payments);
+  // 7-1) 계약 당사자 — 계약서에 이름이 있는 쪽만. 계약서 용어(임대인)는 계약 종류의 자리(렌탈회사)로 연결 (사용자 쪽은 추측하지 않음)
+  const { parties, roleMap } = cleanParties(output.parties, classification.kind, details, profile);
+  // 계약서가 밝힌 지급자·수령자도 같은 자리로 (임차인이 낸다 → 고객이 낸다). 다른 사람이 내는 예외(보증인 등)는 그대로
+  for (const p of payments) {
+    p.payerRole = mapRole(roleMap, p.payerRole);
+    p.payeeRole = mapRole(roleMap, p.payeeRole);
+  }
   // 돈의 성격·방향 (F1) — 사용자 역할을 알아야 정할 수 있는 금액은 방향 확인 필요(neutral). 역할 확정은 앱에서 사용자가
   resolveMoneyFlow(payments, classification.kind);
   // 3·4) 날짜의 쓰임 (체결·시작·종료·통보·주요 날짜·결제 정보) — 서버가 정하고 앱은 옮기기만
   assignDateUses(dates, profile, payments);
-  // 7) 유형별 속성
-  const details = buildDetails(output.details, payments);
-  // 7-1) 계약 당사자 — 계약서에 이름이 있는 쪽만, 종류의 역할로 (사용자 쪽은 추측하지 않음)
-  const parties = cleanParties(output.parties, classification.kind);
-  partiesFromDetails(parties, details, profile);
   // 9) 계약 체크
   let checks = cleanChecks(output.checks as unknown[]);
   // 조건부 비용(위약금·연체료 …)은 결제가 아니라 계약 체크로

@@ -16,7 +16,16 @@ import { detailFields, type ContractDetails, type ContractType } from './contrac
 export interface ContractParty {
   role: string;
   name: string;
+  /** 계약서가 쓴 역할 이름이 계약 종류의 역할 이름과 다를 때 (렌탈회사 ← 계약서 "임대인") — 표시용, 저장된 역할은 role 하나 */
+  term?: string | null;
 }
+
+/** 역할 표시: "렌탈회사(임대인)" — 계약서 용어가 다를 때만 괄호로 */
+export function partyRoleLabel(kind: string, role: string, term?: string | null): string {
+  const label = partyRoleDef(kind, role).label;
+  return term && term !== label ? `${label}(${term})` : label;
+}
+const termOf = (parties: readonly ContractParty[], role: string) => parties.find((p) => p.role === role && p.term)?.term ?? null;
 
 export interface PartyRow {
   /** 화면 키 (party:<역할> · counterparty) */
@@ -69,7 +78,7 @@ export function partyRows(c: PartyInput): PartyRow[] {
   const row = (role: string, names: string[], missing: boolean): PartyRow => ({
     key: `party:${role}`,
     role,
-    label: partyRoleDef(kind, role).label,
+    label: partyRoleLabel(kind, role, termOf(c.parties, role)),
     names,
     missing,
     isUser: c.userPartyRole === role,
@@ -107,15 +116,22 @@ export function partySummary(c: PartyInput): string | null {
 /** 검색에 쓰는 이름 (모든 당사자 + 예전 상대방) */
 export const partySearchText = (c: PartyInput): string => [clean(c.counterparty), ...c.parties.map((p) => clean(p.name)), ...legacyDetailParties(c.contractType, c.details).map((p) => p.name)].join(' ');
 
-/** 폼의 역할별 입력값 "김민수, 이수진" → 당사자 목록 (쉼표로 나눈 이름 각각) */
-export function partiesFromInputs(inputs: Record<string, string | undefined>): ContractParty[] {
+/** 폼의 역할별 입력값 "김민수, 이수진" → 당사자 목록 (쉼표로 나눈 이름 각각). terms: 역할별 계약서 용어 (그대로 유지) */
+export function partiesFromInputs(inputs: Record<string, string | undefined>, terms: Record<string, string | undefined> = {}): ContractParty[] {
   return Object.entries(inputs).flatMap(([role, text]) =>
     (text ?? '')
       .split(',')
       .map((n) => n.trim())
       .filter(Boolean)
-      .map((name) => ({ role, name: name.slice(0, 100) })),
+      .map((name) => (terms[role] ? { role, name: name.slice(0, 100), term: terms[role] } : { role, name: name.slice(0, 100) })),
   );
+}
+
+/** 당사자 목록 → 역할별 계약서 용어 (폼에 숨겨 두었다가 저장할 때 다시 붙인다) */
+export function partyTermsOf(parties: readonly ContractParty[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of parties) if (p.term && !out[p.role]) out[p.role] = p.term;
+  return out;
 }
 
 /** 당사자 목록 → 역할별 입력값 (같은 역할은 쉼표로) */

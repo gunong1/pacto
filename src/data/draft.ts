@@ -1,7 +1,7 @@
 import { EMPTY_CLASSIFICATION, legacyOf } from '@/domain/contractKinds';
 import { paymentKindLabel } from '@/domain/contractTypes';
 import { amountAt } from '@/domain/paymentAmount';
-import { natureOf } from '@/domain/cashflow';
+import { natureOf, normalizeRecord } from '@/domain/cashflow';
 import type { Contract, ContractDate, ContractFund, ContractPayment, ContractRecord, ISODate } from '@/domain/types';
 
 import type { ContractDraft, DateDraft, FundDraft, PaymentDraft } from './repository';
@@ -170,7 +170,8 @@ export function draftToFunds(draft: Pick<ContractDraft, 'funds'>, contractId: st
 
 /** draft로 미리보기용 계약 레코드를 만든다 (일정 미리보기·테스트). */
 export function draftToRecord(draft: ContractDraft, id: string, fallbackStart: string): ContractRecord {
-  return {
+  // 저장된 계약을 읽을 때와 같은 규칙 (당사자 역할 정리 · 정할 수 있는 방향 채우기 — cashflow.normalizeRecord)
+  return normalizeRecord({
     contract: applyDraftToContract(blankContract(id, 'manual', ''), draft),
     payments: draftToPayments(draft, id, (i) => `${id}-p${i}`, fallbackStart),
     dates: draftToDates(draft, id, (i) => `${id}-d${i}`),
@@ -178,7 +179,7 @@ export function draftToRecord(draft: ContractDraft, id: string, fallbackStart: s
     documents: [],
     aiChecks: [],
     funds: draftToFunds(draft, id),
-  };
+  });
 }
 
 /** 저장된 묶음 → draft (key = id) */

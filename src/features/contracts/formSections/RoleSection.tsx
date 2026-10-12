@@ -13,16 +13,16 @@ import { Pressable, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Badge, TextField } from '@/components/ui/controls';
-import { needsRoleQuestion, roleDirectionChanges, type DirectionChange } from '@/domain/cashflow';
+import { needsRoleQuestion, roleDirectionChanges, userSideOf, type DirectionChange } from '@/domain/cashflow';
 import { DIRECTION_LABEL } from '@/domain/contractTypes';
 import { formatWon, parseAmount } from '@/domain/money';
-import { partiesFromInputs } from '@/domain/parties';
+import { partiesFromInputs, partyRoleLabel } from '@/domain/parties';
 import { matchUserParty } from '@/domain/partyMatch';
 import type { ContractPayment, PartyRelation } from '@/domain/types';
 import { useProfile, useSaveProfile } from '@/features/profile/queries';
 import { colors, radius, spacing } from '@/theme';
 
-import { partyRoleDef, partyRolesOf } from '../../../../supabase/functions/_shared/contractRegistry';
+import { partyRolesOf } from '../../../../supabase/functions/_shared/contractRegistry';
 import type { PaymentFormValues } from '../form';
 import { FormLabel, type FormKit } from './kit';
 
@@ -49,12 +49,16 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
   const profile = useProfile();
   const saveProfile = useSaveProfile();
   const names = profile.data?.contractNames ?? [];
-  const parties = useMemo(() => partiesFromInputs(values.parties ?? {}), [values.parties]);
+  const parties = useMemo(() => partiesFromInputs(values.parties ?? {}, values.partyTerms ?? {}), [values.parties, values.partyTerms]);
   const payments = useMemo(() => paymentInputs(values.payments ?? []), [values.payments]);
   const role = values.userPartyRole || null;
   const relation = (values.userPartyRelation || null) as PartyRelation | null;
-  const ctx = { contractKind: values.contractKind || null, contractType: values.contractType, userPartyRole: role, userPartyRelation: relation };
-  const needs = needsRoleQuestion(ctx, payments, (values.funds ?? []).length > 0);
+  const ctx = { contractKind: values.contractKind || null, contractType: values.contractType, userPartyRole: role, userPartyRelation: relation, parties };
+  const needs = needsRoleQuestion(ctx, payments, (values.funds ?? []).length > 0, names);
+  // 계약 구조로 정해진 쪽 (렌탈·구독·통신 … 의 고객) — 묻지 않고 보여주기만, 언제든 "변경"
+  const side = userSideOf(ctx);
+  const structural = !role && relation !== 'unknown' && side?.basis === 'contract' && payments.length > 0;
+  const termOf = (r: string) => parties.find((p) => p.role === r && p.term)?.term ?? null;
   const match = matchUserParty(kind, parties, names);
 
   const [open, setOpen] = useState(false);
@@ -64,7 +68,7 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
 
   const showQuestion = (needs && !role) || open;
   // 역할에 영향을 받는 금액이 없고 확정한 역할도 없으면 이 섹션을 그리지 않는다 (모든 계약에서 묻지 않음)
-  if (!showQuestion && !role && relation !== 'unknown') return null;
+  if (!showQuestion && !role && relation !== 'unknown' && !structural) return null;
 
   const apply = (choice: Choice, changes: DirectionChange[]) => {
     setValue('userPartyRole', choice.role ?? '', { shouldDirty: true });
@@ -86,13 +90,14 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
   // 선택지: 계약서 당사자(이름 포함). 당사자를 찾지 못했으면 그 종류의 역할 이름만
   // + 계약서에 이름이 없는 주요 역할 (예: 근로계약서에 회사만 적힌 경우 "근로자")
   const options = [
-    ...parties.map((p, i) => ({ key: `p${i}`, role: p.role, label: `${partyRoleDef(kind, p.role).label} · ${p.name}`, recommended: match.status === 'match' && match.partyIndex === i })),
+    ...parties.map((p, i) => ({ key: `p${i}`, role: p.role, label: `${partyRoleLabel(kind, p.role, p.term)} · ${p.name}`, recommended: match.status === 'match' && match.partyIndex === i })),
     ...partyRolesOf(kind)
       .filter((r) => r.main && !parties.some((p) => p.role === r.code))
       .map((r) => ({ key: r.code, role: r.code, label: parties.length > 0 ? `${r.label} (계약서에 이름 없음)` : r.label, recommended: false })),
   ];
 
-  const current = role ? partyRoleDef(kind, role).label : null;
+  const shownRole = role ?? (structural ? side!.role : null);
+  const current = shownRole ? partyRoleLabel(kind, shownRole, termOf(shownRole)) : null;
   return (
     <View style={{ marginTop: spacing.md }} testID="role-section">
       <FormLabel label="이 계약에서 누구세요?" flagged={needs && !role && relation !== 'unknown'} />
@@ -101,7 +106,7 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
           <AppText variant="body2" testID="role-current">
             {current ? `${relation === 'on_behalf' ? '관리하는 분' : '나'}: ${current}` : '잘 모르겠어요 — 방향을 정할 수 없는 금액은 확인 필요로 둬요'}
           </AppText>
-          {current ? <Badge label="확정" tone="primary" /> : null}
+          {role ? <Badge label="확정" tone="primary" /> : structural ? <Badge label="계약 구조로 정리" tone="neutral" /> : null}
           <View style={{ flex: 1 }} />
           <Pressable onPress={() => setOpen(true)} accessibilityRole="button" testID="role-change">
             <AppText variant="captionStrong" color="primary">

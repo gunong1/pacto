@@ -187,14 +187,27 @@ export default function HomeScreen() {
           </View>
         ) : null}
         {view.spending.undeterminedTotal > 0 ? (
-          <AppText
-            variant="caption"
-            color="caution"
-            style={{ marginTop: 4 }}
-            testID="home-undetermined"
-          >
-            방향 확인 필요 {formatWonCompact(view.spending.undeterminedTotal)}은 출금·입금 합계에서 뺐어요
-          </AppText>
+          // 방향을 모르는 금액은 합계에서 빼지만, 금액이 없는 것처럼 보이지 않게 — 역할을 한 번 확인하면 관련 금액이 모두 정리된다
+          <View style={{ marginTop: 6 }} testID="home-undetermined">
+            <AppText variant="caption" color="caution">
+              계약 금액 {formatWonCompact(view.spending.undeterminedTotal)}의 입출금 방향을 확인해주세요. 확인 전에는 합계에 넣지 않았어요.
+            </AppText>
+            {(() => {
+              const ids = [...new Set(view.spending.undetermined.map((i) => i.contractId))];
+              return (
+                <Pressable
+                  onPress={() => router.push(ids.length === 1 ? `/contract/${ids[0]}/edit` : '/contracts')}
+                  accessibilityRole="button"
+                  testID="home-undetermined-action"
+                  style={{ marginTop: 4, alignSelf: 'flex-start' }}
+                >
+                  <AppText variant="captionStrong" color="primary">
+                    {ids.length === 1 ? '이 계약에서 내 역할 확인 ›' : `계약 ${ids.length}개에서 내 역할 확인 ›`}
+                  </AppText>
+                </Pressable>
+              );
+            })()}
+          </View>
         ) : null}
 
         {view.spending.byKind.length > 0 ? (

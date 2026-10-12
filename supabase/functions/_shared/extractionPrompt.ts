@@ -35,7 +35,7 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
 /* v13: 계약 종류를 계약의 본질로 하나만 판단 (classification: kind·subtype·domains·confidence·alternatives·근거·secondary_elements).
  *      분야(category)·관리 구조(contract_type)를 따로 고르지 않음 — 결제 방식은 분류 근거가 아님 · 자동차는 종류가 아니라 대상(domains)
  *      계약 체크는 할 일·주의할 위험만 (user_action), 사실은 fields·details·payments에만 */
-export const PROMPT_VERSION = 'extract-v16';
+export const PROMPT_VERSION = 'extract-v17';
 
 /** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
 const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
@@ -84,7 +84,7 @@ export function extractionJsonSchema() {
       description: '계약서에 실제로 적힌 계약 당사자 (사람·회사). 역할마다 한 명씩, 공동 당사자는 각각. 찾지 못한 당사자는 넣지 않음',
       items: strictObject({
         role: { type: 'string', enum: [...PARTY_ROLE_CODES], description: '계약서가 밝힌 역할 (그 계약 종류의 역할 목록에서). 역할을 알 수 없으면 party' },
-        name: { type: 'string', description: '계약서에 적힌 이름·회사명 그대로 (연락처·주민번호·주소는 넣지 않음)' },
+        name: { type: 'string', description: '계약서에 적힌 이름·회사명 그대로 (연락처·주민번호·주소는 넣지 않음). 회사의 대표자가 함께 적혀 있으면 "회사명 / 대표 이름"' },
         confidence,
         ...evidence,
       }),
@@ -288,6 +288,8 @@ export function extractionInstructions(today: string): string {
     partyGuide(),
     '   공동 임대인·공동 임차인처럼 같은 역할이 여럿이면 각각 넣습니다. 한쪽만 적혀 있으면 그쪽만 넣고 다른 쪽을 짐작해 채우지 않습니다.',
     '   보증인(guarantor)·대리인(agent)이 이름과 함께 적혀 있으면 그 역할로 따로 넣습니다 (계약 당사자 역할과 섞지 않음).',
+    '   역할은 계약서가 쓴 말 그대로 고릅니다 (예: 렌탈 계약서가 "임대인·임차인"이라고 쓰면 lessor·lessee). 계약 종류의 역할로 연결하는 것은 서버가 합니다.',
+    '   회사(법인) 당사자에 대표자가 함께 적혀 있으면 name을 "회사명 / 대표 이름"으로 넣습니다. 대표자를 같은 역할의 당사자로 따로 넣지 않습니다 (회사와 대표자는 다른 사람).',
     '   이 앱 사용자가 어느 쪽인지는 판단하지 않습니다. 이름 칸이 비어 있거나 서명란만 있으면 넣지 않습니다. 연락처·주민등록번호·주소는 name에 넣지 않습니다.',
     '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·만기 조건(자동갱신, 연장 기간, 통보기한 일수). 계약서에 있는 key만 목록으로. 중도해지·위약금 조건은 checks에만.',
     '9) checks — PACTO 계약 체크: 계약 정보는 사실, 계약 체크는 그 사실 때문에 사용자가 해야 할 일·주의할 위험입니다.',

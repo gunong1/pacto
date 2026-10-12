@@ -19,7 +19,7 @@ import { formatWon } from '@/domain/money';
 import { isPayoutLike } from '@/domain/cashflow';
 import type { EvidenceMap } from '@/domain/evidence';
 import { maskSensitiveDeep } from '@/domain/sensitive';
-import { kindMoneyFlows, partyRolesOf } from '../../../supabase/functions/_shared/contractRegistry';
+import { kindMoneyFlows, normalizePartyRoles, partyRolesOf, ROLE_EQUIVALENTS } from '../../../supabase/functions/_shared/contractRegistry';
 import { addDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
 
@@ -277,7 +277,16 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
   // (다른 쪽 이름으로 채우지 않음). 내 역할은 고르지 않는다 (기본 모름). 이전 버전 결과(parties 없음)는 상대방 이름(counterparty) 그대로
   const parties = (result as { parties?: ExtractionResult['parties'] }).parties;
   if (parties) {
-    draft.parties = parties.map((p) => ({ role: p.role, name: p.name }));
+    // 계약서 용어(임대인)는 서버가 계약 종류의 자리(렌탈회사)로 이미 연결 — 용어는 표시용으로 함께
+    draft.parties = parties.map((p) => (p.term ? { role: p.role, name: p.name, term: p.term } : { role: p.role, name: p.name }));
+    // 같은 자리에 서로 다른 이름(렌탈회사 A · 임대인 B)이 있으면 두 칸 모두 확인 필요 — 어느 쪽이 맞는지 사용자가
+    const eq = ROLE_EQUIVALENTS[c.kind] ?? {};
+    for (const role of normalizePartyRoles(c.kind, draft.parties).conflicts) {
+      for (const path of [`parties.${role}`, `parties.${eq[role]}`]) {
+        flagged.add(path);
+        notes[path] ??= '같은 자리에 서로 다른 이름이 있어요. 계약서를 보고 맞는 이름을 남겨주세요.';
+      }
+    }
     // 당사자를 찾았으면 "상대방" 한 칸(사용자 쪽을 가정한 값)은 쓰지 않는다
     if (parties.length > 0) draft.counterparty = null;
     const roles = [...partyRolesOf(c.kind).map((r) => r.code), ...parties.map((p) => p.role)];

@@ -63,6 +63,10 @@ const PDF = require('./cleanPdf')();
   await page.waitForSelector(tid('calendar-month-total'));
   const t0 = await text('calendar-month-total');
   check('F3', '역할 모름: 10월 총 출금 예정 ₩0 · 확인 필요 금액 제외', t0.includes('총 출금 예정 ₩0') && t0.includes('확인 필요 금액 제외'), t0);
+  await page.goto(`${BASE}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+  await page.waitForSelector(tid('home-undetermined'));
+  const hu = await text('home-undetermined');
+  check('F4', '홈: "계약 금액 …의 입출금 방향을 확인해주세요" + "이 계약에서 내 역할 확인" (₩0을 금액 없음처럼 두지 않음)', hu.includes('입출금 방향을 확인해주세요') && hu.includes('이 계약에서 내 역할 확인'), hu);
 
   // A 내 계약자 정보
   await page.goto(BASE + '/my', { waitUntil: 'networkidle' });

@@ -2,7 +2,7 @@ import { contractKindDef, isSubtypeOf, profileKeyOf, type ClassificationMeta } f
 import { z } from 'zod';
 
 import { NOTICE_KINDS } from '@/domain/noticeKind';
-import { legacyDetailParties, partiesFromInputs, partiesToInputs, type ContractParty } from '@/domain/parties';
+import { legacyDetailParties, partiesFromInputs, partiesToInputs, partyTermsOf, type ContractParty } from '@/domain/parties';
 import type { ContractDraft, DateDraft, FundDraft, PaymentDraft } from '@/data/repository';
 import { DIRECTION_BASES, MONEY_NATURES, PARTY_RELATIONS } from '../../../supabase/functions/_shared/contractRegistry';
 import {
@@ -121,6 +121,8 @@ export const contractFormSchema = z
     /** 계약 당사자 — 역할 코드 → 이름 (여럿이면 쉼표로). 역할 이름은 레지스트리 (src/domain/parties.ts) */
     // 아직 입력하지 않은 역할 칸은 값이 없을 수 있다 (빈칸 = 확인 필요, 저장을 막지 않음)
     parties: z.record(z.string(), z.string().max(300, '300자 이내로 입력해주세요').optional()),
+    /** 역할별 계약서 용어 (렌탈회사 ← "임대인") — 화면에서 고치지 않고 저장할 때 그대로 */
+    partyTerms: z.record(z.string(), z.string()).optional(),
     /** 내 역할 — '' = 모름 (AI가 추측하지 않음, 이름 일치는 추천만) */
     userPartyRole: z.string(),
     /** 나와 계약의 관계 — '' = 묻지 않음 */
@@ -302,6 +304,7 @@ export function draftToForm(d: ContractDraft): ContractFormValues {
     counterparty: str(d.counterparty),
     // 당사자 목록이 없는 예전 계약은 역할이 이름에 붙은 예전 칸(임대인·임차인·근로자)만 그 역할로 채운다 (상대방 이름은 역할을 추측하지 않음)
     parties: partiesToInputs(d.parties.length > 0 ? d.parties : legacyDetailParties(profileKeyOf(d), d.details)),
+    partyTerms: partyTermsOf(d.parties),
     userPartyRole: d.userPartyRole ?? '',
     userPartyRelation: d.userPartyRelation ?? '',
     ...(d.funds ? { funds: d.funds.map((f) => ({ ...f })) } : {}),
@@ -518,7 +521,7 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
   const profile = formProfile(v);
   const quick = v.quick ? quickToPayment(profile, v.quick, today, nullable(v.startDate)) : null;
   const kind = v.contractKind || null;
-  const parties = partiesFromInputs(v.parties);
+  const parties = partiesFromInputs(v.parties, v.partyTerms);
   return {
     contractKind: kind,
     contractSubtype: kind && v.contractSubtype && isSubtypeOf(kind, v.contractSubtype) ? v.contractSubtype : null,

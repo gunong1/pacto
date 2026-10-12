@@ -14,9 +14,10 @@
  *      없으면 계약 종료일(갱신 반영)에 "반환 확인" 일정만 (합계에 넣지 않음, 확정 반환일로 보지 않음)
  *    - 상태: 반환 예정 · 일부 반환 · 반환 완료 · 반환 지연(계약서의 반환일이 지났는데 남은 금액) — 종료일 기준은 "반환 확인 필요"
  */
-import { kindMoneyFlows, type MoneyFlowDef } from '../../supabase/functions/_shared/contractRegistry';
+import { kindMoneyFlows, mapRole, normalizePartyRoles, ROLE_EQUIVALENTS, type MoneyFlowDef } from '../../supabase/functions/_shared/contractRegistry';
 
-import { partyKindOf } from './parties';
+import { partyKindOf, type ContractParty } from './parties';
+import { matchUserParty } from './partyMatch';
 import { currentTerm } from './status';
 import type { Contract, ContractFund, ContractPayment, ContractRecord, Direction, DirectionBasis, FundKind, ISODate } from './types';
 
@@ -39,7 +40,16 @@ const PAYOUT_KINDS = new Set(['salary', 'bonus', 'service_fee']);
 export const isPayoutLike = (p: Pick<ContractPayment, 'direction' | 'kind'>): boolean => p.direction === 'income' || (p.direction === 'neutral' && PAYOUT_KINDS.has(p.kind));
 
 type KindInput = Pick<Contract, 'contractKind' | 'contractType'>;
-type SideInput = KindInput & Pick<Contract, 'userPartyRole'> & { userPartyRelation?: Contract['userPartyRelation'] };
+type SideInput = KindInput & Pick<Contract, 'userPartyRole'> & { userPartyRelation?: Contract['userPartyRelation']; parties?: readonly ContractParty[] };
+
+/**
+ * 계약서 용어 → 계약 종류의 자리 (렌탈 계약서의 임차인 → 고객). 당사자 목록이 있으면 그 목록으로 (같은 자리에 다른 이름이면 바꾸지 않음),
+ * 없으면 레지스트리 표 그대로. 결제의 지급자·수령자와 사용자 역할에 같은 변환을 쓴다 — 표기가 달라 방향을 못 정하는 일이 없게
+ */
+function roleMapOf(c: SideInput): Readonly<Record<string, string>> {
+  const kind = partyKindOf(c);
+  return c.parties ? normalizePartyRoles(kind, c.parties).roleMap : (ROLE_EQUIVALENTS[kind] ?? {});
+}
 
 export interface UserSide {
   role: string;
@@ -49,7 +59,7 @@ export interface UserSide {
 
 /** 사용자(또는 대신 관리하는 사람)가 이 계약에서 어느 쪽인지 — 확정 역할 → 계약 구조. 모르면 null */
 export function userSideOf(c: SideInput): UserSide | null {
-  if (c.userPartyRole) return { role: c.userPartyRole, basis: 'role' };
+  if (c.userPartyRole) return { role: mapRole(roleMapOf(c), c.userPartyRole) ?? c.userPartyRole, basis: 'role' };
   const consumer = kindMoneyFlows(partyKindOf(c)).consumerRole;
   return consumer ? { role: consumer, basis: 'contract' } : null;
 }
@@ -102,10 +112,11 @@ export function roleDirectionChanges(
 ): DirectionChange[] {
   const kind = partyKindOf(c);
   const side = userSideOf(c);
+  const map = roleMapOf(c);
   const out: DirectionChange[] = [];
   payments.forEach((p, index) => {
     if (!followsRole(p)) return;
-    const computed = side ? directionForRole(kind, p, side.role) : null;
+    const computed = side ? directionForRole(kind, { ...p, payerRole: mapRole(map, p.payerRole), payeeRole: mapRole(map, p.payeeRole) }, side.role) : null;
     const to: Direction = computed ?? 'neutral';
     const basis: DirectionBasis | null = computed ? side!.basis : null;
     if (to === p.direction && basis === (p.directionBasis ?? null)) return;
@@ -281,10 +292,42 @@ export function needsRoleQuestion(
   c: SideInput,
   payments: readonly Pick<ContractPayment, 'direction' | 'directionBasis' | 'moneyNature' | 'kind' | 'payerRole' | 'payeeRole'>[],
   hasFund = false,
+  /** 내 계약자 정보(등록한 이름) — 기기에서만 대조 */
+  contractNames: readonly string[] = [],
 ): boolean {
   if (c.userPartyRole || c.userPartyRelation === 'unknown') return false;
-  if (userSideOf(c)?.basis === 'contract') return false;
   const kind = partyKindOf(c);
+  const side = userSideOf(c);
+  if (side?.basis === 'contract') {
+    // 계약 구조로 정한 쪽(예: 렌탈 고객)과 등록한 이름이 다른 쪽(렌탈회사·대표자)에서 나오면 한 번 확인
+    if (contractNames.length === 0 || !c.parties?.length) return false;
+    const m = matchUserParty(kind, c.parties, contractNames);
+    return m.status === 'ambiguous' || (m.status === 'match' && m.role !== side.role);
+  }
   const roleMatters = payments.some((p) => followsRole(p) && !!flowOf(kind, p));
   return roleMatters || (hasFund && !!kindMoneyFlows(kind).deposit);
+}
+
+/**
+ * 저장된 계약을 읽을 때 같은 규칙으로 정리 (앱·서버 알림이 같은 함수 — 저장된 값은 사용자가 다시 저장할 때 바뀜)
+ * - 당사자 역할: 계약서 용어 → 계약 종류의 자리 (렌탈의 임대인 → 렌탈회사). 충돌하면 그대로
+ * - 결제의 지급자·수령자·사용자 역할·보증금 묶음 역할: 같은 변환
+ * - 방향 확인 필요(neutral)로 남은 결제 중 역할(또는 계약 구조)로 정할 수 있는 것만 채운다
+ *   (결제 id·근거·묶음·변경 이력 그대로, 사용자가 고른 방향·다른 사람이 내는 예외는 건드리지 않음)
+ */
+export function normalizeRecord(record: ContractRecord): ContractRecord {
+  const c = record.contract;
+  const kind = partyKindOf(c);
+  const n = normalizePartyRoles(kind, c.parties);
+  const m = (r: string | null | undefined) => (r ? mapRole(n.roleMap, r) : r);
+  const contract: Contract = { ...c, parties: n.parties, userPartyRole: m(c.userPartyRole) ?? null };
+  const mapped = record.payments.map((p) => ({ ...p, payerRole: m(p.payerRole), payeeRole: m(p.payeeRole) }));
+  const fill = roleDirectionChanges(contract, mapped).filter((ch) => ch.from === 'neutral' && ch.to !== 'neutral');
+  const funds = record.funds?.map((f) => ({ ...f, depositorRole: m(f.depositorRole) ?? null, holderRole: m(f.holderRole) ?? null }));
+  // 예전 데이터는 "neutral인 계약금·잔금 = 보증금의 몫"으로 읽었다 (natureOf) — 방향을 채우면 그 해석을 성격으로 고정한다
+  const filled = new Set(fill.map((ch) => ch.index));
+  const payments = applyDirectionChanges(mapped, fill).map((p, i) =>
+    filled.has(i) && !p.moneyNature ? { ...p, moneyNature: natureOf(mapped[i]) === 'deposit' ? ('refundable_deposit' as const) : ('ordinary' as const) } : p,
+  );
+  return { ...record, contract, payments, ...(funds ? { funds } : {}) };
 }
