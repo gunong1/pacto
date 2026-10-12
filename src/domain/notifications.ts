@@ -432,7 +432,9 @@ export function buildNotificationMessage(group: ReminderGroup, opts: { showDetai
     return { title: group.contractTitle, body: [group.message, group.detail].filter(Boolean).join('\n') };
   }
   const pays = group.reminders.filter((r) => r.kind === 'payment');
-  const payLine = pays.length ? `${pays.map((p) => `${p.label} ${p.amount != null ? `${p.amount.toLocaleString('ko-KR')}원` : ''}`.trim()).join(' · ')} ${pays.some((p) => p.direction === 'income') ? '입금' : '결제'}도 예정되어 있어요.` : null;
+  // 같은 날 함께 있는 금액 — 방향별로 (방향을 모르는 금액을 결제·수령으로 단정하지 않음)
+  const payWord = pays.every((p) => p.direction === 'income') ? '수령' : pays.every((p) => p.direction === 'expense') ? '결제' : '금액 확인';
+  const payLine = pays.length ? `${pays.map((p) => `${p.label} ${p.amount != null ? `${p.amount.toLocaleString('ko-KR')}원` : ''}`.trim()).join(' · ')} ${payWord}도 예정되어 있어요.` : null;
   return { title: `${group.contractTitle} · ${headline(group)}`, body: [payLine ?? actionHint(group.kind, eventTypeOf(group))].filter(Boolean).join('\n') };
 }
 

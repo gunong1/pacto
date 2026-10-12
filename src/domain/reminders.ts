@@ -155,6 +155,25 @@ function meta(
   };
 }
 
+/**
+ * 결제 알림 문구 — 돈의 방향별로 (방향을 모르는 금액을 "결제일"로 안내하지 않는다)
+ *   출금 확정: "내일 월세 결제일입니다." / 입금 확정: "내일 월 급여 수령 예정일입니다."
+ *   방향 확인 필요: "내일 보증금 잔금 예정일이에요. 내는 돈인지 받는 돈인지 확인해주세요."
+ * 선택형·조건부·참고 금액은 expandPayment가 일정으로 만들지 않아 알림도 없다
+ */
+export function paymentMessage(when: string, label: string, direction: Direction): string {
+  if (direction === "expense") return `${when} ${label} 결제일입니다.`;
+  if (direction === "income") return `${when} ${label} 수령 예정일입니다.`;
+  return `${when} ${label} 예정일이에요. 내는 돈인지 받는 돈인지 확인해주세요.`;
+}
+
+/** 결제 알림의 종류·중요도 — 방향을 모르면 "확인 필요" 표시 (확정 일정처럼 보이지 않게) */
+function paymentMeta(record: ContractRecord, direction: Direction) {
+  const m = meta(record, direction === "income" ? "income" : "payment", []);
+  if (direction !== "neutral") return m;
+  return { ...m, needsReview: true, priority: getNotificationPriority(m.actionType, { source: m.source, needsReview: true }) };
+}
+
 /** 결제 알림 문구: 알림 날짜 기준 내일/오늘/N일 뒤 */
 function paymentWhen(off: number): string {
   return off === 0 ? "오늘" : off === 1 ? "내일" : `${off}일 뒤`;
@@ -271,13 +290,9 @@ export function upcomingReminders(
             kind: "payment",
             fireOn,
             targetDate: o.date,
-            ...meta(
-              record,
-              p.direction === "income" ? "income" : "payment",
-              [],
-            ),
+            ...paymentMeta(record, p.direction),
             daysBefore: off,
-            message: `${paymentWhen(off)} ${p.label} ${p.direction === "income" ? "입금" : "결제"}일입니다.`,
+            message: paymentMessage(paymentWhen(off), p.label, p.direction),
             label: o.installment
               ? `${p.label} ${o.installment.no}/${o.installment.total}회`
               : p.label,

@@ -11,7 +11,7 @@ import type { ContractRecord } from '../types';
 
 const TODAY = '2026-10-07';
 
-type Pay = { kind: string; direction: 'expense' | 'income'; label: string; amount: string; frequency: 'monthly' | 'one_time'; dayOfMonth?: string; startsOn?: string };
+type Pay = { kind: string; direction: 'expense' | 'income' | 'neutral'; label: string; amount: string; frequency: 'monthly' | 'one_time'; dayOfMonth?: string; startsOn?: string; obligation?: 'confirmed' | 'optional' | 'conditional' };
 function record(id: string, o: { title: string; category?: string; contractType?: string; startDate?: string; endDate?: string; payments: Pay[]; autoRenewal?: boolean; notice?: string }): ContractRecord {
   const form = {
     ...draftToForm({ ...EMPTY_DRAFT, title: o.title, category: (o.category ?? 'rental') as never, contractType: (o.contractType ?? 'recurring') as never }),
@@ -19,7 +19,7 @@ function record(id: string, o: { title: string; category?: string; contractType?
     endDate: o.endDate ?? '2029-10-11',
     payments: o.payments.map((p) => ({
       kind: p.kind as never, direction: p.direction, label: p.label, amount: p.amount, frequency: p.frequency, dayOfMonth: p.dayOfMonth ?? '', monthOfYear: '',
-      startsOn: p.startsOn ?? '', endsOn: '', installmentCount: '', isVariable: false, components: [], businessDayRule: 'none' as const, obligation: 'confirmed' as const, conditionNote: '',
+      startsOn: p.startsOn ?? '', endsOn: '', installmentCount: '', isVariable: false, components: [], businessDayRule: 'none' as const, obligation: p.obligation ?? ('confirmed' as const), conditionNote: '',
     })),
     dates: [{ kind: 'installation', label: '설치일', date: '2026-10-12' }] as never,
     autoRenewal: o.autoRenewal ?? false,
@@ -98,10 +98,42 @@ describe('알림 묶기', () => {
     expect(digest.filter((i) => i.group.kind === 'termination_notice')).toHaveLength(3);
   });
 
-  test('수입은 "입금 예정" (결제와 섞지 않음)', () => {
+  // 현금흐름 개편: 입금 확정은 "수령 예정" (이전 기대: "입금 예정")
+  test('수입은 "수령 예정" (결제와 섞지 않음)', () => {
     const job = record('c-job', { title: '근로계약서', category: 'employment', contractType: 'employment', startDate: '2026-10-01', endDate: '2027-09-30', payments: [{ kind: 'salary', direction: 'income', label: '급여', amount: '3,600,000', frequency: 'monthly', dayOfMonth: '25' }] });
-    const g = groupReminders(upcomingReminders([job], TODAY, 60))[0];
-    expect(g.message).toBe('내일 +3,600,000원 입금 예정이에요.');
-    expect(g.eventLines).toEqual(['2026. 10. 25. 급여 입금']);
+    const rs = upcomingReminders([job], TODAY, 60);
+    const g = groupReminders(rs)[0];
+    expect(g.message).toBe('내일 +3,600,000원 수령 예정이에요.');
+    expect(g.title).toBe('근로계약서 · 수령');
+    expect(g.eventLines).toEqual(['2026. 10. 25. 급여 수령']);
+    expect(rs[0].message).toBe('내일 급여 수령 예정일입니다.');
   });
+});
+
+describe('방향별 결제 알림 — 방향을 모르는 금액을 "결제일"로 안내하지 않음', () => {
+  const lease = (pays: Pay[]) => record('c-lease', { title: '주택 임대차', category: 'real_estate', contractType: 'lease', startDate: '2026-10-01', endDate: '2028-09-30', payments: pays });
+  test('출금 확정: 결제일 안내', () => {
+    const rs = upcomingReminders([lease([{ kind: 'rent', direction: 'expense', label: '월세', amount: '850,000', frequency: 'monthly', dayOfMonth: '20' }])], TODAY, 20);
+    expect(rs[0].message).toBe('내일 월세 결제일입니다.');
+    expect(groupReminders(rs)[0].message).toBe('내일 850,000원 결제 예정이에요.');
+  });
+  test('방향 미확정: 지급 방향 확인 안내 · 확인 필요 표시 · "결제"·"수령"이라는 말 없음', () => {
+    const rs = upcomingReminders([lease([{ kind: 'balance_payment', direction: 'neutral', label: '보증금 잔금', amount: '18,000,000', frequency: 'one_time', startsOn: '2026-10-20' }])], TODAY, 20);
+    expect(rs[0].message).toBe('내일 보증금 잔금 예정일이에요. 내는 돈인지 받는 돈인지 확인해주세요.');
+    expect(rs[0].needsReview).toBe(true);
+    const g = groupReminders(rs)[0];
+    expect([g.title, g.message, g.eventLines]).toEqual(['주택 임대차 · 금액 확인', '내일 18,000,000원 예정 금액은 내는 돈인지 받는 돈인지 확인해주세요.', ['2026. 10. 20. 보증금 잔금 (지급 방향 확인 필요)']]);
+    expect(JSON.stringify(g)).not.toMatch(/결제일|결제 예정|수령 예정|입금 예정/);
+  });
+  test('조건부·선택형 금액은 알림 없음 (확정 지급처럼 안내하지 않음)', () => {
+    const rs = upcomingReminders([lease([
+      { kind: 'other', direction: 'expense', label: '주차비', amount: '50,000', frequency: 'monthly', dayOfMonth: '20', obligation: 'optional' },
+      { kind: 'other', direction: 'expense', label: '원상복구비', amount: '300,000', frequency: 'one_time', startsOn: '2026-10-20', obligation: 'conditional' },
+    ])], TODAY, 20);
+    expect(rs.filter((r) => r.kind === 'payment')).toEqual([]);
+  });
+});
+
+describe('(이어서) 알림 묶기', () => {
+  test('placeholder — 위 describe 분리용', () => expect(true).toBe(true));
 });

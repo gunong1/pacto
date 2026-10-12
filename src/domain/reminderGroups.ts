@@ -70,17 +70,35 @@ function relative(fireOn: ISODate, target: ISODate): string {
 
 const DIRECTION_ORDER: Direction[] = ['expense', 'income', 'neutral'];
 
-/** 결제 알림 금액 요약 — 방향별 합계 문구와 세부 내역 */
-function paymentSummary(pays: Reminder[]): { headline: string; detail: string | null } {
+/**
+ * 결제 알림 금액 문장 — 방향별 (방향을 모르는 금액은 결제·수령으로 단정하지 않고 확인 요청)
+ *   "내일 950,000원 결제 예정이에요." / "내일 +3,600,000원 수령 예정이에요."
+ *   "내일 18,000,000원 예정 금액은 내는 돈인지 받는 돈인지 확인해주세요."
+ */
+function paymentSentence(rel: string, pays: Reminder[]): { sentence: string; short: string; detail: string | null } {
   const heads: string[] = [];
+  let unknown: string | null = null;
   for (const dir of DIRECTION_ORDER) {
     const xs = pays.filter((p) => p.direction === dir && p.amount != null);
     if (xs.length === 0) continue;
     const won = `${formatWon(xs.reduce((s, p) => s + p.amount!, 0))}${xs.some((p) => p.estimated) ? '(예상)' : ''}`;
-    heads.push(dir === 'expense' ? `${won} 결제 예정` : dir === 'income' ? `+${won} 입금 예정` : `${won}(보증금 등) 예정`);
+    if (dir === 'neutral') unknown = won;
+    else heads.push(dir === 'expense' ? `${won} 결제 예정` : `+${won} 수령 예정`);
   }
+  const parts: string[] = [];
+  if (heads.length) parts.push(`${rel} ${heads.join(', ')}이에요.`);
+  if (unknown) parts.push(`${heads.length ? '' : `${rel} `}${unknown} 예정 금액은 내는 돈인지 받는 돈인지 확인해주세요.`);
   const detail = pays.length > 1 ? pays.map((p) => `${p.label} ${formatWon(p.amount ?? 0)}`).join(' · ') : (pays[0]?.label ?? null);
-  return { headline: heads.join(', '), detail };
+  // 다른 일정 아래 한 줄 (예: "내일 29,900원 결제 예정 · 월 렌탈료")
+  const short = `${rel} ${[...heads, ...(unknown ? [`${unknown} 지급 방향 확인 필요`] : [])].join(', ')}`;
+  return { sentence: parts.join(' '), short, detail };
+}
+
+/** 결제 알림 제목 — 모두 수령이면 "수령", 방향 모르는 금액만 있으면 "금액 확인", 그 밖은 "결제" */
+function paymentTitle(pays: Reminder[]): string {
+  if (pays.length > 0 && pays.every((p) => p.direction === 'income')) return '수령';
+  if (pays.length > 0 && pays.every((p) => p.direction === 'neutral')) return '금액 확인';
+  return REMINDER_KIND_LABEL.payment;
 }
 
 function summarize(key: string, list: Reminder[]): ReminderGroup {
@@ -90,15 +108,15 @@ function summarize(key: string, list: Reminder[]): ReminderGroup {
   let message: string;
   let detail: string | null;
   if (head.kind === 'payment') {
-    const { headline, detail: d } = paymentSummary(pays);
-    message = `${relative(head.fireOn, head.targetDate)} ${headline}이에요.`;
+    const { sentence, detail: d } = paymentSentence(relative(head.fireOn, head.targetDate), pays);
+    message = sentence;
     detail = d;
   } else {
     // 행동이 필요한 알림이 대표, 같은 날 결제는 아래에 함께
     message = head.message;
     const others = sorted.slice(1).filter((r) => r.kind !== 'payment').map((r) => r.message);
-    const pay = pays.length ? paymentSummary(pays) : null;
-    detail = [...others, ...(pay ? [`${relative(pays[0].fireOn, pays[0].targetDate)} ${pay.headline} · ${pay.detail ?? ''}`.replace(/ · $/, '')] : [])].join('\n') || null;
+    const pay = pays.length ? paymentSentence(relative(pays[0].fireOn, pays[0].targetDate), pays) : null;
+    detail = [...others, ...(pay ? [`${pay.short}${pay.detail ? ` · ${pay.detail}` : ''}`] : [])].join('\n') || null;
   }
   return {
     key,
@@ -106,7 +124,7 @@ function summarize(key: string, list: Reminder[]): ReminderGroup {
     contractTitle: head.contractTitle,
     fireOn: head.fireOn,
     kind: head.kind,
-    title: `${head.contractTitle} · ${REMINDER_KIND_LABEL[head.kind]}`,
+    title: `${head.contractTitle} · ${head.kind === 'payment' ? paymentTitle(pays) : REMINDER_KIND_LABEL[head.kind]}`,
     message,
     detail,
     eventLines: eventLines(sorted),
@@ -120,7 +138,7 @@ function summarize(key: string, list: Reminder[]): ReminderGroup {
 function eventLines(list: Reminder[]): string[] {
   const lines = new Map<string, string[]>();
   for (const r of list) {
-    const k = `${r.targetDate}|${r.kind}|${r.kind === 'payment' ? (r.direction === 'income' ? 'in' : 'out') : ''}`;
+    const k = `${r.targetDate}|${r.kind}|${r.kind === 'payment' ? (r.direction === 'income' ? 'in' : r.direction === 'neutral' ? 'unknown' : 'out') : ''}`;
     const labels = lines.get(k) ?? [];
     if (!labels.includes(r.label)) labels.push(r.label);
     lines.set(k, labels);
@@ -128,7 +146,7 @@ function eventLines(list: Reminder[]): string[] {
   return [...lines.entries()].map(([k, labels]) => {
     const [date, kind, dir] = k.split('|');
     const when = formatDateKo(date);
-    return kind === 'payment' ? `${when} ${labels.join(' · ')} ${dir === 'in' ? '입금' : '결제'}` : `${when} ${labels.join(' · ')}`;
+    return kind === 'payment' ? `${when} ${labels.join(' · ')} ${dir === 'in' ? '수령' : dir === 'unknown' ? '(지급 방향 확인 필요)' : '결제'}` : `${when} ${labels.join(' · ')}`;
   });
 }
 
