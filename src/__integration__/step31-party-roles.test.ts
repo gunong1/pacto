@@ -1,7 +1,8 @@
 /**
  * 당사자 자동 연결 · 지급 방향 — 이번 수정 전에 저장된 계약(로컬 DB, 모든 값은 가짜)
  * - 예전 모양: 렌탈 계약인데 당사자 임대인·임차인, 결제 지급자 임차인 · 방향 neutral(확인 필요)
- * - 읽을 때 같은 규칙: 렌탈회사(임대인)·고객(임차인), 방향 출금 → 10월 5,769,000 (DB는 그대로)
+ * - 읽을 때 같은 규칙: 렌탈회사(임대인)·고객(임차인). 역할을 확인하지 않았으면 방향은 확인 필요 (추천을 확정 출금으로 세지 않음)
+ * - 예전에 사용자가 확정한 역할(임차인)은 유지 → 고객으로 읽고 출금 10월 5,769,000
  * - 다시 저장하면 정리된 값이 저장되고 결제 id·보증금 묶음은 그대로
  * - 사용자가 직접 고른 방향은 바뀌지 않음
  */
@@ -17,13 +18,14 @@ type Rpc = { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ d
 const TODAY = '2026-10-09';
 const pay = (o: Record<string, unknown>) => ({ kind: 'other', frequency: 'one_time', amount: 1, direction: 'neutral', ...o });
 
-async function seedLegacy(prefix: string, userDirection = false) {
+async function seedLegacy(prefix: string, userDirection = false, confirmedRole: string | null = null) {
   const a = await newUser(prefix);
   const r = await (a.client as unknown as Rpc).rpc('save_contract', {
     p_contract: {
       title: '자동차 장기렌트 계약서', category: 'rental', contract_type: 'recurring', contract_kind: 'rental', contract_subtype: 'vehicle',
       start_date: '2026-10-20', end_date: '2030-10-19', deposit_amount: 5_000_000,
       parties: [{ role: 'lessor', name: '주식회사 팩토렌터카' }, { role: 'lessee', name: '김도윤' }],
+      ...(confirmedRole ? { user_party_role: confirmedRole, user_party_relation: 'self' } : {}),
     },
     p_funds: [{ key: 'dep', kind: 'deposit', label: '보증금', total_amount: null }],
     p_payments: [
@@ -38,35 +40,43 @@ async function seedLegacy(prefix: string, userDirection = false) {
 const dbPayments = async (id: string) =>
   ((await adminClient().from('contract_payments').select('id, label, direction, direction_basis, payer_role, payee_role, fund_id').eq('contract_id', id).order('sort_order')).data ?? []) as Record<string, unknown>[];
 
-test('예전 저장 계약: 읽기 → 렌탈회사·고객 · 10월 5,769,000 · 11월 649,000 (DB는 그대로)', async () => {
+test('예전 저장 계약(역할 미확인): 렌탈회사·고객으로 읽기 · 금액은 방향 확인 필요 (DB는 그대로)', async () => {
   const { id, repo } = await seedLegacy('roles-read');
   const before = await dbPayments(id);
   const rec = (await repo.get(id))!;
   expect(rec.contract.parties).toEqual([{ role: 'provider', name: '주식회사 팩토렌터카', term: '임대인' }, { role: 'customer', name: '김도윤', term: '임차인' }]);
-  expect(rec.payments.map((p) => [p.id, p.direction, p.payerRole])).toEqual(before.map((p) => [p.id, 'expense', 'customer']));
-  expect(monthSpending([rec], { year: 2026, month: 10 }, TODAY)).toMatchObject({ total: 5_769_000, ordinaryExpense: 769_000, depositOut: 5_000_000, undeterminedTotal: 0 });
-  expect(monthSpending([rec], { year: 2026, month: 11 }, TODAY)).toMatchObject({ total: 649_000, undeterminedTotal: 0 });
+  expect(rec.payments.map((p) => [p.id, p.direction, p.payerRole])).toEqual(before.map((p) => [p.id, 'neutral', 'customer']));
+  expect(monthSpending([rec], { year: 2026, month: 10 }, TODAY)).toMatchObject({ total: 0, undeterminedTotal: 5_769_000 });
   expect(await dbPayments(id)).toEqual(before); // 읽기만으로 DB를 바꾸지 않음
 });
 
+test('예전에 사용자가 확정한 역할(임차인) 유지 → 고객 기준 10월 5,769,000 · 11월 649,000', async () => {
+  const { id, repo } = await seedLegacy('roles-confirmed', false, 'lessee');
+  const rec = (await repo.get(id))!;
+  expect(rec.contract.userPartyRole).toBe('customer');
+  expect(monthSpending([rec], { year: 2026, month: 10 }, TODAY)).toMatchObject({ total: 5_769_000, ordinaryExpense: 769_000, depositOut: 5_000_000, undeterminedTotal: 0 });
+  expect(monthSpending([rec], { year: 2026, month: 11 }, TODAY)).toMatchObject({ total: 649_000, undeterminedTotal: 0 });
+});
+
 test('다시 저장: 정리된 값 저장 · 결제 id·보증금 묶음 연결 그대로', async () => {
-  const { id, repo } = await seedLegacy('roles-save');
+  const { id, repo } = await seedLegacy('roles-save', false, 'lessee');
   const before = await dbPayments(id);
   await repo.update(id, recordToDraft((await repo.get(id))!));
   const after = await dbPayments(id);
   expect(after.map((p) => p.id)).toEqual(before.map((p) => p.id));
   expect(after.map((p) => p.fund_id)).toEqual(before.map((p) => p.fund_id));
-  expect(after.map((p) => [p.direction, p.direction_basis, p.payer_role, p.payee_role])).toEqual(before.map(() => ['expense', 'contract', 'customer', 'provider']));
-  const row = (await adminClient().from('contracts').select('parties').eq('id', id).single()).data!;
+  expect(after.map((p) => [p.direction, p.direction_basis, p.payer_role, p.payee_role])).toEqual(before.map(() => ['expense', 'role', 'customer', 'provider']));
+  const row = (await adminClient().from('contracts').select('parties, user_party_role').eq('id', id).single()).data!;
   expect(row.parties).toEqual([{ role: 'provider', name: '주식회사 팩토렌터카', term: '임대인' }, { role: 'customer', name: '김도윤', term: '임차인' }]);
+  expect(row.user_party_role).toBe('customer');
 });
 
 test('사용자가 직접 고른 방향은 덮어쓰지 않음', async () => {
-  const { id, repo } = await seedLegacy('roles-user', true);
+  const { id, repo } = await seedLegacy('roles-user', true, 'lessee');
   const rec = (await repo.get(id))!;
   expect(rec.payments.map((p) => [p.label, p.direction, p.directionBasis])).toEqual([
-    ['보증금', 'expense', 'contract'],
+    ['보증금', 'expense', 'role'],
     ['월 렌트료', 'income', 'user'],
-    ['초기 등록대행비', 'expense', 'contract'],
+    ['초기 등록대행비', 'expense', 'role'],
   ]);
 });

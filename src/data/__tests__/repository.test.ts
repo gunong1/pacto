@@ -7,6 +7,7 @@ import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
 import { contractFormSchema, draftToForm, formToDraft } from '@/features/contracts/form';
 import { toReviewModel } from '@/features/registration/extraction';
+import { withRecommendedRole } from '@/domain/cashflow';
 
 const TODAY = '2026-10-05';
 
@@ -30,7 +31,8 @@ describe('등록 흐름 (mock): AI 추출 → 확인/수정 → 저장 → 홈/�
     const form = draftToForm(model.draft);
     form.payments[0].dayOfMonth = '12';
     const parsed = contractFormSchema.parse(form);
-    const draft = formToDraft(parsed);
+    // 확인 화면의 "이 계약에서 누구세요?"에서 추천(고객)을 확인
+    const draft = withRecommendedRole(formToDraft(parsed));
     expect(draft.payments.map((p) => [p.kind, p.amount, p.dayOfMonth])).toEqual([['recurring_fee', 29_900, 12], ['setup_fee', 20_000, null]]);
     expect(draft.details).toEqual({ commitmentMonths: 36 });
 

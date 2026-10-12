@@ -75,6 +75,11 @@ const check = (id, name, ok, detail = '') => {
   await input('quick-amount').fill('13500');
   await input('quick-day').fill('20');
   await page.click(tid('submit-contract'));
+  // 오늘 날짜에 따라 이미 지난 결제일이 있으면 적용 시점을 묻는다 — "처음부터 이 금액"(입력 실수 정정)으로 날짜와 무관하게
+  if (await page.locator(tid('amount-change-sheet')).waitFor({ state: 'visible', timeout: 2500 }).then(() => true, () => false)) {
+    await page.click(tid('amount-change-correct'));
+    await page.click(tid('amount-change-apply'));
+  }
   await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
   await page.waitForTimeout(400);
   const detail = await page.locator('body').innerText();

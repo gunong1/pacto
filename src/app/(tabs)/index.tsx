@@ -21,6 +21,7 @@ import { formatKRW, formatWonCompact } from "@/domain/money";
 import { attentionItems } from "@/domain/nextAction";
 import { monthSpending } from "@/domain/spending";
 import { useContracts, useToday } from "@/features/contracts/queries";
+import { RoleConfirmCard } from "@/features/contracts/RoleConfirmCard";
 import { colors, hitSlop, radius, spacing } from "@/theme";
 
 /**
@@ -192,21 +193,12 @@ export default function HomeScreen() {
             <AppText variant="caption" color="caution">
               계약 금액 {formatWonCompact(view.spending.undeterminedTotal)}의 입출금 방향을 확인해주세요. 확인 전에는 합계에 넣지 않았어요.
             </AppText>
-            {(() => {
-              const ids = [...new Set(view.spending.undetermined.map((i) => i.contractId))];
-              return (
-                <Pressable
-                  onPress={() => router.push(ids.length === 1 ? `/contract/${ids[0]}/edit` : '/contracts')}
-                  accessibilityRole="button"
-                  testID="home-undetermined-action"
-                  style={{ marginTop: 4, alignSelf: 'flex-start' }}
-                >
-                  <AppText variant="captionStrong" color="primary">
-                    {ids.length === 1 ? '이 계약에서 내 역할 확인 ›' : `계약 ${ids.length}개에서 내 역할 확인 ›`}
-                  </AppText>
-                </Pressable>
-              );
-            })()}
+            {/* 계약마다 추천 역할 확인 (최대 3개) — 확인하면 관련 금액이 모두 정리된다 */}
+            {[...new Set(view.spending.undetermined.map((i) => i.contractId))].slice(0, 3).map((cid) => {
+              const record = records!.find((r) => r.contract.id === cid);
+              const amount = view.spending.undetermined.filter((i) => i.contractId === cid).reduce((s, i) => s + i.amount, 0);
+              return record ? <RoleConfirmCard key={cid} record={record} amount={amount} /> : null;
+            })}
           </View>
         ) : null}
 

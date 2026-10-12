@@ -15,6 +15,7 @@ import {
   WAIVED_CHECK_TITLE,
 } from "../../../supabase/functions/_shared/extraction.ts";
 import { draftToRecord } from "@/data/draft";
+import { withRecommendedRole } from "@/domain/cashflow";
 import {
   contractFormSchema,
   draftToForm,
@@ -76,7 +77,8 @@ describe("B. 사용자가 입력한 실제 결제액으로 저장", () => {
     expect(
       draft.payments.map((p) => [p.label, p.amount, p.frequency, p.dayOfMonth]),
     ).toEqual([["월 렌탈료", 31900, "monthly", 15]]);
-    const rec = draftToRecord(draft, "c1", TODAY);
+    // 사용자가 추천 역할(고객)을 확인한 뒤의 합계
+    const rec = draftToRecord(withRecommendedRole(draft), "c1", TODAY);
     const items = scheduleForRange(
       [rec],
       { start: "2026-04-01", end: "2026-04-30" },

@@ -12,7 +12,7 @@ import { MockExtractionProvider } from '../../../supabase/functions/_shared/ai/m
 import { activateCheckCost, activateCost, draftToRecord } from '@/data/draft';
 import { coreInfo, extraCosts } from '@/domain/coreInfo';
 import { BANNED_AI_PHRASES, findBannedPhrases } from '@/domain/aiCopy';
-import { withConfirmedRole } from '@/domain/cashflow';
+import { withConfirmedRole, withRecommendedRole } from '@/domain/cashflow';
 import { detailSchema } from '@/domain/contractTypes';
 import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
@@ -52,7 +52,7 @@ function output(o: { kind?: unknown; fields?: Record<string, unknown>; dates?: u
   };
 }
 const review = (o: Parameters<typeof output>[0], docs: string[] = ['doc-1']) => toReviewModel(toAppResult(output(o), 'openai'), docs);
-const titlesOn = (m: ReturnType<typeof review>, d: string) => scheduleForRange([draftToRecord(m.draft, 'x', TODAY)], { start: d, end: d }, TODAY).map((i) => i.title).sort();
+const titlesOn = (m: ReturnType<typeof review>, d: string) => scheduleForRange([draftToRecord(withRecommendedRole(m.draft), 'x', TODAY)], { start: d, end: d }, TODAY).map((i) => i.title).sort();
 
 /** 사용자가 올린 샘플 렌탈 계약서 */
 const rental = () => ({
@@ -172,14 +172,15 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
     const m = review(rental());
     expect(m.draft).toMatchObject({ category: 'rental', contractType: 'recurring', contractDate: '2026-10-05', startDate: '2026-10-12', endDate: '2029-10-11', autoRenewal: true, terminationNoticeDays: 30 });
     expect(m.draft.payments.map((p) => [p.kind, p.direction, p.amount, p.dayOfMonth, p.startsOn])).toEqual([
-      ['recurring_fee', 'expense', 29_900, 12, null],
-      ['setup_fee', 'expense', 20_000, null, null],
+      // 분석만으로는 방향을 정하지 않음 (렌탈 고객은 추천 — 사용자가 확인하면 출금)
+      ['recurring_fee', 'neutral', 29_900, 12, null],
+      ['setup_fee', 'neutral', 20_000, null, null],
     ]);
     expect(m.flagged.has('payments.1.startsOn')).toBe(true);
     expect(m.flagged.has('contractKind')).toBe(false);
     expect(m.draft.details).toEqual({ commitmentMonths: 36, ownershipTransferTerms: '계약 종료 후 전액 납부 완료 시 이전' });
     expect(titlesOn(m, '2026-10-12')).toEqual(['월 렌탈료', '이용 시작', '초기 설치비'].sort());
-    expect(monthSpending([draftToRecord(m.draft, 'x', TODAY)], { year: 2026, month: 10 }).total).toBe(49_900);
+    expect(monthSpending([draftToRecord(withRecommendedRole(m.draft), 'x', TODAY)], { year: 2026, month: 10 }).total).toBe(49_900);
   });
 
   test('PACTO 계약 체크: 원문 근거(문서 id·쪽·문장) 연결, 자동갱신 → 해지 통보기한 일정 제안, 금지 표현 없음', () => {
@@ -219,7 +220,7 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
     expect(m.draft.dates).toEqual([{ kind: 'hire', label: '입사일', date: '2026-11-02' }]);
     expect(detailSchema('employment').safeParse(m.draft.details).success).toBe(true);
     expect(m.draft.details).toMatchObject({ employmentKind: 'permanent', probationMonths: 3, annualSalary: 42_000_000 });
-    expect(monthSpending([draftToRecord(m.draft, 'j', TODAY)], { year: 2026, month: 11 })).toMatchObject({ total: 0, incomeTotal: 0, undeterminedTotal: 3_500_000 });
+    expect(monthSpending([draftToRecord(withRecommendedRole(m.draft), 'j', TODAY)], { year: 2026, month: 11 })).toMatchObject({ total: 0, incomeTotal: 0, undeterminedTotal: 3_500_000 });
     const r = draftToRecord(withConfirmedRole(m.draft, 'employee'), 'j', TODAY);
     expect(monthSpending([r], { year: 2026, month: 11 })).toMatchObject({ total: 0, incomeTotal: 3_500_000 });
     expect(m.flagged.has('endDate')).toBe(false); // 기간 없는 근로계약은 정상
@@ -275,7 +276,7 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
     expect(m.draft.dates).toEqual([{ kind: 'move_in', label: '입주일', date: '2026-11-01' }]);
     expect(m.draft.details).toEqual({ leaseKind: 'jeonse' });
     expect(m.allDetails).toMatchObject({ interestRate: 3.1 });
-    expect(monthSpending([draftToRecord(m.draft, 'j', TODAY)], { year: 2026, month: 11 })).toMatchObject({ total: 0, undeterminedTotal: 180_000_000 });
+    expect(monthSpending([draftToRecord(withRecommendedRole(m.draft), 'j', TODAY)], { year: 2026, month: 11 })).toMatchObject({ total: 0, undeterminedTotal: 180_000_000 });
   });
 
   test('통보기한 날짜만 있으면 일수로 계산하고 확인 필요', () => {
@@ -308,7 +309,7 @@ describe('헬스장 샘플 계약서: 락커 이용료(선택, 결제일 없음 
     expect(m.flagged.has('payments.1.obligation')).toBe(true);
     expect(titlesOn(m, '2026-11-03')).toEqual(['이용 시작']);
     expect(titlesOn(m, '2026-11-05')).toEqual(['월 이용료']);
-    expect(monthSpending([draftToRecord(m.draft, 'g', TODAY)], { year: 2026, month: 12 }).total).toBe(55_000);
+    expect(monthSpending([draftToRecord(withRecommendedRole(m.draft), 'g', TODAY)], { year: 2026, month: 12 }).total).toBe(55_000);
   });
 
   test('같은 결제가 두 번 나와도 한 번만', () => {
@@ -393,7 +394,7 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
     expect(r.checks[0]).toMatchObject({ behavior: 'conditional_rule', relatedDate: null, suggestion: null });
     expect(r.checks[1].suggestion).toBeNull(); // 2026-10-01은 이미 근로 시작일
     const m = toReviewModel(r, ['doc-1']);
-    const rec = draftToRecord(m.draft, 'n', TODAY);
+    const rec = draftToRecord(withRecommendedRole(m.draft), 'n', TODAY);
     expect(scheduleForRange([rec], { start: '2027-08-31', end: '2027-08-31' }, TODAY)).toEqual([]);
   });
 
@@ -438,7 +439,7 @@ describe('분석 v6 — 금액의 의무 수준 (헬스장 1년권)', () => {
   };
   /** 저장된 계약 (계약 체크 포함 — 조건부 비용은 체크에 금액과 함께 보관) */
   const saved = (m: ReturnType<typeof review>) => ({
-    ...draftToRecord(m.draft, 'gym', TODAY),
+    ...draftToRecord(withRecommendedRole(m.draft), 'gym', TODAY),
     aiChecks: m.checks.map((c, i) => ({ ...c, id: `chk-${i}`, contractId: 'gym', status: 'new' as const })),
   });
   /** 회귀 5항목 — 캘린더(1년치)·지출 */

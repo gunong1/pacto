@@ -53,15 +53,40 @@ function roleMapOf(c: SideInput): Readonly<Record<string, string>> {
 
 export interface UserSide {
   role: string;
-  /** role: 사용자가 확정한 역할 · contract: 계약 구조상 사용자가 언제나 이쪽 */
-  basis: Extract<DirectionBasis, 'role' | 'contract'>;
+  /** role: 사용자가 확인한 역할 (방향 계산은 확인한 역할로만) */
+  basis: Extract<DirectionBasis, 'role'>;
 }
 
-/** 사용자(또는 대신 관리하는 사람)가 이 계약에서 어느 쪽인지 — 확정 역할 → 계약 구조. 모르면 null */
+/**
+ * 사용자(또는 대신 관리하는 사람)가 이 계약에서 어느 쪽인지 — 사용자가 확인한 역할만. 모르면 null.
+ * 계약 구조·이름 일치는 추천(recommendedSide)일 뿐 확정이 아니다 → 추천만으로는 출금·입금 합계에 넣지 않는다
+ */
 export function userSideOf(c: SideInput): UserSide | null {
-  if (c.userPartyRole) return { role: mapRole(roleMapOf(c), c.userPartyRole) ?? c.userPartyRole, basis: 'role' };
-  const consumer = kindMoneyFlows(partyKindOf(c)).consumerRole;
-  return consumer ? { role: consumer, basis: 'contract' } : null;
+  return c.userPartyRole ? { role: mapRole(roleMapOf(c), c.userPartyRole) ?? c.userPartyRole, basis: 'role' } : null;
+}
+
+export interface RecommendedSide {
+  role: string;
+  /** name: 등록한 이름과 계약서 당사자가 일치 · contract: 이 종류 계약에서 사용자는 보통 이쪽 (렌탈·구독·통신의 고객) */
+  reason: 'name' | 'contract';
+}
+
+/**
+ * 추천 역할 (확정 아님 — 저장하지 않고, 합계에 쓰지 않음). 사용자가 "맞아요"를 누르면 그때 확정 역할이 된다
+ * 1) 등록한 이름이 돈을 내거나 받는 당사자 한 명과 정확히 일치 → 그 역할 (대표자·보증인과 일치하면 추천하지 않음)
+ * 2) 사용자가 보통 한쪽인 종류(렌탈·구독·통신·교육·할부·보험·대출) → 그쪽 (고객·이용자 …)
+ */
+export function recommendedSide(c: SideInput, contractNames: readonly string[] = []): RecommendedSide | null {
+  if (c.userPartyRole) return null;
+  const kind = partyKindOf(c);
+  if (contractNames.length > 0 && c.parties?.length) {
+    const m = matchUserParty(kind, c.parties, contractNames);
+    if (m.status === 'match' && m.moneySide) return { role: mapRole(roleMapOf(c), m.role) ?? m.role, reason: 'name' };
+    // 이름이 다른 쪽(대표자·보증인)이나 여러 당사자와 겹치면 구조 추천도 하지 않는다 (사용자가 직접 고름)
+    if (m.status === 'match' || m.status === 'ambiguous') return null;
+  }
+  const consumer = kindMoneyFlows(kind).consumerRole;
+  return consumer ? { role: consumer, reason: 'contract' } : null;
 }
 
 /** 이 결제를 누가 내고 누가 받는가 — 계약서가 밝힌 지급자·수령자 → 계약 종류의 기본 흐름 (반환은 반대 방향) */
@@ -143,6 +168,12 @@ export function withConfirmedRole<
 >(draft: D, role: string | null, relation: NonNullable<Contract['userPartyRelation']> | null = role ? 'self' : 'unknown'): D {
   const next = { ...draft, userPartyRole: role, userPartyRelation: relation };
   return { ...next, payments: applyDirectionChanges(next.payments, roleDirectionChanges(next, next.payments)) };
+}
+
+/** 사용자가 추천 역할을 "맞아요"로 확인했을 때 (추천이 없으면 그대로) — 확인 버튼·확인한 사용자를 흉내 내는 테스트가 함께 쓴다 */
+export function withRecommendedRole<D extends Parameters<typeof withConfirmedRole>[0]>(draft: D, contractNames: readonly string[] = []): D {
+  const rec = recommendedSide(draft, contractNames);
+  return rec ? (withConfirmedRole(draft, rec.role) as D) : draft;
 }
 
 // ===== 돌려받을 돈 묶음 =====
@@ -292,18 +323,10 @@ export function needsRoleQuestion(
   c: SideInput,
   payments: readonly Pick<ContractPayment, 'direction' | 'directionBasis' | 'moneyNature' | 'kind' | 'payerRole' | 'payeeRole'>[],
   hasFund = false,
-  /** 내 계약자 정보(등록한 이름) — 기기에서만 대조 */
-  contractNames: readonly string[] = [],
 ): boolean {
+  // 추천(recommendedSide)이 있어도 확인 전까지는 묻는다 — 질문 여부는 역할이 금액·반환에 영향을 주는지로만
   if (c.userPartyRole || c.userPartyRelation === 'unknown') return false;
   const kind = partyKindOf(c);
-  const side = userSideOf(c);
-  if (side?.basis === 'contract') {
-    // 계약 구조로 정한 쪽(예: 렌탈 고객)과 등록한 이름이 다른 쪽(렌탈회사·대표자)에서 나오면 한 번 확인
-    if (contractNames.length === 0 || !c.parties?.length) return false;
-    const m = matchUserParty(kind, c.parties, contractNames);
-    return m.status === 'ambiguous' || (m.status === 'match' && m.role !== side.role);
-  }
   const roleMatters = payments.some((p) => followsRole(p) && !!flowOf(kind, p));
   return roleMatters || (hasFund && !!kindMoneyFlows(kind).deposit);
 }
@@ -312,8 +335,9 @@ export function needsRoleQuestion(
  * 저장된 계약을 읽을 때 같은 규칙으로 정리 (앱·서버 알림이 같은 함수 — 저장된 값은 사용자가 다시 저장할 때 바뀜)
  * - 당사자 역할: 계약서 용어 → 계약 종류의 자리 (렌탈의 임대인 → 렌탈회사). 충돌하면 그대로
  * - 결제의 지급자·수령자·사용자 역할·보증금 묶음 역할: 같은 변환
- * - 방향 확인 필요(neutral)로 남은 결제 중 역할(또는 계약 구조)로 정할 수 있는 것만 채운다
- *   (결제 id·근거·묶음·변경 이력 그대로, 사용자가 고른 방향·다른 사람이 내는 예외는 건드리지 않음)
+ * - 방향: 사용자가 확인한 역할로 계산할 수 있는 결제만 채운다. 예전 분석이 계약 구조로 정한 방향(basis=contract)은
+ *   역할을 확인하기 전까지 "방향 확인 필요"로 본다 (추천을 확정 출금으로 세지 않음)
+ *   (결제 id·근거·묶음·변경 이력 그대로, 사용자가 고른 방향·다른 사람이 내는 예외·예전 출금/입금(basis 없음)은 건드리지 않음)
  */
 export function normalizeRecord(record: ContractRecord): ContractRecord {
   const c = record.contract;
@@ -322,10 +346,10 @@ export function normalizeRecord(record: ContractRecord): ContractRecord {
   const m = (r: string | null | undefined) => (r ? mapRole(n.roleMap, r) : r);
   const contract: Contract = { ...c, parties: n.parties, userPartyRole: m(c.userPartyRole) ?? null };
   const mapped = record.payments.map((p) => ({ ...p, payerRole: m(p.payerRole), payeeRole: m(p.payeeRole) }));
-  const fill = roleDirectionChanges(contract, mapped).filter((ch) => ch.from === 'neutral' && ch.to !== 'neutral');
+  const fill = roleDirectionChanges(contract, mapped);
   const funds = record.funds?.map((f) => ({ ...f, depositorRole: m(f.depositorRole) ?? null, holderRole: m(f.holderRole) ?? null }));
   // 예전 데이터는 "neutral인 계약금·잔금 = 보증금의 몫"으로 읽었다 (natureOf) — 방향을 채우면 그 해석을 성격으로 고정한다
-  const filled = new Set(fill.map((ch) => ch.index));
+  const filled = new Set(fill.filter((ch) => ch.from === 'neutral').map((ch) => ch.index));
   const payments = applyDirectionChanges(mapped, fill).map((p, i) =>
     filled.has(i) && !p.moneyNature ? { ...p, moneyNature: natureOf(mapped[i]) === 'deposit' ? ('refundable_deposit' as const) : ('ordinary' as const) } : p,
   );

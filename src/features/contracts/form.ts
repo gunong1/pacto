@@ -2,7 +2,8 @@ import { contractKindDef, isSubtypeOf, profileKeyOf, type ClassificationMeta } f
 import { z } from 'zod';
 
 import { NOTICE_KINDS } from '@/domain/noticeKind';
-import { legacyDetailParties, partiesFromInputs, partiesToInputs, partyTermsOf, type ContractParty } from '@/domain/parties';
+import { legacyDetailParties, partiesFromInputs, partiesToInputs, partyKindOf, partyTermsOf, type ContractParty } from '@/domain/parties';
+import { normalizePartyRoles } from '../../../supabase/functions/_shared/contractRegistry';
 import type { ContractDraft, DateDraft, FundDraft, PaymentDraft } from '@/data/repository';
 import { DIRECTION_BASES, MONEY_NATURES, PARTY_RELATIONS } from '../../../supabase/functions/_shared/contractRegistry';
 import {
@@ -521,7 +522,8 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
   const profile = formProfile(v);
   const quick = v.quick ? quickToPayment(profile, v.quick, today, nullable(v.startDate)) : null;
   const kind = v.contractKind || null;
-  const parties = partiesFromInputs(v.parties, v.partyTerms);
+  // 저장 전 같은 규칙으로 정리: 계약서 용어 → 계약 종류의 자리, 표기만 다른 같은 이름은 칸에 있던 이름으로 하나 (다른 이름은 그대로 — 화면에서 고름)
+  const parties = normalizePartyRoles(kind ?? partyKindOf({ contractKind: null, contractType: v.contractType }), partiesFromInputs(v.parties, v.partyTerms)).parties;
   return {
     contractKind: kind,
     contractSubtype: kind && v.contractSubtype && isSubtypeOf(kind, v.contractSubtype) ? v.contractSubtype : null,

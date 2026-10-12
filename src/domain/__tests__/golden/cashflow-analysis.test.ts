@@ -10,7 +10,7 @@ import { draftToRecord } from '@/data/draft';
 import { toReviewModel } from '@/features/registration/extraction';
 
 import { toAppResult } from '../../../../supabase/functions/_shared/extraction.ts';
-import { withConfirmedRole } from '../../cashflow';
+import { recommendedSide, withConfirmedRole, withRecommendedRole } from '../../cashflow';
 import { matchUserParty } from '../../partyMatch';
 import { monthSpending } from '../../spending';
 import { contract, pay } from './classificationFixtures';
@@ -70,14 +70,18 @@ describe('분석 결과 → 확인 화면 초안', () => {
     const r = draftToRecord(withConfirmedRole(review(leaseOut()).draft, 'lessee'), 'c', TODAY);
     expect(monthSpending([r], { year: 2026, month: 10 })).toMatchObject({ total: 20850000, ordinaryExpense: 850000, depositOut: 20000000, undeterminedTotal: 0 });
   });
-  test('구조상 한쪽인 종류(렌탈): 역할 없이도 출금 · 근거 contract', () => {
+  test('렌탈(사용자가 보통 고객인 종류)도 분석만으로는 방향을 정하지 않음 → 고객 추천 · 확인하면 출금', () => {
     const out = contract({ cls: { kind: 'rental', subtype: 'appliance' }, title: '정수기 렌탈', payments: [pay({ label: '월 렌탈료', amount: 29900, day_of_month: 10 })] });
     const r = toAppResult(out, 'openai');
-    expect(r.payments.map((p) => [p.direction, p.directionBasis, p.moneyNature])).toEqual([['expense', 'contract', 'ordinary']]);
+    expect(r.payments.map((p) => [p.direction, p.directionBasis, p.moneyNature])).toEqual([['neutral', null, 'ordinary']]);
+    const d = review(out).draft;
+    expect(recommendedSide(d)).toEqual({ role: 'customer', reason: 'contract' });
+    expect(withRecommendedRole(d).payments.map((p) => [p.direction, p.directionBasis])).toEqual([['expense', 'role']]);
   });
-  test('대출: 차주가 원리금을 냄 → 출금 (대출기관은 회사)', () => {
+  test('대출: 추천은 차주(원리금을 냄) · 확인하면 출금', () => {
     const out = contract({ cls: { kind: 'loan', subtype: 'credit' }, title: '신용대출', payments: [pay({ kind: 'loan_repayment', label: '월 원리금', amount: 312000 })] });
-    expect(toAppResult(out, 'openai').payments.map((p) => [p.direction, p.directionBasis])).toEqual([['expense', 'contract']]);
+    expect(toAppResult(out, 'openai').payments.map((p) => [p.direction, p.directionBasis])).toEqual([['neutral', null]]);
+    expect(withRecommendedRole(review(out).draft).payments.map((p) => p.direction)).toEqual(['expense']);
   });
   test('매매 계약금(보증금 아님): 성격 일반 · 역할 모르면 확인 필요', () => {
     const out = contract({ cls: { kind: 'sale', subtype: 'goods' }, title: '장비 매매', payments: [once({ kind: 'down_payment', label: '계약금', amount: 1000000, date: '2026-10-10', ...q('계약금 1,000,000원') })] });

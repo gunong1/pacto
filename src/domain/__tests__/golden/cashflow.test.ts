@@ -10,7 +10,7 @@ import type { ContractDraft, FundDraft, PaymentDraft } from '@/data/repository';
 import { draftToForm, formToDraft } from '@/features/contracts/form';
 import { contractFormSchema } from '@/features/contracts/form';
 
-import { applyDirectionChanges, FUND_STATUS_LABEL, fundCashEntries, fundViews, natureOf, needsRoleQuestion, roleDirectionChanges, userSideOf } from '../../cashflow';
+import { applyDirectionChanges, FUND_STATUS_LABEL, fundCashEntries, fundViews, natureOf, needsRoleQuestion, recommendedSide, roleDirectionChanges, userSideOf } from '../../cashflow';
 import { summarizeCashflows } from '../../calendarGroups';
 import { matchUserParty, normalizePersonName } from '../../partyMatch';
 import { scheduleForRange } from '../../schedule';
@@ -271,11 +271,13 @@ describe('공통 구조 (계약 종류 공통 · 예전 데이터 · 화면 일�
     );
     expect(split(rec(d))).toMatchObject({ total: 50_000_000, ordinary: 50_000_000, depositOut: 0 });
   });
-  test('계약 구조상 사용자가 언제나 한쪽인 종류(렌탈·구독…)는 역할 없이도 방향이 명확 → 묻지 않음', () => {
+  test('사용자가 보통 한쪽인 종류(렌탈·구독…)는 그쪽을 추천만 — 확인 전에는 묻고, 방향은 확인한 역할로', () => {
     const d: ContractDraft = { ...EMPTY_DRAFT, title: '정수기 렌탈', contractKind: 'rental', contractType: 'recurring', payments: [P({ kind: 'recurring_fee', amount: 29_900, frequency: 'monthly', dayOfMonth: 10, startsOn: '2026-10-10', moneyNature: 'ordinary' })] };
-    expect(userSideOf(d)).toEqual({ role: 'customer', basis: 'contract' });
-    expect(needsRoleQuestion(d, d.payments)).toBe(false);
-    expect(roleDirectionChanges(d, d.payments).map((c) => [c.to, c.basis])).toEqual([['expense', 'contract']]);
+    expect(userSideOf(d)).toBeNull();
+    expect(recommendedSide(d)).toEqual({ role: 'customer', reason: 'contract' });
+    expect(needsRoleQuestion(d, d.payments)).toBe(true);
+    expect(roleDirectionChanges(d, d.payments)).toEqual([]);
+    expect(roleDirectionChanges({ ...d, userPartyRole: 'customer' }, d.payments).map((c) => [c.to, c.basis])).toEqual([['expense', 'role']]);
   });
   test('근로: 근로자 확정 → 급여 입금 / 고용주 확정 → 급여 출금', () => {
     const d: ContractDraft = { ...EMPTY_DRAFT, title: '근로계약', contractKind: 'employment', contractType: 'employment', payments: [P({ kind: 'salary', amount: 3_000_000, frequency: 'monthly', dayOfMonth: 25, startsOn: '2026-10-25', moneyNature: 'ordinary' })] };

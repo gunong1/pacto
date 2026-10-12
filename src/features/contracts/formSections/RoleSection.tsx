@@ -13,7 +13,7 @@ import { Pressable, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Badge, TextField } from '@/components/ui/controls';
-import { needsRoleQuestion, roleDirectionChanges, userSideOf, type DirectionChange } from '@/domain/cashflow';
+import { needsRoleQuestion, recommendedSide, roleDirectionChanges, type DirectionChange } from '@/domain/cashflow';
 import { DIRECTION_LABEL } from '@/domain/contractTypes';
 import { formatWon, parseAmount } from '@/domain/money';
 import { partiesFromInputs, partyRoleLabel } from '@/domain/parties';
@@ -54,10 +54,9 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
   const role = values.userPartyRole || null;
   const relation = (values.userPartyRelation || null) as PartyRelation | null;
   const ctx = { contractKind: values.contractKind || null, contractType: values.contractType, userPartyRole: role, userPartyRelation: relation, parties };
-  const needs = needsRoleQuestion(ctx, payments, (values.funds ?? []).length > 0, names);
-  // 계약 구조로 정해진 쪽 (렌탈·구독·통신 … 의 고객) — 묻지 않고 보여주기만, 언제든 "변경"
-  const side = userSideOf(ctx);
-  const structural = !role && relation !== 'unknown' && side?.basis === 'contract' && payments.length > 0;
+  const needs = needsRoleQuestion(ctx, payments, (values.funds ?? []).length > 0);
+  // 추천 역할 (등록한 이름 일치 → 계약 종류상 보통 이쪽) — 추천일 뿐, 사용자가 눌러야 확정 (확정 전에는 합계에 넣지 않음)
+  const rec = recommendedSide(ctx, names);
   const termOf = (r: string) => parties.find((p) => p.role === r && p.term)?.term ?? null;
   const match = matchUserParty(kind, parties, names);
 
@@ -68,7 +67,7 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
 
   const showQuestion = (needs && !role) || open;
   // 역할에 영향을 받는 금액이 없고 확정한 역할도 없으면 이 섹션을 그리지 않는다 (모든 계약에서 묻지 않음)
-  if (!showQuestion && !role && relation !== 'unknown' && !structural) return null;
+  if (!showQuestion && !role && relation !== 'unknown') return null;
 
   const apply = (choice: Choice, changes: DirectionChange[]) => {
     setValue('userPartyRole', choice.role ?? '', { shouldDirty: true });
@@ -90,14 +89,19 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
   // 선택지: 계약서 당사자(이름 포함). 당사자를 찾지 못했으면 그 종류의 역할 이름만
   // + 계약서에 이름이 없는 주요 역할 (예: 근로계약서에 회사만 적힌 경우 "근로자")
   const options = [
-    ...parties.map((p, i) => ({ key: `p${i}`, role: p.role, label: `${partyRoleLabel(kind, p.role, p.term)} · ${p.name}`, recommended: match.status === 'match' && match.partyIndex === i })),
+    ...parties.map((p, i) => ({
+      key: `p${i}`,
+      role: p.role,
+      label: `${partyRoleLabel(kind, p.role, p.term)} · ${p.name}`,
+      recommended: rec?.reason === 'name' ? match.status === 'match' && match.partyIndex === i : rec?.role === p.role && parties.findIndex((x) => x.role === p.role) === i,
+    })),
     ...partyRolesOf(kind)
       .filter((r) => r.main && !parties.some((p) => p.role === r.code))
-      .map((r) => ({ key: r.code, role: r.code, label: parties.length > 0 ? `${r.label} (계약서에 이름 없음)` : r.label, recommended: false })),
+      .map((r) => ({ key: r.code, role: r.code, label: parties.length > 0 ? `${r.label} (계약서에 이름 없음)` : r.label, recommended: rec?.role === r.code })),
   ];
 
-  const shownRole = role ?? (structural ? side!.role : null);
-  const current = shownRole ? partyRoleLabel(kind, shownRole, termOf(shownRole)) : null;
+  const current = role ? partyRoleLabel(kind, role, termOf(role)) : null;
+  const recLabel = rec ? partyRoleLabel(kind, rec.role, termOf(rec.role)) : null;
   return (
     <View style={{ marginTop: spacing.md }} testID="role-section">
       <FormLabel label="이 계약에서 누구세요?" flagged={needs && !role && relation !== 'unknown'} />
@@ -106,7 +110,7 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
           <AppText variant="body2" testID="role-current">
             {current ? `${relation === 'on_behalf' ? '관리하는 분' : '나'}: ${current}` : '잘 모르겠어요 — 방향을 정할 수 없는 금액은 확인 필요로 둬요'}
           </AppText>
-          {role ? <Badge label="확정" tone="primary" /> : structural ? <Badge label="계약 구조로 정리" tone="neutral" /> : null}
+          {current ? <Badge label="확정" tone="primary" /> : null}
           <View style={{ flex: 1 }} />
           <Pressable onPress={() => setOpen(true)} accessibilityRole="button" testID="role-change">
             <AppText variant="captionStrong" color="primary">
@@ -119,6 +123,11 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
           <AppText variant="caption" color="textTertiary" style={{ marginBottom: spacing.sm }}>
             {onBehalf ? '관리하는 분은 계약에서 어느 쪽인가요? 그분 기준으로 돈이 나가고 들어오는 것을 정리해요.' : '내 역할에 따라 돈이 나가는지 들어오는지, 보증금을 돌려받는지 돌려주는지가 달라져요.'}
           </AppText>
+          {rec && recLabel && !onBehalf ? (
+            <AppText variant="caption" color="primary" style={{ marginBottom: spacing.sm }} testID="role-recommendation">
+              {rec.reason === 'name' ? `추천: ${recLabel} — 등록한 이름과 같은 당사자예요.` : `추천: ${recLabel} — 이 종류의 계약에서는 보통 이쪽이에요.`} 맞으면 눌러서 확인해주세요. 확인 전에는 합계에 넣지 않아요.
+            </AppText>
+          ) : null}
           {names.length === 0 && !profile.data?.contractNamesSkipped && parties.length > 0 && !onBehalf ? (
             <View style={{ backgroundColor: colors.bgSubtle, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md }} testID="contract-name-prompt">
               <AppText variant="body2Strong">계약서에 사용되는 이름을 알려주세요.</AppText>
@@ -142,7 +151,7 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
             </AppText>
           ) : null}
           {options.map((o) => (
-            <RoleOption key={o.key} label={o.label} recommended={!onBehalf && o.recommended} selected={pending?.choice.role === o.role} onPress={() => choose({ role: o.role, relation: onBehalf ? 'on_behalf' : 'self' })} testID={`role-option-${o.key}`} />
+            <RoleOption key={o.key} label={o.label} recommended={!onBehalf && o.recommended ? rec?.reason ?? 'name' : false} selected={pending?.choice.role === o.role} onPress={() => choose({ role: o.role, relation: onBehalf ? 'on_behalf' : 'self' })} testID={`role-option-${o.key}`} />
           ))}
           {onBehalf ? (
             <RoleOption label="← 내 계약이에요" onPress={() => setOnBehalf(false)} testID="role-option-self" />
@@ -189,7 +198,7 @@ export function RoleSection({ kit, kind }: { kit: FormKit; kind: string }) {
   );
 }
 
-function RoleOption({ label, recommended, selected, onPress, testID }: { label: string; recommended?: boolean; selected?: boolean; onPress: () => void; testID: string }) {
+function RoleOption({ label, recommended, selected, onPress, testID }: { label: string; recommended?: 'name' | 'contract' | false; selected?: boolean; onPress: () => void; testID: string }) {
   return (
     <Pressable
       onPress={onPress}
@@ -211,7 +220,7 @@ function RoleOption({ label, recommended, selected, onPress, testID }: { label: 
       <AppText variant="body2" style={{ flex: 1 }}>
         {label}
       </AppText>
-      {recommended ? <Badge label="추천 · 등록한 이름과 같아요" tone="primary" /> : null}
+      {recommended ? <Badge label={recommended === 'name' ? '추천 · 등록한 이름과 같아요' : '추천'} tone="primary" /> : null}
     </Pressable>
   );
 }

@@ -4,6 +4,7 @@
  * (playwright가 프로젝트 의존성이 아니면 PLAYWRIGHT_MODULE=<경로>로 지정)
  * 날짜 의존: 2026년 10월 기준 mock 데이터로 작성 (10/12 결제 확인 등).
  */
+const confirmRecommendedRole = require('./confirmRole');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('path');
 const SHOTS = process.env.SHOTS_DIR || path.join(__dirname, 'shots');
@@ -92,6 +93,7 @@ const log = (...a) => console.log('✔', ...a);
   log('6 확인 화면: 유형=월 납입형, 결제 2건(렌탈료+설치비), 결제일 10 → 12 수정');
 
   // 7. 계약 저장
+  await confirmRecommendedRole(page); // 추천 역할(이용자·고객) 확인
   await page.click(tid('submit-contract'));
   await page.waitForSelector(tid('detail-title'), { timeout: 10000 });
   await page.waitForTimeout(400);

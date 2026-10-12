@@ -5,6 +5,7 @@
  * + 락커 "이용 시작"을 등록하면 그때부터 결제로 반영
  * 사용: BASE_URL=http://localhost:8082 node e2e/gym-obligation.js  (기기 날짜 2026-10-06 기준)
  */
+const confirmRecommendedRole = require('./confirmRole');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('path');
 const BASE = process.env.BASE_URL || 'http://localhost:8082';
@@ -59,6 +60,7 @@ const PDF = require('./cleanPdf')();
     cards.map((c) => c.split('\n').slice(0, 2).join(' ')).join(' | ') + ' / ' + reviewChecks.replace(/\n/g, ' ').slice(0, 200));
 
   // 저장 → 상세
+  await confirmRecommendedRole(page); // 추천 역할(이용자·고객) 확인
   await page.click(tid('submit-contract'));
   await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
   await page.waitForTimeout(500);

@@ -7,6 +7,7 @@ import { activateCheckCost, activateCost, recordToDraft } from '@/data/draft';
 import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { ContractDraft, CreateContractInput, NewEventInput, RefundInput } from '@/data/repository';
 import { todayInSeoul } from '@/domain/dates';
+import { withConfirmedRole } from '@/domain/cashflow';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
 
 export const notificationKeys = {
@@ -94,6 +95,12 @@ export function useContractActions(id: string) {
       const r = await contractRepository.get(id);
       if (!r) throw new Error('계약을 찾을 수 없어요.');
       return contractRepository.update(id, { ...recordToDraft(r), valueSources: { ...r.contract.valueSources, [path]: 'user_confirmed' } });
+    }),
+    /** "이 계약에서 누구세요?" 확인 (홈의 추천 "맞아요" 등) — 역할에 따라 바뀌는 결제만 다시 계산, 결제 id·사용자가 고른 방향은 그대로 */
+    confirmRole: useAction(async (role: string | null, relation: 'self' | 'on_behalf' | 'unknown' = role ? 'self' : 'unknown') => {
+      const r = await contractRepository.get(id);
+      if (!r) throw new Error('계약을 찾을 수 없어요.');
+      return contractRepository.update(id, withConfirmedRole(recordToDraft(r), role, relation));
     }),
     /** 선택형·조건부 비용이 실제로 생김 (락커 이용 시작, 회원권 양도) → 그날부터 확정 결제 */
     /** 보증금·예치금 실제 반환 기록 (원래 지급 결제는 그대로) · 기록 삭제 */
