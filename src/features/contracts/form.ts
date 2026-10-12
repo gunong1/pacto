@@ -3,9 +3,8 @@ import { z } from 'zod';
 
 import { NOTICE_KINDS } from '@/domain/noticeKind';
 import { legacyDetailParties, partiesFromInputs, partiesToInputs, partyKindOf, partyTermsOf, type ContractParty } from '@/domain/parties';
-import { normalizePartyRoles } from '../../../supabase/functions/_shared/contractRegistry';
 import type { ContractDraft, DateDraft, FundDraft, PaymentDraft } from '@/data/repository';
-import { DIRECTION_BASES, MONEY_NATURES, PARTY_RELATIONS } from '../../../supabase/functions/_shared/contractRegistry';
+import { DIRECTION_BASES, MONEY_NATURES, normalizePartyRoles, PARTY_RELATIONS } from '../../../supabase/functions/_shared/contractRegistry';
 import {
   BUSINESS_DAY_RULES,
   PAYMENT_OBLIGATIONS,
