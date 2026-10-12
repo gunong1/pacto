@@ -101,7 +101,7 @@ const firstBox = (r: Row<'document_sensitive_regions'>): { x: number; y: number 
 };
 
 const PAGE_KINDS = new Set(['text', 'scan', 'unsupported']);
-const PAGE_STATUSES = new Set(['protected', 'no_sensitive_data', 'unreadable', 'unsupported_scan', 'failed', 'skipped']);
+const PAGE_STATUSES = new Set(['protected', 'no_sensitive_data', 'unreadable', 'needs_review', 'unsupported_scan', 'failed', 'skipped']);
 /** 페이지별 상태 (모양이 다르면 버린다) */
 function toProtectionPages(v: unknown): ProtectionPage[] {
   if (!Array.isArray(v)) return [];

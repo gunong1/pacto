@@ -194,9 +194,16 @@ interface Candidate {
   contextLabel: string | null;
 }
 
+/**
+ * 공통 구분자 — 모든 유형이 같은 규칙을 쓴다 (유형마다 다르면 OCR 간격에 따라 어떤 값은 잡고 어떤 값은 놓친다).
+ * 하이픈 앞뒤 공백 1개까지 허용. 여러 대시 모양(—, ㅡ 등)은 탐지 전에 하이픈으로 맞춘다(shadowText).
+ */
+const HY = String.raw`\s?-\s?`;
+const SEP = String.raw`(?:\s?-\s?|[. ])`;
+
 function* residentNumbers(text: string): Generator<Candidate> {
   // 하이픈 있음: 901225-1234567 (공백 허용)
-  const re = /(?<![\d-])(\d{2})(\d{2})(\d{2})\s?-\s?([1-8])(\d{6})(?![\d-])/g;
+  const re = new RegExp(String.raw`(?<![\d-])(\d{2})(\d{2})(\d{2})${HY}([1-8])(\d{6})(?![\d-])`, 'g');
   for (const m of text.matchAll(re)) {
     if (!validBirthDate(m[1], m[2], m[3])) continue;
     const start = m.index!, end = start + m[0].length;
@@ -219,7 +226,8 @@ function* residentNumbers(text: string): Generator<Candidate> {
 }
 
 function* cardNumbers(text: string): Generator<Candidate> {
-  const re = /(?<![\d-])(?:\d{4}([ -])\d{4}\1\d{4}\1\d{4}|\d{4}([ -])\d{6}\2\d{5}|\d{16})(?![\d-])/g;
+  const C = String.raw`(?:${HY}| )`;
+  const re = new RegExp(String.raw`(?<![\d-])(?:\d{4}${C}\d{4}${C}\d{4}${C}\d{4}|\d{4}${C}\d{6}${C}\d{5}|\d{16})(?![\d-])`, 'g');
   for (const m of text.matchAll(re)) {
     const start = m.index!, end = start + m[0].length;
     const digits = m[0].replace(/\D/g, '');
@@ -239,12 +247,13 @@ function* cardNumbers(text: string): Generator<Candidate> {
 
 function* bankAccounts(text: string): Generator<Candidate> {
   // 계좌번호는 형태가 은행마다 달라 필드명(계좌·은행·입금 …)이 있을 때만 판단한다
-  const re = /(?<![\d-])(?:\d{2,6}(?:-\d{2,7}){1,3}|\d{10,14})(?![\d-])/g;
+  const re = new RegExp(String.raw`(?<![\d-])(?:\d{2,6}(?:${HY}\d{2,7}){1,3}|\d{10,14})(?![\d-])`, 'g');
   for (const m of text.matchAll(re)) {
     const digits = m[0].replace(/\D/g, '');
     if (digits.length < 10 || digits.length > 16) continue;
-    if (/^01[016789]/.test(digits) && digits.length <= 11 && /^01[016789]-?\d{3,4}-?\d{4}$/.test(m[0])) continue; // 휴대전화
-    if (/^(19|20)\d{2}-\d{1,2}-\d{1,2}$/.test(m[0])) continue; // 날짜
+    const compact = m[0].replace(/\s/g, '');
+    if (/^01[016789]/.test(digits) && digits.length <= 11 && /^01[016789]-?\d{3,4}-?\d{4}$/.test(compact)) continue; // 휴대전화
+    if (/^(19|20)\d{2}-\d{1,2}-\d{1,2}$/.test(compact)) continue; // 날짜
     const start = m.index!, end = start + m[0].length;
     const ctx = nearestLabel(text, start, 'bank_account');
     if (ctx.kind !== 'positive') continue;
@@ -255,7 +264,8 @@ function* bankAccounts(text: string): Generator<Candidate> {
 }
 
 function* phones(text: string): Generator<Candidate> {
-  for (const m of text.matchAll(/(?<![\d-])(01[016789])([-. ]?)(\d{3,4})\2(\d{4})(?![\d-])/g)) {
+  // 구분자는 공통 규칙 — 앞뒤 구분자가 달라도(010-1234 5678) 같은 번호로 본다
+  for (const m of text.matchAll(new RegExp(String.raw`(?<![\d-])(01[016789])(${SEP}?)(\d{3,4})${SEP}?(\d{4})(?![\d-])`, 'g'))) {
     const start = m.index!, end = start + m[0].length;
     const ctx = nearestLabel(text, start, 'phone');
     if (ctx.kind === 'exclude') continue;
@@ -263,7 +273,7 @@ function* phones(text: string): Generator<Candidate> {
     yield { type: 'phone', confidence: 'high', start, end, hide: [[midStart, midStart + m[3].length]], contextLabel: ctx.label };
   }
   // 일반전화: 구분자가 있을 때만, 필드명이 있으면 high
-  for (const m of text.matchAll(/(?<![\d-])(0(?:2|[3-6][1-5]|70))([-) ])(\d{3,4})-(\d{4})(?![\d-])/g)) {
+  for (const m of text.matchAll(new RegExp(String.raw`(?<![\d-])(0(?:2|[3-6][1-5]|70))(${HY}|\)\s?| )(\d{3,4})${HY}(\d{4})(?![\d-])`, 'g'))) {
     const start = m.index!, end = start + m[0].length;
     const ctx = nearestLabel(text, start, 'phone');
     if (ctx.kind === 'exclude') continue;
@@ -282,11 +292,49 @@ function* emails(text: string): Generator<Candidate> {
   }
 }
 
+/** 대시처럼 쓰이는 글자 (OCR·손글씨·문서마다 다른 모양) → 하이픈 */
+const DASH_LIKE = /[‐‑‒–—―−－ㅡ一]/;
+/** 숫자 사이에서 OCR이 흔히 바꿔 읽는 글자 → 숫자 (필드명이 있을 때만 인정 — 아래 detectSensitive) */
+const DIGIT_LIKE: Record<string, string> = { O: '0', o: '0', D: '0', l: '1', I: '1', '|': '1' };
+
+/**
+ * 탐지용 그림자 문자열 — 원문과 길이가 같아 위치(start/end/hide)를 그대로 쓴다.
+ * 대시 모양은 하이픈으로, 숫자 바로 옆의 O·l 같은 글자는 숫자로 바꾼다. subst[i]: 숫자로 바꾼 글자.
+ */
+export function shadowText(text: string): { text: string; subst: boolean[] } {
+  const chars = [...text].map((c) => (DASH_LIKE.test(c) ? '-' : c));
+  const subst = chars.map(() => false);
+  // 숫자 옆의 혼동 글자 (연속으로 붙은 것도: O1O → 010)
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < chars.length; i++) {
+      const d = DIGIT_LIKE[chars[i]];
+      if (!d) continue;
+      const near = (j: number) => j >= 0 && j < chars.length && /\d/.test(chars[j]);
+      const letter = (j: number) => j >= 0 && j < chars.length && /[A-Za-z]/.test(chars[j]);
+      // 영어 단어의 일부(Tel010, ID3)는 바꾸지 않는다
+      if ((near(i - 1) || near(i + 1)) && !letter(i - 1) && !letter(i + 1)) {
+        chars[i] = d;
+        subst[i] = true;
+      }
+    }
+  }
+  return { text: chars.join(''), subst };
+}
+
 /** 텍스트(한 줄 또는 문장)에서 민감정보 탐지. 겹치면 강한 보호 유형·높은 신뢰도가 우선 */
-export function detectSensitive(text: string): Detection[] {
+export function detectSensitive(raw: string): Detection[] {
   const rank = { high: 3, medium: 2, low: 1 } as const;
   const order: SensitiveType[] = ['resident_registration_number', 'foreigner_registration_number', 'credit_card', 'bank_account', 'phone', 'email'];
-  const all = [...residentNumbers(text), ...cardNumbers(text), ...bankAccounts(text), ...phones(text), ...emails(text)].sort(
+  // 대시 모양·혼동 글자를 맞춘 문자열로 찾는다 (길이가 같아 위치는 원문 그대로). 이메일은 원문으로 (글자를 바꾸지 않는다)
+  const sh = raw.length === [...raw].length ? shadowText(raw) : { text: raw, subst: [] as boolean[] };
+  const text = sh.text;
+  // 혼동 글자를 숫자로 본 값은 그 유형의 필드명이 바로 앞에 있을 때만 인정한다 (오탐 방지)
+  const usable = (c: Candidate) => {
+    let substituted = false;
+    for (let i = c.start; i < c.end; i++) if (sh.subst[i]) substituted = true;
+    return !substituted || nearestLabel(text, c.start, c.type).kind === 'positive';
+  };
+  const all = [...residentNumbers(text), ...cardNumbers(text), ...bankAccounts(text), ...phones(text), ...emails(raw)].filter(usable).sort(
     (a, b) => rank[b.confidence] - rank[a.confidence] || order.indexOf(a.type) - order.indexOf(b.type) || a.start - b.start,
   );
   const picked: Candidate[] = [];
@@ -296,7 +344,7 @@ export function detectSensitive(text: string): Detection[] {
   }
   return picked
     .sort((a, b) => a.start - b.start)
-    .map((c) => ({ ...c, level: MASK_LEVEL[c.type], maskedPreview: preview(text, c.start, c.end, c.hide) }));
+    .map((c) => ({ ...c, level: MASK_LEVEL[c.type], maskedPreview: preview(raw, c.start, c.end, c.hide) }));
 }
 
 /**
@@ -361,4 +409,69 @@ export function detectionCounts(ds: Pick<Detection, 'type'>[]): string {
   const counts = new Map<string, number>();
   for (const d of ds) counts.set(d.type, (counts.get(d.type) ?? 0) + 1);
   return [...counts].map(([t, n]) => `${t}:${n}`).join(',') || 'none';
+}
+
+// ===== 필드명 기준 누락 검사 (OCR 문서) =====
+// "휴대전화·주민등록번호·계좌번호·카드번호" 필드명 뒤에 값처럼 보이는 숫자열이 있는데 탐지되지 않았으면
+// "민감정보 없음"이 아니라 "확인 필요"다 (OCR이 값을 다르게 읽었을 수 있다). 빈칸이면 정상.
+// 값의 원문은 반환하지 않는다 (위치만).
+
+/** 값 칸으로 볼 필드명 — 문장 속 일반 단어(전화로 통지 등)는 뒤에 값 모양 숫자열이 있을 때만 의미가 있다 */
+const FIELD_LABEL: Partial<Record<SensitiveType, RegExp>> = {
+  resident_registration_number: /주민\s*등록\s*번호|주민\s*번호|외국인\s*등록\s*번호|생년월일\s*및\s*성별/g,
+  phone: /휴대\s*전화(?:\s*번호)?|휴대폰(?:\s*번호)?|핸드폰|전화\s*번호|연락처|H\.?\s?P\.?|TEL|전화/gi,
+  bank_account: /계좌\s*번호|입금\s*계좌|계좌/g,
+  credit_card: /카드\s*번호/g,
+};
+/** 값으로 볼 최소 숫자(또는 숫자로 혼동되는 글자) 수 */
+const FIELD_MIN_DIGITS: Partial<Record<SensitiveType, number>> = { resident_registration_number: 10, phone: 8, bank_account: 8, credit_card: 12 };
+/** 필드명 뒤 이 글자 수 안(같은 줄)에서 값을 찾는다 */
+const FIELD_VALUE_WINDOW = 32;
+/** 숫자·혼동 글자와 그 사이 구분자로 이루어진 값 모양 */
+const VALUE_RUN = /[0-9OoDIl|](?:[\s\-‐‑‒–—―−－ㅡ一.·~_/?:()*]{0,3}[0-9OoDIl|])+/g;
+
+export interface UnresolvedField {
+  type: SensitiveType;
+  /** 필드명 위치 [labelStart, labelEnd) */
+  labelStart: number;
+  labelEnd: number;
+  /** 값으로 보이는 글자 위치 [valueStart, valueEnd) */
+  valueStart: number;
+  valueEnd: number;
+}
+
+/**
+ * 필드명은 있는데 탐지되지 않은 값 칸 — detections는 같은 text에 대한 detectSensitive 결과.
+ * 금액(원·쉼표)·날짜(년·월·일)·퍼센트는 값으로 보지 않는다. 제외 필드명(계약번호 등)이 더 가까우면 건너뛴다.
+ */
+export function findUnresolvedFields(text: string, detections: readonly Pick<Detection, 'start' | 'end'>[]): UnresolvedField[] {
+  const out: UnresolvedField[] = [];
+  const labels: { type: SensitiveType; start: number; end: number }[] = [];
+  for (const [type, re] of Object.entries(FIELD_LABEL) as [SensitiveType, RegExp][]) {
+    for (const m of text.matchAll(new RegExp(re.source, re.flags))) labels.push({ type, start: m.index!, end: m.index! + m[0].length });
+    for (const f of fuzzyLabelEnds(text, FUZZY_LABELS[type])) labels.push({ type, start: f.pos - f.label.length, end: f.pos });
+  }
+  labels.sort((a, b) => a.end - b.end);
+  for (const l of labels) {
+    // 같은 줄, 다음 필드명 전까지
+    const lineEnd = text.indexOf('\n', l.end);
+    let stop = Math.min(lineEnd < 0 ? text.length : lineEnd, l.end + FIELD_VALUE_WINDOW);
+    const next = labels.find((o) => o.start >= l.end && o.start < stop && !(o.start === l.start));
+    if (next) stop = next.start;
+    const win = text.slice(l.end, stop);
+    for (const m of win.matchAll(VALUE_RUN)) {
+      const vs = l.end + m.index!, ve = vs + m[0].length;
+      const digitLike = [...m[0]].filter((c) => /[0-9OoDIl|]/.test(c)).length;
+      const realDigits = [...m[0]].filter((c) => /\d/.test(c)).length;
+      if (digitLike < (FIELD_MIN_DIGITS[l.type] ?? 8) || realDigits * 2 < digitLike) continue;
+      // 금액·날짜·비율
+      if (/^\s*[원년월일%개]/.test(text.slice(ve, ve + 2)) || /,/.test(m[0])) continue;
+      if (detections.some((d) => vs < d.end && d.start < ve)) continue;
+      if (nearestLabel(text, vs, l.type).kind === 'exclude') continue;
+      // 같은 값을 여러 필드명(휴대전화 · 전화 · 오타 필드명)이 가리키면 한 번만
+      if (out.some((u) => vs < u.valueEnd && u.valueStart < ve)) continue;
+      out.push({ type: l.type, labelStart: l.start, labelEnd: l.end, valueStart: vs, valueEnd: ve });
+    }
+  }
+  return out;
 }

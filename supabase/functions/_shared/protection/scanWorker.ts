@@ -3,7 +3,7 @@
 // 원문 값·OCR 텍스트는 이 함수 안에서만 다루고 반환·로그에 쓰지 않는다.
 import type { OcrProvider } from './ocrProvider.ts';
 import type { ProtectedRegion, ProtectionStatus, RegionState } from './protect.ts';
-import { protectImageInput, redrawImageInput, type ImageInput, type ImageProtectDiagnostics } from './protectImage.ts';
+import { emptyImageDiag, protectImageInput, redrawImageInput, type ImageInput, type ImageProtectDiagnostics } from './protectImage.ts';
 import type { Orientation } from './scanGeometry.ts';
 import { prepareScan, ScanImageError, type PreparedScan, type ScanImageMeta } from './scanImage.ts';
 
@@ -81,13 +81,6 @@ export async function protectScanPage(raw: Uint8Array, job: ScanJob, ocr: OcrPro
   };
 }
 
-function emptyImageDiag(): ImageProtectDiagnostics {
-  return {
-    stage: 'info', errorCode: null, width: 0, height: 0, viewWidth: 0, viewHeight: 0, ocrFieldCount: 0, ocrCharCount: 0, meanConfidence: null,
-    detectedSensitiveCount: 0, maskedCount: 0, redactedRegionCount: 0, ocrCalls: 0, verification: 'skipped', verifyValueLeakCount: 0, verifyPositionLeakCount: 0,
-    timings: { ocrMs: 0, decodeMs: 0, renderMs: 0, checkMs: 0, verifyOcrMs: 0, totalMs: 0 },
-  };
-}
 
 // ── worker 요청·응답 형식 ──
 // 요청 본문: [4바이트 JSON 길이(big-endian)][JSON(ScanJob)][이미지 스트림 바이트]

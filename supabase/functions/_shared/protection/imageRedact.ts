@@ -215,3 +215,50 @@ export async function checkCoverage(bytes: Uint8Array, painted: readonly Box[]):
   }
   return { decodable: true, width: img.width, height: img.height, uncovered };
 }
+
+/** 영역 다시 읽기용 잘라낸 이미지의 최대 크기·확대 배율 (전체를 다시 OCR하지 않고 의심 칸만) */
+export const REREAD_MAX_SCALE = 3;
+export const REREAD_TARGET_HEIGHT = 240;
+export const REREAD_MAX_WIDTH = 2400;
+
+/**
+ * 의심 칸 잘라내기 → 확대(쌍선형) → 회색조 대비 늘리기 → JPEG.
+ * 손글씨·흐린 사진에서 작은 칸을 OCR이 더 잘 읽도록 하는 보정 — 결과는 메모리에서만 쓰고 저장하지 않는다.
+ */
+export function cropForReread(src: RgbImage, region: Box): { bytes: Uint8Array; width: number; height: number } {
+  const r = toPixelRect(region, src.width, src.height);
+  const cw = Math.max(1, r.x1 - r.x0), ch = Math.max(1, r.y1 - r.y0);
+  const scale = Math.max(1, Math.min(REREAD_MAX_SCALE, REREAD_TARGET_HEIGHT / ch, REREAD_MAX_WIDTH / cw));
+  const W = Math.max(1, Math.round(cw * scale)), H = Math.max(1, Math.round(ch * scale));
+  const gray = new Float32Array(W * H);
+  let lo = 255, hi = 0;
+  const at = (x: number, y: number) => {
+    const i = (y * src.width + x) * 4;
+    return 0.299 * src.data[i] + 0.587 * src.data[i + 1] + 0.114 * src.data[i + 2];
+  };
+  for (let y = 0; y < H; y++) {
+    const fy = Math.min(ch - 1, Math.max(0, (y + 0.5) / scale - 0.5));
+    const y0 = Math.floor(fy), y1 = Math.min(ch - 1, y0 + 1), dy = fy - y0;
+    for (let x = 0; x < W; x++) {
+      const fx = Math.min(cw - 1, Math.max(0, (x + 0.5) / scale - 0.5));
+      const x0 = Math.floor(fx), x1 = Math.min(cw - 1, x0 + 1), dx = fx - x0;
+      const v =
+        (at(r.x0 + x0, r.y0 + y0) * (1 - dx) + at(r.x0 + x1, r.y0 + y0) * dx) * (1 - dy) +
+        (at(r.x0 + x0, r.y0 + y1) * (1 - dx) + at(r.x0 + x1, r.y0 + y1) * dx) * dy;
+      gray[y * W + x] = v;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+  }
+  const span = Math.max(1, hi - lo);
+  const out = new Uint8Array(W * H * 4);
+  for (let p = 0; p < W * H; p++) {
+    const v = Math.round(((gray[p] - lo) / span) * 255);
+    out[p * 4] = v;
+    out[p * 4 + 1] = v;
+    out[p * 4 + 2] = v;
+    out[p * 4 + 3] = 255;
+  }
+  const enc = encodeJpeg({ width: W, height: H, data: out }, 92);
+  return { bytes: enc.data, width: W, height: H };
+}

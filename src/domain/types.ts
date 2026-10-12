@@ -201,7 +201,8 @@ export interface ContractDocument {
  * - unreadable: OCR이 충분히 읽지 못함 / unsupported_scan: 특수한 형식의 스캔 페이지(CCITT·JBIG2·CMYK·여러 이미지 등)·스캔 페이지 수 초과
  * - failed: 처리 못 함 / pending: 처리 전
  */
-export type ProtectionStatus = 'pending' | 'protected' | 'no_sensitive_data' | 'unreadable' | 'unsupported_scan' | 'failed';
+/** needs_review: 개인정보 칸(필드명)은 있는데 값의 위치·모양을 확정하지 못함 — 보호 완료로 보지 않고 자동 분석을 막는다 */
+export type ProtectionStatus = 'pending' | 'protected' | 'no_sensitive_data' | 'unreadable' | 'needs_review' | 'unsupported_scan' | 'failed';
 
 export interface SensitiveRegion {
   id: string;

@@ -1,7 +1,7 @@
 // OCR 결과 → 민감정보 탐지용 문자열 + 문자 ↔ OCR 조각(좌표) 대응표 (공급자 무관)
 // 사진 계약서 보호(향후 스캔 PDF 포함)에서 재사용한다: 정규화한 문자열로 찾아도 "어느 글자를 가려야 하는지"를 잃지 않도록.
 // 좌표는 이미지 크기 대비 0~1, 왼쪽 위 기준. 원문 값은 메모리에서만 다루고 저장·로그에 쓰지 않는다.
-import { detectSensitive, type Detection } from './sensitive.ts';
+import { detectSensitive, findUnresolvedFields, type Detection, type UnresolvedField } from './sensitive.ts';
 
 export interface Box {
   x: number;
@@ -97,8 +97,21 @@ export interface OcrDetection {
 
 /** 민감정보 찾기 + 위치 연결 */
 export function detectOnTokens(tokens: readonly OcrToken[]): OcrDetection[] {
-  const { text, owner } = buildText(tokens);
-  return detectSensitive(text).map((d) => {
+  return analyzeTokens(tokens).found;
+}
+
+/**
+ * 한 페이지 OCR 결과 분석: 탐지(위치 연결) + 필드명은 있는데 값을 탐지하지 못한 칸(findUnresolvedFields).
+ * 같은 탐지기·같은 필드명 규칙을 쓴다 (문서 종류마다 다른 규칙 없음).
+ */
+export function analyzeTokens(tokens: readonly OcrToken[]): { mapped: MappedText; found: OcrDetection[]; unresolved: UnresolvedField[] } {
+  const mapped = buildText(tokens);
+  const detections = detectSensitive(mapped.text);
+  return { mapped, found: locate(tokens, mapped, detections), unresolved: findUnresolvedFields(mapped.text, detections) };
+}
+
+function locate(tokens: readonly OcrToken[], { text, owner }: MappedText, detections: Detection[]): OcrDetection[] {
+  return detections.map((d) => {
     const idx = new Set<number>();
     let complete = true;
     for (let i = d.start; i < d.end; i++) {

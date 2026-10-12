@@ -50,6 +50,13 @@ export function protectionCopy(p: DocumentProtection | undefined): { title: stri
     case 'unreadable':
       // 사진·스캔 페이지를 충분히 읽지 못함 — "민감정보 없음"으로 보이지 않게
       return { title: '민감정보 보호를 완료하지 못했어요', body: `문서 일부를 정확하게 읽지 못했습니다.${pagesNote(p, 'unreadable')} 원본을 직접 확인해주세요.`, tone: 'warning' };
+    case 'needs_review':
+      // 개인정보 칸은 있는데 값을 정확히 읽지 못함 — 보호 완료로 보이지 않게, 자동 분석도 하지 않는다
+      return {
+        title: '민감정보 보호 확인이 필요해요',
+        body: `휴대전화·주민등록번호 같은 개인정보 칸의 값을 정확히 읽지 못했어요.${pagesNote(p, 'needs_review')} 안전을 위해 자동으로 분석하지 않았어요. 더 선명하게 다시 촬영하거나 직접 입력해주세요.`,
+        tone: 'warning',
+      };
     case 'unsupported_scan':
       // 자동 보호 이전에 등록한 사진·스캔 PDF — 지금은 보호할 수 있다 (보호하기 버튼)
       if (p.detail === 'image_file') {
@@ -97,6 +104,7 @@ const pagesNote = (p: DocumentProtection, status: string) => (pageList(p, status
 
 /** 실패 사유별 안내 (원문·기술 용어 없이 — 내부 오류 코드를 보여주지 않는다) */
 function failedReason(detail: string | null | undefined): string {
+  if (detail === 'verification_missed') return '가린 뒤 다시 확인했을 때 가려지지 않은 개인정보가 남아 있어 보호를 완료하지 않았어요. ';
   if (detail && /^ocr_(?!layer)|^verification_|^scan_worker|^scan_incomplete/.test(detail)) return '잠시 후 다시 시도해주세요. ';
   if (detail && /^scan_image|^ocr_layer_mismatch/.test(detail)) return '스캔 페이지의 글자 위치를 정확히 확인하지 못해 자동으로 가리지 않았어요. ';
   switch (detail) {
@@ -128,7 +136,7 @@ function failedReason(detail: string | null | undefined): string {
 export const canProtect = (p: DocumentProtection | undefined) =>
   !!p &&
   p.access !== 'unsupported_encryption' &&
-  (p.status === 'pending' || p.status === 'failed' || (p.status === 'unsupported_scan' && (p.detail === 'image_file' || p.detail === LEGACY_SCAN_DETAIL)));
+  (p.status === 'pending' || p.status === 'failed' || p.status === 'needs_review' || (p.status === 'unsupported_scan' && (p.detail === 'image_file' || p.detail === LEGACY_SCAN_DETAIL)));
 
 /**
  * 여러 장(문서)의 전체 보호 상태 — 보수적으로: 모든 장이 보호됨 또는 감지되지 않음일 때만 완료.

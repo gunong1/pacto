@@ -13,7 +13,7 @@ import { assembleProtectedPdf, classifyPage, rawImageBytes } from './scanPdf.ts'
 import type { ScanJob, ScanPageOutcome } from './scanWorker.ts';
 import { defaultRegionState, detectSensitive, MASK_LEVEL, type DetectionConfidence, type SensitiveType } from './sensitive.ts';
 
-export type ProtectionStatus = 'protected' | 'no_sensitive_data' | 'unreadable' | 'unsupported_scan' | 'failed';
+export type ProtectionStatus = 'protected' | 'no_sensitive_data' | 'unreadable' | 'needs_review' | 'unsupported_scan' | 'failed';
 export type RegionState = 'masked' | 'unmasked' | 'candidate';
 
 export interface ProtectedRegion {
@@ -652,7 +652,7 @@ export async function protectPdf(
   const statuses = pageOut.map((p) => p.status);
   const all = [...regions, ...scanRegions];
   const pick = (s: PageStatus) => pageOut.find((p) => p.status === s);
-  for (const s of ['failed', 'unsupported_scan', 'unreadable'] as const) {
+  for (const s of ['failed', 'unsupported_scan', 'unreadable', 'needs_review'] as const) {
     const p = pick(s);
     if (p) {
       diag.failureStage = s === 'failed' ? 'redact' : 'classify';

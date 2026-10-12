@@ -24,6 +24,8 @@ export interface OcrImage {
   /** 실제 OCR 대상 이미지의 픽셀 크기 — 좌표를 0~1로 바꾸는 기준 */
   width: number;
   height: number;
+  /** 의심 칸만 잘라 다시 읽을 때 — 원래 페이지에서 이 이미지가 차지하는 영역(0~1). 공급자는 쓰지 않는다 (진단·테스트용) */
+  region?: { x: number; y: number; w: number; h: number };
 }
 
 export interface OcrProvider {
