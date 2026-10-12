@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { before, describe, test } from 'node:test';
 
 import type { RgbImage } from '../../supabase/functions/_shared/protection/imageRedact.ts';
-import { protectPdf, protectPdfSelected } from '../../supabase/functions/_shared/protection/protect.ts';
+import { protectPdf, protectPdfSelected, protectPdfWithPolicy } from '../../supabase/functions/_shared/protection/protect.ts';
 import { subsetPdf } from '../../supabase/functions/_shared/protection/pageSelection.ts';
 import { PDFDocument } from '../../supabase/functions/_shared/vendor/pdf-lib.js';
 import { extractText, getDocumentProxy } from '../../supabase/functions/_shared/vendor/unpdf.js';
@@ -113,6 +113,35 @@ describe('정상 1쪽 + 읽기 어려운 2쪽', () => {
     const text = await textOf(r.protectedPdf!);
     assert.ok(text.includes('임대차계약서'));
     assert.ok(!text.includes('1234567'));
+  });
+
+  test('7. 자동 제외(공통 정책): 정상 1쪽 + 읽지 못한 2쪽 → 2쪽만 자동으로 빼고 protected · 보호본 1쪽 · 자동/직접 구분 · 품질 숫자 유지 · 원본 그대로', async () => {
+    const before = sha(pdf);
+    const r = await protectPdfWithPolicy(pdf, { userExcluded: [] }, new Map(), {}, { scan: localRunner(new FakeOcr()) });
+    assert.equal(r.status, 'protected', String(r.detail));
+    assert.deepEqual(r.autoExcluded, [2]);
+    assert.deepEqual(r.viewPages, [1]);
+    assert.deepEqual(r.pages.map((p) => [p.page, p.status, p.detail]), [[1, 'protected', null], [2, 'excluded', 'auto_unreadable']]);
+    assert.equal(r.pages[1].quality?.reason, 'too_few_chars');
+    assert.equal((await PDFDocument.load(r.protectedPdf!)).getPageCount(), 1);
+    assert.equal(sha(pdf), before);
+  });
+
+  test('8. 모든 페이지를 읽지 못하면 자동 제외하지 않음 → 문서 unreadable 그대로 (분석 중단)', async () => {
+    const allMemo = await buildPdf([memoScan, memoScan]);
+    const r = await protectPdfWithPolicy(allMemo, { userExcluded: [] }, new Map(), {}, { scan: localRunner(new FakeOcr()) });
+    assert.equal(r.status, 'unreadable');
+    assert.deepEqual(r.autoExcluded, []);
+    assert.equal(r.protectedPdf, null);
+  });
+
+  test('9. 사용자 제외 + 자동 제외 함께: 사용자가 1쪽을 빼고, 읽지 못한 3쪽은 자동 → 2쪽만 보호 · 표시 구분', async () => {
+    const three = await buildPdf([contractScan, contractScan, memoScan]);
+    const r = await protectPdfWithPolicy(three, { userExcluded: [1] }, new Map(), {}, { scan: localRunner(new FakeOcr()) });
+    assert.equal(r.status, 'protected', String(r.detail));
+    assert.deepEqual(r.autoExcluded, [3]);
+    assert.deepEqual(r.viewPages, [2]);
+    assert.deepEqual(r.pages.map((p) => [p.page, p.status, p.detail]), [[1, 'excluded', 'user'], [2, 'protected', null], [3, 'excluded', 'auto_unreadable']]);
   });
 
   test('6. 남은 페이지에 민감정보가 없으면 no_sensitive_data · 보호본 없음 (분석은 남은 페이지만 메모리에서 잘라 보냄)', async () => {

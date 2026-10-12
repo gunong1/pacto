@@ -599,7 +599,8 @@ export async function protectPdf(
   markTextPages('protected');
   if (scanIdx.length === 0) return { status: 'protected', detail: null, imagesUnchecked, regions, protectedPdf: out, pageCount, diagnostics: diag, ...base };
 
-  // ── 스캔 페이지: worker(protect-scan-page)에 한 장씩 (동시 SCAN_CONCURRENCY장). 하나라도 실패·읽지 못함이면 남은 페이지는 처리하지 않는다 ──
+  // ── 스캔 페이지: worker(protect-scan-page)에 한 장씩 (동시 SCAN_CONCURRENCY장). 실패·확인 필요·미지원이면 남은 페이지는 처리하지 않는다 ──
+  // 읽지 못함(unreadable)은 멈추지 않는다 — 어느 페이지를 읽지 못했는지 모두 알아야 그 페이지만 자동 제외할 수 있다 (autoExcludablePages)
   if (!options.scan) {
     scanIdx.forEach((i) => Object.assign(pageOut[i], { status: 'failed', detail: 'ocr_not_configured' }));
     return fail('ocr_not_configured', 'classify');
@@ -637,7 +638,7 @@ export async function protectPdf(
         sourceBytes: d?.sourceBytes ?? 0, imageBytes: r.image?.byteLength ?? 0, width: d?.width ?? 0, height: d?.height ?? 0, viewWidth: r.width, viewHeight: r.height,
         detectedSensitiveCount: d?.detectedSensitiveCount ?? 0, verification: d?.verification ?? 'skipped', timings: d ? { prepareMs: d.prepareMs, ...d.timings } : null,
       });
-      if (r.status !== 'protected' && r.status !== 'no_sensitive_data') stop = true;
+      if (r.status !== 'protected' && r.status !== 'no_sensitive_data' && r.status !== 'unreadable') stop = true;
     }
   };
   await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, scanIdx.length) }, work));
@@ -758,4 +759,54 @@ export async function protectPdfSelected(
     scanMetrics: r.scanMetrics.map((m) => ({ ...m, page: toOrig(m.page) })),
     viewPages: r.protectedPdf ? keep : null,
   };
+}
+
+/**
+ * 자동 제외할 페이지 — 글자를 거의 읽지 못한(unreadable) 페이지만.
+ * 다른 문제(확인 필요·실패·미지원·처리 안 함)가 하나라도 있거나, 보호 검증을 통과한 페이지가 하나도 없으면 자동 제외하지 않는다
+ * (그때는 지금처럼 분석을 멈추고 사용자에게 보여준다).
+ */
+export function autoExcludablePages(pages: readonly PageOutcome[]): number[] {
+  const unreadable = pages.filter((p) => p.status === 'unreadable').map((p) => p.page);
+  const blocked = pages.some((p) => p.status === 'needs_review' || p.status === 'failed' || p.status === 'unsupported_scan' || p.status === 'skipped');
+  const verified = pages.some((p) => p.status === 'protected' || p.status === 'no_sensitive_data');
+  return blocked || !verified ? [] : unreadable;
+}
+
+/**
+ * 공통 페이지 정책으로 보호: 사용자가 뺀 페이지 + 읽지 못한 페이지 자동 제외.
+ * 1) 사용자 제외(+ 이전에 자동 제외한 페이지)를 빼고 보호 → 2) 읽지 못한 페이지만 있으면 그 페이지를 자동 제외하고 다시 보호
+ * 자동 제외한 페이지는 보호본·AI 요청에 들어가지 않는다. 남는 페이지가 없으면 자동 제외하지 않는다 (문서 unreadable 그대로)
+ */
+export async function protectPdfWithPolicy(
+  bytes: Uint8Array,
+  sel: { userExcluded: readonly number[]; autoExcluded?: readonly number[] },
+  prevStates: ReadonlyMap<string, RegionState> = new Map(),
+  testHooks: ProtectTestHooks = {},
+  options: ProtectPdfOptions = {},
+): Promise<ProtectResult & { viewPages: number[] | null; autoExcluded: number[] }> {
+  const user = [...new Set(sel.userExcluded)].sort((a, b) => a - b);
+  let auto = [...new Set((sel.autoExcluded ?? []).filter((p) => !user.includes(p)))].sort((a, b) => a - b);
+  const run = (a: number[]) => protectPdfSelected(bytes, [...new Set([...user, ...a])].sort((x, y) => x - y), prevStates, testHooks, options);
+  let r = await run(auto);
+  // 이전 자동 제외 페이지까지 빼니 남는 페이지가 없음 → 자동 제외를 풀고 원래대로 (모든 페이지를 읽지 못한 문서)
+  if (auto.length && (r.detail === 'no_pages_selected' || r.detail === 'selection_invalid')) {
+    auto = [];
+    r = await run(auto);
+  }
+  const first = r;
+  const more = autoExcludablePages(r.pages);
+  if (more.length) {
+    auto = [...new Set([...auto, ...more])].sort((a, b) => a - b);
+    r = await run(auto);
+  }
+  const autoExcluded = auto.filter((p) => r.pages.some((x) => x.page === p && x.status === 'excluded'));
+  // 뺀 페이지 표시: 자동(읽지 못함) / 사용자 — 자동 제외 페이지는 처음 처리에서 잰 글자 인식 품질(숫자)을 남긴다
+  const pages = r.pages.map((p): PageOutcome => {
+    if (p.status !== 'excluded') return p;
+    if (!autoExcluded.includes(p.page)) return { ...p, detail: 'user' };
+    const q = first.pages.find((x) => x.page === p.page)?.quality;
+    return { ...p, detail: 'auto_unreadable', ...(q ? { quality: q } : {}) };
+  });
+  return { ...r, pages, autoExcluded };
 }

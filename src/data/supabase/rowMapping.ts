@@ -108,7 +108,7 @@ function toProtectionPages(v: unknown): ProtectionPage[] {
   return v.flatMap((x) => {
     const o = x as Record<string, unknown>;
     return typeof o?.page === 'number' && PAGE_KINDS.has(o.kind as string) && PAGE_STATUSES.has(o.status as string)
-      ? [{ page: o.page, kind: o.kind as ProtectionPage['kind'], status: o.status as ProtectionPage['status'] }]
+      ? [{ page: o.page, kind: o.kind as ProtectionPage['kind'], status: o.status as ProtectionPage['status'], detail: typeof o.detail === 'string' ? o.detail : null }]
       : [];
   });
 }
@@ -125,6 +125,7 @@ export function toProtection(r: DocumentRow): DocumentProtection {
     pages: toProtectionPages(r.protection_pages),
     // 분석 제외 페이지 · 보호본 페이지 (마이그레이션 전 행은 없음 → 제외 없음 · 전체)
     excludedPages: Array.isArray(r.analysis_excluded_pages) ? r.analysis_excluded_pages.filter((n) => Number.isInteger(n) && n >= 1) : [],
+    autoExcludedPages: Array.isArray(r.analysis_auto_excluded_pages) ? r.analysis_auto_excluded_pages.filter((n) => Number.isInteger(n) && n >= 1) : [],
     viewPages: Array.isArray(r.protection_view_pages) && r.protection_view_pages.length ? r.protection_view_pages : null,
     regions: [...(r.document_sensitive_regions ?? [])]
       // 문서에서 나오는 순서 (쪽 → 위에서 아래 → 왼쪽에서 오른쪽)

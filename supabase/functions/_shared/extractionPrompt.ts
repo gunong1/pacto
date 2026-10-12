@@ -35,7 +35,7 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
 /* v13: 계약 종류를 계약의 본질로 하나만 판단 (classification: kind·subtype·domains·confidence·alternatives·근거·secondary_elements).
  *      분야(category)·관리 구조(contract_type)를 따로 고르지 않음 — 결제 방식은 분류 근거가 아님 · 자동차는 종류가 아니라 대상(domains)
  *      계약 체크는 할 일·주의할 위험만 (user_action), 사실은 fields·details·payments에만 */
-export const PROMPT_VERSION = 'extract-v14';
+export const PROMPT_VERSION = 'extract-v15';
 
 /** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
 const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
@@ -322,6 +322,7 @@ export function extractionInstructions(today: string): string {
     '  caution = 주의 필요(책임·비용·권리 제한이 큰 조건: 위약금·손해배상 범위·환불 제한·일방적 변경·연체이율·원상복구 등). info는 쓰지 않습니다 (사실은 계약 정보에).',
     '',
     '공통 규칙:',
+    '- 첨부된 쪽에 적혀 있지 않은 값은 추측해 채우지 않습니다. 일부 쪽이 빠져 있을 수 있으니(읽지 못해 제외한 쪽 등) 앞뒤 쪽 내용으로 빠진 조항·금액·날짜·당사자를 짐작해 만들지 않습니다.',
     '- 계약서에 적힌 내용만 사용합니다. 유형 템플릿에 맞추려고 없는 정보를 만들지 않습니다 (임대차라도 월세가 없을 수 있고, 보험이 월납이 아닐 수 있고, 근로계약이 기간 없이 체결될 수 있음).',
     `- 날짜는 YYYY-MM-DD, 금액은 원 단위 정수(쉼표·원 없이). 오늘은 ${today}입니다.`,
     '- evidence_quote는 계약서 원문을 그대로 옮긴 짧은 문장(120자 이내)입니다. 원문을 바꾸거나 지어내지 않습니다.',

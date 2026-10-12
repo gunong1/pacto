@@ -1,11 +1,11 @@
 /**
- * 분석 대상 페이지 선택 E2E (실제 데이터 모드 · 로컬 Supabase · 가짜 OCR · 서버 mock AI)
+ * 읽지 못한 페이지 자동 제외 E2E (실제 데이터 모드 · 로컬 Supabase · 가짜 OCR · 서버 mock AI)
  * 2쪽 PDF: 1쪽 = 민감정보 없는 스캔(보호 검증 통과) · 2쪽 = 거의 빈 메모 스캔(글자 인식 불확실)
- * A. 자동 분석 차단 + 페이지별 결과 ("1쪽: 민감정보 감지되지 않음" · "2쪽: 글자 인식 불확실 · 확인 필요") + "2쪽은 글자를 정확하게 읽지 못했어요."
- * B. 문제 페이지에만 [2쪽 미리보기] [이 페이지 제외하고 분석] · 문서 다시 등록 · "확인"만으로 넘어가는 버튼 없음
- * C. 미리보기 = 원본 확인 후 2쪽 열기
- * D. 제외 → 확인 문구("선택한 페이지는 AI 분석에 사용되지 않습니다 …") → 1쪽만으로 분석 → 확인 화면 · 뺀 페이지 안내
- * E. DB: 제외 페이지 [2] · 분석 기록(선택) · AI 요청 1쪽 · 원본 그대로
+ * A. 분석 전 제외 버튼 없이 바로 결과 화면 · 맨 위 안내 "전체 2쪽 중 1쪽만 분석했어요." + 사유 + [제외된 페이지 보기] [문서 다시 등록] · 보호 카드가 보호 완료로 보이지 않음
+ * B. 제외된 페이지 보기 = 원본 확인 후 원본 파일
+ * C. 최종 저장 전 누락 페이지 확인
+ * D. 저장 후 계약 상세에도 부분 분석 이력
+ * E. DB: 제외·자동 제외 [2] · 분석 기록(자동 제외·분석 페이지) · AI 요청 1쪽 · 원본 그대로
  * 사용: BASE_URL=http://localhost:8082 node e2e/page-selection.js
  */
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -69,52 +69,51 @@ const admin = async (p) => {
     const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click(tid('method-pdf'))]);
     await chooser.setFiles({ name: '헬스장계약서.pdf', mimeType: 'application/pdf', buffer: original });
 
-    // A·B
-    await page.waitForSelector(tid('gate-protection-pages'), { timeout: 60000 });
-    check('A0', '보호 차단 화면(공통): 다시 시도 / 문서 다시 등록 / 직접 입력', (await page.locator(tid('gate-locked-protection')).count()) === 1 && (await page.locator(tid('gate-locked-retry')).count()) === 1);
-    await page.waitForTimeout(300);
-    await shot('01-gate');
-    const gate = await body();
-    check('A1', '자동 분석 차단 + "2쪽은 글자를 정확하게 읽지 못했어요."', gate.includes('자동 분석을 진행하지 않았어요') && gate.includes('2쪽은 글자를 정확하게 읽지 못했어요.'));
-    const p1 = await page.locator(tid('gate-page-0-1')).innerText();
-    const p2 = await page.locator(tid('gate-page-0-2')).innerText();
-    check('A2', '페이지별 결과: 1쪽 민감정보 감지되지 않음 · 2쪽 글자 인식 불확실 · 확인 필요', p1.includes('1쪽') && p1.includes('민감정보 감지되지 않음') && p2.includes('2쪽') && p2.includes('글자 인식 불확실 · 확인 필요'), `${p1} / ${p2}`);
-    const has = async (id) => (await page.locator(tid(id)).count()) > 0;
-    check('B1', '문제 페이지(2쪽)에만 미리보기 · 제외 버튼', (await has('gate-preview-0-2')) && (await has('gate-exclude-0-2')) && !(await has('gate-preview-0-1')) && !(await has('gate-exclude-0-1')));
-    check('B2', '"확인"만으로 분석을 진행하는 버튼 없음 · 문서 다시 등록 있음', !/확인했어요|무시하고/.test(gate) && (await has('gate-locked-other')));
+    // A. 버튼 없이 바로 결과 화면 — 읽지 못한 2쪽은 자동 제외 (분석 전 제외 버튼 화면 없음)
+    await page.waitForSelector(tid('submit-contract'), { timeout: 90000 });
+    await page.waitForTimeout(800);
+    await shot('01-review');
+    check('A1', '분석 전에 제외 버튼을 누르는 화면 없이 결과 화면으로', (await page.locator(tid('gate-locked-protection')).count()) === 0);
+    const notice = await page.locator(tid('partial-analysis')).innerText().catch(() => '');
+    check('A2', '결과 화면 맨 위: "전체 2쪽 중 1쪽만 분석했어요."', notice.includes('전체 2쪽 중 1쪽만 분석했어요.'), notice.replace(/\n/g, ' / '));
+    check('A3', '사유: "2쪽은 글자를 정확하게 읽지 못해 분석에서 제외했어요. 중요한 계약 내용이 빠졌을 수 있습니다."', notice.includes('2쪽은 글자를 정확하게 읽지 못해 분석에서 제외했어요. 중요한 계약 내용이 빠졌을 수 있습니다.'));
+    check('A4', '[제외된 페이지 보기] [문서 다시 등록]', notice.includes('제외된 페이지 보기') && notice.includes('문서 다시 등록'));
+    const box = await page.locator(tid('partial-analysis')).boundingBox();
+    const title = await page.locator('text=AI가 정리한 계약정보를').first().boundingBox();
+    check('A5', '안내가 결과 화면 맨 위 (제목보다 위)', !!box && !!title && box.y < title.y);
+    const review = await body();
+    check('A6', '보호 카드가 "보호 완료"로 보이지 않음 ("일부 페이지만 보호했어요" · 2쪽: 글자를 읽지 못해 분석에서 제외함)', review.includes('일부 페이지만 보호했어요') && review.includes('2쪽: 글자를 읽지 못해 분석에서 제외함') && !review.includes('민감정보 보호 완료\n2쪽'));
 
-    // C. 미리보기 = 원본 확인 후 (웹: 새 탭)
-    const nDialogs = dialogs.length;
-    // 원본을 여는 짧은 서명 주소 요청 (보호본이 아니라 원본 파일)
+    // B. 제외된 페이지 보기 = 원본 확인 후 원본 파일
     const signed = [];
     const onReq = (r) => /\/object\/sign\/contract-files\//.test(r.url()) && signed.push(r.url());
     context.on('request', onReq);
-    const [popup] = await Promise.all([context.waitForEvent('page', { timeout: 15000 }).catch(() => null), page.click(tid('gate-preview-0-2'))]);
-    check('C', '2쪽 미리보기: 원본 보기 확인 후 새 창으로 원본을 연다', dialogs.slice(nDialogs).some((m) => m.includes('원본 계약서를 표시합니다')) && !!popup, popup ? popup.url().replace(/\?.*$/, '').slice(-40) : 'no popup');
-    if (popup) {
-      // 웹은 빈 탭을 먼저 연 뒤 주소를 넣는다 (팝업 차단 방지)
-      await popup.waitForURL((u) => u.href !== 'about:blank', { timeout: 15000 }).catch(() => undefined);
-      check('C2', '원본 파일(보호본 아님)의 짧은 서명 주소로 연다', signed.some((u) => /\.pdf$/.test(u.split('?')[0]) && !u.includes('protected_view')), `${signed.length}건`);
-      await popup.close();
-      context.off('request', onReq);
-    }
+    const nDialogs = dialogs.length;
+    const [popup] = await Promise.all([context.waitForEvent('page', { timeout: 15000 }).catch(() => null), page.click(tid('partial-analysis-view-0-2'))]);
+    await page.waitForTimeout(1500);
+    check('B', '제외된 페이지 보기: 원본 보기 확인 후 원본 파일(보호본 아님)을 연다', dialogs.slice(nDialogs).some((m) => m.includes('원본 계약서를 표시합니다')) && !!popup && signed.some((u) => /\.pdf$/.test(u.split('?')[0]) && !u.includes('protected_view')), `${signed.length}건`);
+    if (popup) await popup.close();
+    context.off('request', onReq);
 
-    // D. 제외 → 확인 문구 → 분석
+    // C. 최종 저장 전 확인
     const before = dialogs.length;
-    await page.click(tid('gate-exclude-0-2'));
-    await page.waitForSelector(tid('submit-contract'), { timeout: 60000 });
-    await page.waitForTimeout(800);
-    await shot('02-review');
-    check('D1', '제외 확인 문구', dialogs.slice(before).some((m) => m.includes('선택한 페이지는 AI 분석에 사용되지 않습니다. 중요한 계약 내용이 있다면 더 선명한 문서로 다시 등록해주세요.')), dialogs.slice(before).join(' | '));
-    const review = await body();
-    check('D2', '1쪽만으로 분석 → 확인 화면 · 뺀 페이지 안내(분석 결과가 불완전할 수 있음)', review.includes('2쪽은 분석에 사용하지 않았어요') && review.includes('빠진 내용이 있을 수 있어요'));
-    check('D3', '확인 화면 보호 카드에 페이지별 결과', review.includes('1쪽: 민감정보 감지되지 않음') && review.includes('2쪽: 분석에서 제외함'));
+    await page.click(tid('submit-contract'));
+    await page.waitForSelector(tid('detail-core'), { timeout: 30000 });
+    await page.waitForTimeout(1500);
+    const saveDialogs = dialogs.slice(before).join(' | ');
+    check('C', '저장 전 누락 페이지 확인 ("2쪽은 분석에 사용하지 않았어요 … 이대로 저장할까요?")', saveDialogs.includes('전체 2쪽 중 1쪽만 분석했어요.') && saveDialogs.includes('2쪽은 분석에 사용하지 않았어요') && saveDialogs.includes('이대로 저장할까요?'), saveDialogs.slice(0, 120));
+
+    // D. 저장 후 계약 상세에도 부분 분석 이력
+    await shot('02-detail');
+    const detail = await page.locator(tid('detail-partial-analysis')).innerText().catch(() => '');
+    check('D', '계약 상세: 부분 분석 이력 (전체 2쪽 중 1쪽만 분석 · 2쪽 자동 제외 사유)', detail.includes('전체 2쪽 중 1쪽만 분석했어요.') && detail.includes('2쪽은 글자를 정확하게 읽지 못해'), detail.replace(/\n/g, ' / '));
 
     // E. DB
-    const [doc] = await admin('/rest/v1/contract_documents?select=id,storage_path,analysis_excluded_pages,protection_status&order=created_at.desc&limit=1');
+    const [doc] = await admin('/rest/v1/contract_documents?select=id,storage_path,analysis_excluded_pages,analysis_auto_excluded_pages,protection_status&order=created_at.desc&limit=1');
     const [job] = await admin(`/rest/v1/analysis_jobs?select=validation,raw_output&order=created_at.desc&limit=1`);
-    check('E1', 'DB: 제외 페이지 [2] · 문서 상태(남은 1쪽 기준) 민감정보 없음', JSON.stringify(doc.analysis_excluded_pages) === '[2]' && doc.protection_status === 'no_sensitive_data', JSON.stringify(doc));
-    check('E2', '분석 기록: 제외 [2] · 분석한 원본 페이지 [1] · AI 요청은 1쪽', job.validation.selection?.length === 1 && job.validation.selection[0].documentId === doc.id && JSON.stringify(job.validation.selection[0].excludedPages) === '[2]' && JSON.stringify(job.validation.selection[0].analyzedPages) === '[1]' && job.raw_output._mock_input[0].pages === 1, JSON.stringify(job.validation.selection));
+    check('E1', 'DB: 제외 [2] · 자동 제외 [2]', JSON.stringify(doc.analysis_excluded_pages) === '[2]' && JSON.stringify(doc.analysis_auto_excluded_pages) === '[2]', JSON.stringify(doc));
+    const sel = job.validation.selection?.[0] ?? {};
+    check('E2', '분석 기록: 자동 제외 [2] · 분석한 원본 페이지 [1] · AI 요청은 1쪽', sel.documentId === doc.id && JSON.stringify(sel.autoExcludedPages) === '[2]' && JSON.stringify(sel.analyzedPages) === '[1]' && job.raw_output._mock_input[0].pages === 1, JSON.stringify(sel));
     const stored = await admin(`/storage/v1/object/contract-files/${doc.storage_path}`);
     check('E3', '원본 PDF 그대로 (해시 같음)', sha(stored) === sha(original));
   } finally {

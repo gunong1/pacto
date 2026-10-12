@@ -133,7 +133,7 @@ describe('Step 11 — 민감정보 보호', () => {
       .eq('id', s.id);
     const forged = (await scan.getProtection([s.id]))[s.id];
     expect(forged.status).toBe('unsupported_scan');
-    expect(forged.pages).toEqual([{ page: 1, kind: 'unsupported', status: 'unsupported_scan' }]);
+    expect(forged.pages).toEqual([{ page: 1, kind: 'unsupported', status: 'unsupported_scan', detail: 'scan_format' }]);
   });
 
   test('E. 계약 삭제 → 원본·보호본·민감정보 기록·AI 결과까지 정리 (고아 파일 없음)', async () => {

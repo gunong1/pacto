@@ -269,10 +269,17 @@ export default function AnalyzingScreen() {
     if (!ok) return;
     setGate({ ...g, busy: true, error: null });
     const isPdf = target.doc.mimeType === "application/pdf";
+    // 사용자가 직접 뺀 페이지만 보낸다 (자동 제외는 서버가 다시 판단)
+    const auto = target.protection?.autoExcludedPages ?? [];
     const excludePages = isPdf
-      ? [...new Set([...(target.protection?.excludedPages ?? []), page])].sort(
-          (a, b) => a - b,
-        )
+      ? [
+          ...new Set([
+            ...(target.protection?.excludedPages ?? []).filter(
+              (p) => !auto.includes(p),
+            ),
+            page,
+          ]),
+        ].sort((a, b) => a - b)
       : [1];
     const password = useRegistration.getState().passwords[target.doc.id];
     const r = await documentStore
@@ -521,17 +528,21 @@ export default function AnalyzingScreen() {
       }
       // 모든 문서 공통 (fail-closed): 보호 완료(protected)·민감정보 없음(no_sensitive_data)이 아니면 AI 분석을 시작하지 않는다
       // (보호 실패·읽기 어려움·지원하지 않는 스캔/암호·결과 없음). 서버도 같은 기준으로 거절한다 — 원본을 대신 보내지 않음
-      if (
-        documentStore.mode === "supabase" &&
-        !docs.every(
-          (_, i) =>
-            results[i]?.status === "protected" ||
-            results[i]?.status === "no_sensitive_data",
-        )
-      ) {
-        // 페이지별 결과를 보여주고, 문제 페이지를 사용자가 직접 뺄 수 있게 한다 (빼지 않으면 분석하지 않음)
-        await showProtectionGate(docs);
-        return;
+      // 읽지 못한 페이지·사진은 서버가 자동으로 뺀다(공통 페이지 정책) — 남은 페이지가 모두 보호 검증을 통과하고
+      // 분석할 페이지가 하나라도 있으면 그대로 분석 (빠진 페이지는 결과 화면에서 크게 알린다). 아니면 페이지별 결과
+      if (documentStore.mode === "supabase") {
+        const prot = await documentStore
+          .getProtection(docs.map((d) => d.id))
+          .catch(() => null);
+        if (controller.signal.aborted) return;
+        const ready =
+          !!prot &&
+          docs.every((d) => readyForAnalysis(prot[d.id])) &&
+          docs.some((d) => !isExcludedPhoto(prot[d.id]));
+        if (!ready) {
+          await showProtectionGate(docs);
+          return;
+        }
       }
       await runAnalysis(docs, controller.signal);
     })();
@@ -1136,7 +1147,12 @@ function gateItems(docs: GateDoc[]): GateItem[] {
           docIndex: i,
           page: 1,
           label: docs.length > 1 ? `사진 ${i + 1}` : "사진",
-          status: isExcludedPhoto(p) ? "excluded" : (p?.status ?? "failed"),
+          // 자동으로 뺀 사진은 "읽지 못함"으로 (분석할 사진이 하나도 없을 때 이 화면에 온다)
+          status: isExcludedPhoto(p)
+            ? p?.autoExcludedPages?.includes(1)
+              ? "unreadable"
+              : "excluded"
+            : (p?.status ?? "failed"),
         },
       ];
     if (!p?.pages.length)
@@ -1181,7 +1197,10 @@ function ProtectionPagesGate({
   const items = gateItems(gate.docs);
   const problems = items.filter((x) => isProblemPage(x.status));
   /** 남은(빼지 않은) 페이지 수 — 마지막 남은 페이지는 뺄 수 없다 */
-  const remaining = items.filter((x) => x.status !== "excluded").length;
+  // 빼고 분석할 수 있는지 — 보호 검증을 통과한 페이지가 하나라도 남아 있어야 한다 (모든 페이지를 뺄 수는 없다)
+  const verified = items.filter(
+    (x) => x.status === "protected" || x.status === "no_sensitive_data",
+  ).length;
   const first = problems[0];
   return (
     <Shell testID="gate-locked-protection">
@@ -1252,7 +1271,7 @@ function ProtectionPagesGate({
                         }
                         testID={`gate-preview-${x.docIndex}-${x.page}`}
                       />
-                      {remaining > 1 ? (
+                      {verified > 0 ? (
                         <Button
                           label={
                             d.doc.mimeType === "application/pdf"

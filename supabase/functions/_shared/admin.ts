@@ -64,11 +64,12 @@ export interface DocumentRow {
   analysis_excluded_pages?: number[];
   protection_view_pages?: number[] | null;
   protection_pages?: { page: number; status: string }[] | null;
+  analysis_auto_excluded_pages?: number[];
 }
 
 /** 본인 소유 문서만 조회 (user_id 조건 필수) */
 export async function selectOwnDocuments(userId: string, ids: string[]): Promise<DocumentRow[]> {
-  const res = await rest(`contract_documents?select=id,user_id,storage_path,mime_type,original_filename,size_bytes,sort_order,protection_status,access_status,analysis_excluded_pages,protection_view_pages,protection_pages&user_id=eq.${userId}&id=in.(${ids.join(',')})&order=sort_order.asc`);
+  const res = await rest(`contract_documents?select=id,user_id,storage_path,mime_type,original_filename,size_bytes,sort_order,protection_status,access_status,analysis_excluded_pages,analysis_auto_excluded_pages,protection_view_pages,protection_pages&user_id=eq.${userId}&id=in.(${ids.join(',')})&order=sort_order.asc`);
   if (!res.ok) throw new Error(`documents_${res.status}`);
   return await res.json();
 }

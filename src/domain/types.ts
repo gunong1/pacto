@@ -241,6 +241,8 @@ export interface DocumentProtection {
   pages: ProtectionPage[];
   /** 사용자가 분석에서 뺀 원본 페이지 (사진 한 장을 빼면 [1]) */
   excludedPages?: number[];
+  /** 그중 서버가 자동으로 뺀 페이지 (글자를 거의 읽지 못함) — 사용자가 뺀 페이지와 구분 */
+  autoExcludedPages?: number[];
   /** 보호본에 담긴 원본 페이지 (보호본 순서). null = 원본의 모든 페이지 */
   viewPages?: number[] | null;
 }
@@ -251,6 +253,8 @@ export interface ProtectionPage {
   kind: 'text' | 'scan' | 'unsupported' | 'excluded';
   /** skipped: 다른 페이지 문제로 처리하지 않음 / excluded: 분석에서 뺀 페이지 */
   status: Exclude<ProtectionStatus, 'pending'> | 'skipped' | 'excluded';
+  /** 사유 코드 (예: low_ocr_quality · 뺀 페이지는 auto_unreadable / user) */
+  detail?: string | null;
 }
 
 /**

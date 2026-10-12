@@ -38,6 +38,16 @@ export type ProtectionTone = 'protected' | 'neutral' | 'warning';
  */
 export function protectionCopy(p: DocumentProtection | undefined): { title: string; body: string; tone: ProtectionTone } | null {
   if (!p) return null;
+  // 뺀 페이지가 있는 문서 — 남은 페이지만 보호한 것이라 "보호 완료"로 보이지 않게
+  const excludedText = p.pages.length > 0 && p.excludedPages?.length ? p.excludedPages.map((n) => `${n}쪽`).join(', ') : null;
+  if (excludedText && (p.status === 'protected' || p.status === 'no_sensitive_data')) {
+    const { total, text } = maskedSummary(p.regions);
+    return {
+      title: '일부 페이지만 보호했어요',
+      body: `${excludedText}은 분석에서 제외해 민감정보 보호를 하지 않았어요. 원본에는 그대로 있어요.${total > 0 ? `\n나머지 페이지: ${text} 가려서 표시합니다.` : ''}`,
+      tone: 'warning',
+    };
+  }
   switch (p.status) {
     case 'protected': {
       const { total, text } = maskedSummary(p.regions);
@@ -152,6 +162,8 @@ export function overallProtectionCopy(list: (DocumentProtection | undefined)[]):
   }
   const done = ps.every((p) => p.status === 'protected' || p.status === 'no_sensitive_data');
   if (!done) return { title: '일부 페이지의 민감정보 보호를 완료하지 못했어요', tone: 'warning' };
+  // 뺀 페이지(사진 포함)가 있으면 보호 완료가 아니다
+  if (list.some((p) => p?.excludedPages?.length)) return { title: '일부 페이지만 보호했어요', tone: 'warning' };
   const masked = ps.reduce((n, p) => n + p.regions.filter((r) => r.state === 'masked').length, 0);
   return masked > 0 ? { title: '민감정보를 보호했어요', tone: 'protected' } : { title: '민감정보가 감지되지 않았어요', tone: 'neutral' };
 }
@@ -172,6 +184,12 @@ export const PAGE_STATUS_LABEL: Record<ProtectionPage['status'], string> = {
   skipped: '다른 페이지 문제로 처리하지 않음',
   excluded: '분석에서 제외함',
 };
+
+/** 페이지 한 줄 이름 — 뺀 페이지는 자동(읽지 못함)·직접 구분 */
+export function pageStatusLabel(p: Pick<ProtectionPage, 'status' | 'detail'>): string {
+  if (p.status === 'excluded') return p.detail === 'auto_unreadable' ? '글자를 읽지 못해 분석에서 제외함' : '직접 분석에서 제외함';
+  return PAGE_STATUS_LABEL[p.status];
+}
 
 /** 문제가 있는 페이지 — 사용자가 미리보고, 분석에서 뺄 수 있다 (뺀 페이지는 AI 분석에 쓰지 않음) */
 const PROBLEM: ReadonlySet<string> = new Set(['unreadable', 'needs_review', 'unsupported_scan', 'failed']);
@@ -196,18 +214,64 @@ export const EXCLUDE_PAGE_COPY = {
   confirmTitle: '이 페이지를 빼고 분석할까요?',
   confirmBody: '선택한 페이지는 AI 분석에 사용되지 않습니다. 중요한 계약 내용이 있다면 더 선명한 문서로 다시 등록해주세요.',
   confirmLabel: '빼고 분석',
-  /** 분석 결과 화면 — 뺀 페이지에 계약 내용이 있었다면 결과가 불완전할 수 있음 */
-  resultNote: (pages: string) => `${pages}은 분석에 사용하지 않았어요. 이 페이지에 계약 내용이 있었다면 분석 결과에 빠진 내용이 있을 수 있어요.`,
 };
 
-/** 분석에서 뺀 페이지 목록 (여러 문서) — "2쪽" · "계약서.pdf 2쪽 · 사진 3" */
-export function excludedPagesText(docs: { fileName: string; isPdf: boolean; protection: DocumentProtection | undefined }[]): string | null {
-  const parts = docs.flatMap((d, i) => {
-    const ex = d.protection?.excludedPages ?? [];
-    if (ex.length === 0) return [];
-    const pages = ex.map((n) => `${n}쪽`).join(', ');
-    if (!d.isPdf) return [`사진 ${i + 1}`];
-    return [docs.length > 1 ? `${d.fileName} ${pages}` : pages];
+
+// ───────── 부분 분석 (뺀 페이지가 있는 분석) ─────────
+
+export interface PartialAnalysisItem {
+  /** 문서 순서 (0부터) */
+  docIndex: number;
+  /** 원본 페이지 번호 (사진은 1) */
+  page: number;
+  label: string;
+  /** 자동 제외(글자를 읽지 못함) / 사용자가 직접 뺌 */
+  auto: boolean;
+  message: string;
+}
+export interface PartialAnalysis {
+  totalPages: number;
+  analyzedPages: number;
+  /** "전체 2쪽 중 1쪽만 분석했어요." */
+  title: string;
+  items: PartialAnalysisItem[];
+  /** 저장 전 확인 문구 */
+  confirmBody: string;
+}
+
+/**
+ * 분석에 쓰지 않은 페이지가 있는지 — 등록 확인(결과 화면) · 저장 전 확인 · 계약 상세가 같은 규칙.
+ * 페이지 수: PDF는 보호 처리한 페이지 수, 사진은 1장 = 1쪽. 뺀 페이지가 없으면 null
+ */
+export function partialAnalysis(docs: { fileName: string; isPdf: boolean; protection: DocumentProtection | undefined }[]): PartialAnalysis | null {
+  let total = 0;
+  const items: PartialAnalysisItem[] = [];
+  docs.forEach((d, i) => {
+    const p = d.protection;
+    const count = d.isPdf ? (p?.pages.length ?? 0) : 1;
+    total += count;
+    for (const page of p?.excludedPages ?? []) {
+      const auto = !!p?.autoExcludedPages?.includes(page);
+      const label = d.isPdf ? `${docs.length > 1 ? `${d.fileName} ` : ''}${page}쪽` : docs.length > 1 ? `사진 ${i + 1}` : '사진';
+      items.push({
+        docIndex: i,
+        page,
+        label,
+        auto,
+        message: auto
+          ? `${label}은 글자를 정확하게 읽지 못해 분석에서 제외했어요. 중요한 계약 내용이 빠졌을 수 있습니다.`
+          : `${label}은 직접 제외해 분석에 사용하지 않았어요. 중요한 계약 내용이 빠졌을 수 있습니다.`,
+      });
+    }
   });
-  return parts.length ? parts.join(' · ') : null;
+  if (items.length === 0 || total === 0) return null;
+  const analyzed = Math.max(0, total - items.length);
+  const pages = items.map((x) => x.label).join(', ');
+  return {
+    totalPages: total,
+    analyzedPages: analyzed,
+    title: `전체 ${total}쪽 중 ${analyzed}쪽만 분석했어요.`,
+    items,
+    confirmBody: `${pages}은 분석에 사용하지 않았어요. 빠진 페이지에 중요한 계약 내용이 있다면 계약 정보가 부족할 수 있어요. 제외된 페이지를 확인했고 이대로 저장할까요?`,
+  };
 }

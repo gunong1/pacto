@@ -493,16 +493,15 @@ describe('혼합 PDF · 문서 상태 규칙', () => {
     assert.equal(r.protectedPdf, null);
   });
 
-  test('읽지 못한 스캔 페이지 → 문서 unreadable, 남은 스캔 페이지는 처리하지 않음(skipped), 보호본 없음', async () => {
+  test('읽지 못한 스캔 페이지 → 문서 unreadable, 보호본 없음 · 남은 스캔 페이지도 끝까지 처리 (어느 페이지를 읽지 못했는지 모두 알아야 그 페이지만 자동 제외할 수 있다)', async () => {
     const noise: RgbImage = { width: 800, height: 800, data: new Uint8Array(800 * 800 * 4).fill(255) };
     const blank = { size: [595, 595] as [number, number], image: { bytes: jpegOf(noise), width: 800, height: 800 } };
     const run = localRunner(new FakeOcr());
     const r = await protectPdf(await buildPdf([blank, scanPage(), scanPage(), scanPage()]), new Map(), {}, { scan: run });
     assert.equal(r.status, 'unreadable');
     assert.equal(r.protectedPdf, null);
-    assert.equal(r.pages[0].status, 'unreadable');
-    assert.ok(r.pages.some((p) => p.status === 'skipped'));
-    assert.ok(run.jobs < 4);
+    assert.deepEqual(r.pages.map((p) => p.status), ['unreadable', 'protected', 'protected', 'protected']);
+    assert.equal(run.jobs, 4);
   });
 
   test('OCR 오류 → failed, 보호본 없음 (원문·응답 없이 사유 코드만)', async () => {

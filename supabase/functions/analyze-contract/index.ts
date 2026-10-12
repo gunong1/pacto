@@ -70,7 +70,7 @@ type StoredValidation = DocumentValidation & {
 };
 
 const selectionDocs = (docs: DocumentRow[]): SelectionDoc[] =>
-  docs.map((d) => ({ id: d.id, pdf: d.mime_type === 'application/pdf', excludedPages: d.analysis_excluded_pages ?? [], pageCount: d.protection_pages?.length ?? null }));
+  docs.map((d) => ({ id: d.id, pdf: d.mime_type === 'application/pdf', excludedPages: d.analysis_excluded_pages ?? [], autoExcludedPages: d.analysis_auto_excluded_pages ?? [], pageCount: d.protection_pages?.length ?? null }));
 /** 이전 버전 기록(선택 없음): AI 파일 순서 = 요청 순서, 모든 페이지 */
 const planOf = (v: StoredValidation): PlannedFile[] => v.plan ?? v.documentIds.map((documentId, i) => ({ requestFile: i + 1, documentId, pages: null }));
 

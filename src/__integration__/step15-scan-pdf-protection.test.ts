@@ -64,7 +64,7 @@ describe('Step 15 — 스캔 PDF 보호 (로컬 Edge)', () => {
 
     const prot = (await docs.getProtection([up.id]))[up.id];
     expect(prot.protectedViewPath).toBe(`${a.user.id}/${up.id}.protected_view.pdf`);
-    expect(prot.pages).toEqual([{ page: 1, kind: 'scan', status: 'protected' }]);
+    expect(prot.pages).toEqual([{ page: 1, kind: 'scan', status: 'protected', detail: null }]);
     expect(prot.regions.filter((r) => r.type === 'resident_registration_number')).toHaveLength(2);
     const view = await download(await docs.openUrl({ ...up, protection: prot }, 'protected_view'));
     expect(String.fromCharCode(...view.subarray(0, 5))).toBe('%PDF-');
@@ -87,8 +87,8 @@ describe('Step 15 — 스캔 PDF 보호 (로컬 Edge)', () => {
     expect(await docs.protect(up.id)).toEqual({ status: 'protected', detail: null, access: 'accessible' });
     let prot = (await docs.getProtection([up.id]))[up.id];
     expect(prot.pages).toEqual([
-      { page: 1, kind: 'text', status: 'protected' },
-      { page: 2, kind: 'scan', status: 'protected' },
+      { page: 1, kind: 'text', status: 'protected', detail: null },
+      { page: 2, kind: 'scan', status: 'protected', detail: null },
     ]);
     const { data: rows } = await adminClient().from('document_sensitive_regions').select('page_number, source').eq('document_id', up.id);
     expect(new Set(rows!.map((r) => `${r.page_number}:${r.source}`))).toEqual(new Set(['1:pattern', '2:ocr']));

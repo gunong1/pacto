@@ -1,6 +1,6 @@
 /**
  * 통합 테스트 도우미 (jest에서 별도 프로세스로 실행): 테스트 PDF 만들기 · PDF 텍스트 추출(pdf.js)
- *   node --experimental-strip-types tests/protection/cli.ts make <employment|rental|scan|scan-lease|scan-mixed|scan-lease-memo|scan-memo-lease|scan-plain-memo|scan-ccitt|cmap|repeated|type3> <out.pdf>
+ *   node --experimental-strip-types tests/protection/cli.ts make <employment|rental|scan|scan-lease|scan-mixed|scan-lease-memo|scan-memo-lease|scan-plain-memo|scan-memos|scan-ccitt|cmap|repeated|type3> <out.pdf>
  *     scan: 1×1 흰 이미지 + 숨은 글자층 (읽을 글자 없음 → unreadable) / scan-lease: 임대차계약서 스캔(A4, 숨은 OCR 글자층 포함)
  *     scan-mixed: 텍스트 페이지 + scan-lease / scan-ccitt: 특수 형식(CCITT) 스캔 → unsupported_scan
  *     scan-lease-memo / scan-memo-lease: 계약서 스캔 + 글자를 거의 읽을 수 없는 메모 스캔 (페이지 선택 테스트)
@@ -63,6 +63,10 @@ if (cmd === 'make') {
     const plain = readFix('plain.jpg');
     const memo: PageSpec = { size: [595, 595], image: { bytes: jpegOf({ width: 800, height: 800, data: new Uint8Array(800 * 800 * 4).fill(245) }), width: 800, height: 800 } };
     bytes = await buildPdf([{ size: [595, 198], image: { bytes: plain, width: 2400, height: 800 } }, memo]);
+  } else if (kind === 'scan-memos') {
+    // 모든 페이지가 거의 빈 메모 (모두 읽지 못함 → 자동 제외하지 않고 분석 중단)
+    const memo: PageSpec = { size: [595, 595], image: { bytes: jpegOf({ width: 800, height: 800, data: new Uint8Array(800 * 800 * 4).fill(245) }), width: 800, height: 800 } };
+    bytes = await buildPdf([memo, memo]);
   } else if (kind === 'scan-lease-memo' || kind === 'scan-memo-lease') {
     // 메모: 거의 빈 정사각형 이미지 — 가짜 CLOVA가 글자를 찾지 못함 (low_ocr_quality)
     const memo: PageSpec = { size: [595, 595], image: { bytes: jpegOf({ width: 800, height: 800, data: new Uint8Array(800 * 800 * 4).fill(245) }), width: 800, height: 800 } };

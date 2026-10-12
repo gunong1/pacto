@@ -138,8 +138,8 @@ describe('Golden 7: 분석 대상이 바뀌면 재사용하지 않음', () => {
     if (plan.kind !== 'ok') throw new Error('plan');
     const rec = selectionRecord(docs, plan.files);
     expect(rec).toEqual([
-      { documentId: 'doc-1', excludedPages: [2], analyzedPages: [1] },
-      { documentId: 'p', excludedPages: [1], analyzedPages: [] },
+      { documentId: 'doc-1', excludedPages: [2], autoExcludedPages: [], analyzedPages: [1] },
+      { documentId: 'p', excludedPages: [1], autoExcludedPages: [], analyzedPages: [] },
     ]);
     expect(selectionChanged(rec, [{ id: 'doc-1', excludedPages: [2] }, { id: 'p', excludedPages: [1] }])).toBe(false);
     expect(selectionChanged(rec, [{ id: 'doc-1', excludedPages: [] }, { id: 'p', excludedPages: [1] }])).toBe(true);

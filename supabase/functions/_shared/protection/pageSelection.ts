@@ -41,6 +41,8 @@ export interface SelectionDoc {
   /** PDF 여부 (사진은 1쪽) */
   pdf: boolean;
   excludedPages: readonly number[];
+  /** 그중 서버가 자동으로 뺀 페이지 (읽지 못함) — 사용자 제외와 구분해 기록 */
+  autoExcludedPages?: readonly number[];
   /** PDF 페이지 수 (보호 처리에서 센 값). 모르면 null */
   pageCount: number | null;
 }
@@ -75,13 +77,15 @@ export function planSelection(docs: readonly SelectionDoc[]): SelectionPlan {
 export interface SelectionRecord {
   documentId: string;
   excludedPages: number[];
+  /** 그중 자동 제외 (읽지 못한 페이지) */
+  autoExcludedPages: number[];
   /** null = 모든 페이지 / [] = 이 문서는 분석에 쓰지 않음 */
   analyzedPages: number[] | null;
 }
 export function selectionRecord(docs: readonly SelectionDoc[], plan: readonly PlannedFile[]): SelectionRecord[] {
   return docs.map((d) => {
     const f = plan.find((x) => x.documentId === d.id);
-    return { documentId: d.id, excludedPages: [...d.excludedPages], analyzedPages: f ? (f.pages ? [...f.pages] : null) : [] };
+    return { documentId: d.id, excludedPages: [...d.excludedPages], autoExcludedPages: [...(d.autoExcludedPages ?? [])], analyzedPages: f ? (f.pages ? [...f.pages] : null) : [] };
   });
 }
 /** 분석 뒤 선택이 바뀌었는지 — 바뀌었으면 예전 분석 결과를 이어 쓰지 않는다 */

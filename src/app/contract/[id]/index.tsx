@@ -35,7 +35,8 @@ import { useProtectWithPassword } from '@/features/documents/useProtectWithPassw
 import { viewDocument, viewDocuments, viewOriginal } from '@/features/documents/openDocument';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
 import { ContractNotificationSection, PushOpenedBanner, PushPromptSheet } from '@/features/notifications/ContractNotificationParts';
-import { overallProtectionCopy } from '@/features/documents/protectionCopy';
+import { PartialAnalysisNotice } from '@/features/documents/PartialAnalysisNotice';
+import { overallProtectionCopy, partialAnalysis } from '@/features/documents/protectionCopy';
 import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
@@ -233,6 +234,22 @@ export default function ContractDetailScreen() {
           ) : null}
 
           {/* 계약서 보기 — 기본은 민감정보를 가린 보호 표시본. 원본은 아래 "계약서" 섹션의 "원본 보기"(확인 후) */}
+          {/* 등록 때 분석에 쓰지 않은 페이지 (저장 후에도 남는 부분 분석 이력) */}
+          {(() => {
+            const partial = partialAnalysis(record.documents.map((d) => ({ fileName: d.fileName, isPdf: d.mimeType === 'application/pdf', protection: d.protection })));
+            return partial ? (
+              <View style={{ marginBottom: spacing.md }}>
+                <PartialAnalysisNotice
+                  partial={partial}
+                  testID="detail-partial-analysis"
+                  onViewPage={(x) => {
+                    const d = record.documents[x.docIndex];
+                    if (d) viewOriginal(d, d.mimeType === 'application/pdf' ? x.page : null);
+                  }}
+                />
+              </View>
+            ) : null;
+          })()}
           {record.documents.length > 0 ? (
             <Pressable
               onPress={() => viewDocuments(record.documents)}

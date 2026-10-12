@@ -15,10 +15,13 @@ import { ContractCheckCard } from '@/features/contracts/ContractCheckCard';
 import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm } from '@/features/contracts/form';
 import { useProtectWithPassword } from '@/features/documents/useProtectWithPassword';
-import { viewDocument } from '@/features/documents/openDocument';
+import { viewDocument, viewOriginal } from '@/features/documents/openDocument';
+import { PartialAnalysisNotice } from '@/features/documents/PartialAnalysisNotice';
+import { documentStore } from '@/data';
+import { confirm } from '@/lib/dialog';
 import { saveErrorText, useCreateContract, useDocumentProtection, useToday } from '@/features/contracts/queries';
 import { ProtectionCard } from '@/features/documents/ProtectionCard';
-import { overallProtectionCopy } from '@/features/documents/protectionCopy';
+import { overallProtectionCopy, partialAnalysis } from '@/features/documents/protectionCopy';
 import { noticeDeadlineFor, toReviewModel, type ReferenceRole, type ReviewCheck } from '@/features/registration/extraction';
 import { finishRegistration } from '@/features/registration/finish';
 import { useRegistration } from '@/features/registration/store';
@@ -50,6 +53,16 @@ export default function ReviewScreen() {
 
   if (!model || !extraction) return null;
 
+  // 분석에 쓰지 않은 페이지 (자동 제외: 글자를 읽지 못함 / 직접 뺌) — 결과 화면 맨 위 + 저장 전 확인
+  const partial = partialAnalysis(uploaded.map((d) => ({ fileName: d.fileName, isPdf: d.mimeType === 'application/pdf', protection: protection.data?.[d.id] })));
+  const reregister = async () => {
+    const ok = await confirm('문서 다시 등록', '지금 분석 결과는 저장하지 않아요. 문서를 다시 등록할까요?', '다시 등록');
+    if (!ok) return;
+    documentStore.discard(uploaded.map((d) => d.id)).catch(() => undefined);
+    // 초안을 비우면 등록 첫 화면으로 돌아간다
+    useRegistration.getState().reset();
+  };
+
   const counts = { caution: 0, check: 0, info: 0 };
   for (const c of model.checks) counts[c.severity] += 1;
   // 갱신·통보 기한은 입력칸이 없고 계약 체크에서 확인하므로 개수에서 뺀다
@@ -57,6 +70,18 @@ export default function ReviewScreen() {
 
   const header = (
     <View style={styles.header}>
+      {partial ? (
+        <View style={{ marginBottom: spacing.lg }}>
+          <PartialAnalysisNotice
+            partial={partial}
+            onViewPage={(x) => {
+              const d = uploaded[x.docIndex];
+              if (d) viewOriginal(withProtection(d), d.mimeType === 'application/pdf' ? x.page : null);
+            }}
+            onReregister={reregister}
+          />
+        </View>
+      ) : null}
       <AppText variant="title2">AI가 정리한 계약정보를{'\n'}확인해주세요.</AppText>
       <AppText variant="body2" color="textSecondary" style={{ marginTop: spacing.sm }}>
         자동으로 정리한 내용은 틀릴 수 있습니다.{'\n'}특히 <AppText variant="body2Strong" color="check">확인 필요</AppText> 항목은 계약서와 비교해주세요. 모든 항목을 저장 전에 수정할 수 있어요.
@@ -257,7 +282,9 @@ export default function ReviewScreen() {
         footerNote="저장 후에도 언제든 수정할 수 있어요"
         submitting={create.isPending}
         submitError={saveErrorText(create.error)}
-        onSubmit={(formDraft) =>
+        onSubmit={async (formDraft) => {
+          // 분석에 쓰지 않은 페이지가 있으면 저장 전에 한 번 확인 (분석 전에 버튼을 누르게 하지 않는다)
+          if (partial && !(await confirm(partial.title, partial.confirmBody, '이대로 저장'))) return;
           create.mutate(
             {
               draft: withNotice(formDraft, noticeOffers.size > 0, picked),
@@ -273,8 +300,8 @@ export default function ReviewScreen() {
                 finishRegistration(record.contract.id);
               },
             },
-          )
-        }
+          );
+        }}
       />
     </>
   );

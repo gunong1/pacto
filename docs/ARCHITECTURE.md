@@ -1493,3 +1493,11 @@ pacto/
 - 화면: 보호를 마치지 못하면 페이지별 결과(`PAGE_STATUS_LABEL`) · 문제 페이지만 [N쪽 미리보기](원본 보기 확인 후) [이 페이지 제외하고 분석](확인 문구) · [문서 다시 등록] · [직접 입력]. "확인"만으로 넘어가는 버튼 없음. 확인 화면·상세의 보호 카드에 페이지별 결과와 "뺀 페이지에 계약 내용이 있었다면 결과가 불완전할 수 있음" 안내.
 - 진단(C): 스캔 페이지마다 `quality = { chars, meanConfidence, lowConfidenceRatio, reason }`(숫자·코드만, `reason`: too_few_chars · low_mean_confidence · many_low_confidence)를 `protection_pages`와 protect-scan-page 로그에. 원문·OCR 텍스트·이미지는 남기지 않음.
 - 테스트: `tests/protection/page-selection.test.ts`(실제 PDF·가짜 OCR 6) · `golden/security/page-selection-golden.test.ts`(12) · 통합 `step27-page-selection.test.ts`(로컬 Edge 3) · E2E `e2e/page-selection.js`.
+
+### 읽지 못한 페이지 자동 제외 (2026-10-12, 공통 페이지 정책)
+- 조건: 페이지 상태가 `unreadable`인 페이지만. `needs_review`·`failed`·`unsupported_scan`·처리 안 함(skipped)이 하나라도 있거나 보호 검증을 통과한 페이지가 없으면 자동 제외하지 않음 (`autoExcludablePages`). 사진은 한 장 = 한 페이지.
+- 보호(`protectPdfWithPolicy`): 사용자 제외(+이전 자동 제외)로 보호 → 읽지 못한 페이지만 있으면 그 페이지를 자동 제외하고 다시 보호. 읽지 못함은 스캔을 멈추지 않는다(어느 페이지인지 모두 알아야 함). `protection_pages`의 뺀 페이지 `detail`: `auto_unreadable` / `user`, 자동 제외 페이지는 처음 잰 품질 숫자 유지.
+- DB(`20261025000002`): `analysis_auto_excluded_pages`(⊂ `analysis_excluded_pages`). 분석 기록 `selection[].autoExcludedPages`.
+- 화면: 분석 전 버튼 없음 → 결과 화면 맨 위 경고 카드(`PartialAnalysisNotice`: "전체 2쪽 중 1쪽만 분석했어요." · 페이지별 사유 · [제외된 페이지 보기](원본 확인 후) · [문서 다시 등록]). 저장 전 확인 대화상자(`partialAnalysis().confirmBody`). 저장 후 계약 상세에도 같은 카드. 뺀 페이지가 있는 문서는 "일부 페이지만 보호했어요"(보호 완료로 보이지 않음).
+- AI 지시문 v15: 첨부되지 않은 쪽의 내용을 추측해 채우지 않음.
+- 테스트: `golden/security/auto-exclusion-golden.test.ts` · `tests/protection/page-selection.test.ts`(7~9) · 통합 `step27` · E2E `page-selection.js`.
