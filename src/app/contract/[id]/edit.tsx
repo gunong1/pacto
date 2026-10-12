@@ -10,6 +10,8 @@ import { AmountChangeSheet } from '@/features/contracts/AmountChangeSheet';
 import { ContractForm } from '@/features/contracts/ContractForm';
 import { draftToForm, draftToQuickForm } from '@/features/contracts/form';
 import { saveErrorText, useContract, useToday, useUpdateContract } from '@/features/contracts/queries';
+import { viewDocument } from '@/features/documents/openDocument';
+import { useContractEvidence } from '@/features/evidence/useContractEvidence';
 import { colors } from '@/theme';
 
 export default function EditContractScreen() {
@@ -19,6 +21,8 @@ export default function EditContractScreen() {
   const update = useUpdateContract(id);
   /** 반복 금액을 바꾼 결제마다 "언제부터"를 차례로 묻는다 */
   const [pending, setPending] = useState<{ draft: ContractDraft; queue: AmountEdit[]; decisions: Record<string, AmountDecision> } | null>(null);
+  // 계약서로 등록한 계약: 등록 때 분석 결과의 근거를 같은 아이콘으로 (사용자가 고친 값도 AI 값·근거 유지)
+  const ai = useContractEvidence(record);
 
   if (isLoading) return <ActivityIndicator style={{ marginTop: 80 }} color={colors.primary} />;
   if (!record) return <EmptyState title="계약을 찾을 수 없어요" />;
@@ -53,6 +57,12 @@ export default function EditContractScreen() {
       <ContractForm
         defaultValues={manual ? draftToQuickForm(draft) : draftToForm(draft)}
         variant={manual ? 'quick' : 'full'}
+        evidence={manual ? undefined : ai.evidence}
+        aiValues={manual ? null : ai.aiValues}
+        openDocument={(documentId, page) => {
+          const d = record.documents.find((x) => x.id === documentId) ?? record.documents[0];
+          if (d) viewDocument(d, page);
+        }}
         mode="edit"
         today={today}
         submitLabel="수정 완료"

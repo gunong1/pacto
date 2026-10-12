@@ -1462,3 +1462,13 @@ pacto/
 - 화면(`DetailsSection`, `splitDetailFields`): 사실은 기본 정보, 조건은 "+ 상세 조건"(접힘, 확인 필요면 펼침). 등록 확인(AI 결과)은 값이 있는 조건만 — 빈 장문 입력칸 없음. 수정 화면은 모든 조건 칸(저장 값 유지). 상세 화면은 기존 "계약 조건 · 기록".
 - 기존 데이터: 삭제·변환 없음 (contract_details 그대로). 테스트: `golden/infoCheckRoles.test.ts`.
 
+## 계약서 근거 보기 공통 UI (2026-10-12)
+- 규칙(`src/domain/evidence.ts`, 등록 확인 · 계약 수정 · 계약 상세 공통):
+  근거 문장은 입력칸 아래에 늘 펼치지 않는다("원문:" 상시 표시 제거) → 근거가 있는 값만 라벨 옆 아이콘 → 시트(근거 문장 · 쪽 · "계약서에서 보기").
+  근거 없는 직접 입력 칸에는 아이콘 없음. 신뢰도 낮음·AI 추정은 "확인 필요" 강조(근거와 별개).
+  사용자가 값을 고쳐도 AI가 읽은 값·근거를 시트에 함께 보여준다("수정함", 저장은 고친 값). 원본 값·근거는 분석 기록(analysis_jobs.result)에 그대로.
+  근거 문장·AI 값은 공통 민감정보 가림(`maskSensitiveTextForDisplay`), 가림 실패 시 "민감정보 보호 확인 필요".
+- 데이터: `ReviewModel.evidence` = 경로별 `{ quote, page, documentId }` (문서 번호 → 보관 문서 id). 저장된 계약은 `contractRepository.analysisResult(id)` → 같은 `toReviewModel` 규칙(`useContractEvidence`), 순서가 바뀔 수 있는 결제·주요 날짜 경로는 제외(`stableEvidence`).
+- UI: `EvidenceProvider`(시트 하나) · `EvidenceButton`(아이콘) — 폼 도구 `kit.evidenceIcon`으로 계약명·당사자·기간·금액·상세 조건·주요 날짜·자동갱신 모든 칸에 같은 방식. 상세 화면은 기본 정보·계약 조건 행(`coreRowEvidencePath`).
+- 테스트: `golden/evidence.test.ts`(근거 있음·신뢰도 낮음·사용자 수정·민감정보·직접 입력·위치), `golden/evidence-mask-failure.test.ts`, E2E `e2e/evidence-view.js`(등록 확인 → 수정 → 상세 → 수정 화면).
+

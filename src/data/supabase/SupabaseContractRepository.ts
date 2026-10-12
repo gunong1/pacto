@@ -114,6 +114,13 @@ export class SupabaseContractRepository implements ContractRepository {
     return row ? toRecord(row as unknown as ContractRow) : null;
   }
 
+  async analysisResult(id: string) {
+    const row = check(await this.sb.from('contracts').select('analysis_job_id').eq('id', id).maybeSingle()) as { analysis_job_id: string | null } | null;
+    if (!row?.analysis_job_id) return null;
+    const job = check(await this.sb.from('analysis_jobs').select('result').eq('id', row.analysis_job_id).maybeSingle()) as { result: unknown } | null;
+    return job?.result ?? null;
+  }
+
   private async mustGet(id: string): Promise<ContractRecord> {
     const r = await this.get(id);
     if (!r) throw new RepositoryError('계약을 찾을 수 없어요.');

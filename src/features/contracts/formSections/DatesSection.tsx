@@ -47,7 +47,7 @@ export function DatesList({ kit, dates, dateKinds }: { kit: FormKit; dates: UseF
             </Pressable>
           </View>
           <View style={styles.row2}>
-            <View style={styles.col}>{field(`dates.${i}.label`, '이름', { testID: `date-${i}-label`, flagged: flagged?.has(`dates.${i}`), hint: hint(`dates.${i}`) })}</View>
+            <View style={styles.col}>{field(`dates.${i}.label`, '이름', { testID: `date-${i}-label`, flagged: flagged?.has(`dates.${i}`), hint: hint(`dates.${i}`), evidencePath: `dates.${i}` })}</View>
             <View style={styles.col}>{date(`dates.${i}.date`, '날짜', { testID: `date-${i}-date` })}</View>
           </View>
         </View>

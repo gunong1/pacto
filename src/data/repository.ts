@@ -119,6 +119,8 @@ export interface NewEventInput {
 export interface ContractRepository {
   list(): Promise<ContractRecord[]>;
   get(id: string): Promise<ContractRecord | null>;
+  /** 계약서 분석 결과(값·근거) — 수정·상세 화면의 "계약서 근거 보기"용. 직접 입력 계약이나 결과가 없으면 null */
+  analysisResult(id: string): Promise<unknown | null>;
   create(input: CreateContractInput): Promise<ContractRecord>;
   /** amountChanges: 반복 금액 변경 (적용일부터 새 금액 / 변경 금액 정정) — 결제 저장과 같은 트랜잭션 */
   update(id: string, draft: ContractDraft, amountChanges?: readonly AmountChangeOp[]): Promise<ContractRecord>;

@@ -1,3 +1,5 @@
+import type { EvidenceMap } from '@/domain/evidence';
+import { EvidenceProvider } from '@/features/evidence/EvidenceUI';
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useCallback, useEffect, useState } from 'react';
@@ -42,8 +44,12 @@ export interface ContractFormProps {
   defaultValues: ContractFormValues;
   /** "확인 필요" 표시 경로 ('startDate', 'payments.1.startsOn', 'contractType' …) */
   flagged?: ReadonlySet<string>;
-  /** 경로별 원문 근거 */
-  evidence?: Partial<Record<string, string>>;
+  /** 경로별 계약서 근거 (문장·쪽·문서) — 입력칸 아래에 늘 보이지 않고 "계약서 근거 보기" 아이콘으로 */
+  evidence?: EvidenceMap;
+  /** AI가 처음 읽은 값 (저장된 계약 수정 화면) — 없으면 처음 폼 값. 사용자가 고친 칸은 근거 시트에 AI 값과 함께 보여준다 */
+  aiValues?: ContractFormValues | null;
+  /** 근거 시트의 "계약서에서 보기" — 없으면 버튼을 숨긴다 */
+  openDocument?: (documentId: string | null, page: number | null) => void;
   /** 경로별 안내 (왜 확인이 필요한지) */
   notes?: Partial<Record<string, string>>;
   /** AI의 계약 종류 판단 (확인 화면) — 한 줄로 보여주고 사용자가 바꿀 수 있다. 신뢰도 낮음이면 골라야 최종 등록 */
@@ -90,7 +96,16 @@ const QUICK_VISIBLE: ReadonlySet<string> = new Set(['title', 'contractKind', 'co
  * 이 파일은 폼 상태와 섹션 배치만 맡는다. 각 섹션은 formSections/ (계약 종류·유형별 정보·금액·주요 날짜·갱신·미리보기).
  * 폼은 의미를 다시 판단하지 않는다 — 서버 분석 결과(또는 저장된 값)를 보여주고 사용자가 고친 값만 저장한다.
  */
-export function ContractForm({ defaultValues: initialValues, flagged, evidence, notes, classification, allDetails, header, trailing, footerNote, submitError, submitLabel, submitting, today, onSubmit, variant = 'full', mode = 'create' }: ContractFormProps) {
+/** 근거 시트 하나를 폼 전체가 함께 쓴다 */
+export function ContractForm(props: ContractFormProps) {
+  return (
+    <EvidenceProvider openDocument={props.openDocument}>
+      <ContractFormBody {...props} />
+    </EvidenceProvider>
+  );
+}
+
+function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evidence, notes, classification, allDetails, header, trailing, footerNote, submitError, submitLabel, submitting, today, onSubmit, variant = 'full', mode = 'create' }: ContractFormProps) {
   // 신뢰도 낮음: AI가 고른 종류를 미리 선택하지 않는다 (후보 중에서 사용자가 골라야 최종 등록)
   const defaultValues = classification?.confidence === 'low' ? { ...initialValues, contractKind: '', contractSubtype: '' } : initialValues;
   const quick = variant === 'quick' && !!defaultValues.quick;
@@ -126,7 +141,7 @@ export function ContractForm({ defaultValues: initialValues, flagged, evidence, 
   const type = formProfile(values);
   const profile = profileOf(type);
 
-  const kit = formKit({ control, setValue, getValues, values, flagged, evidence, notes });
+  const kit = formKit({ control, setValue, getValues, values, editing, flagged, evidence, notes, initial: aiValues ?? initialValues });
   const { field, amount, date } = kit;
 
   /**

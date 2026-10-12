@@ -242,7 +242,12 @@ export default function ReviewScreen() {
         trailing={trailing}
         defaultValues={formDefaults}
         flagged={model.flagged}
-        evidence={extraction.provider === 'mock' ? undefined : model.evidence}
+        // 미리보기(mock)도 같은 근거 보기 UX — 근거 문장은 예시 결과의 문장 (화면 상단에 미리보기 안내)
+        evidence={model.evidence}
+        openDocument={(documentId, page) => {
+          const d = uploaded.find((x) => x.id === documentId) ?? uploaded[0];
+          if (d) viewDocument(d, page);
+        }}
         notes={model.notes}
         classification={model.classification}
         allDetails={model.allDetails}

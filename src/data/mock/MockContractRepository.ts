@@ -50,6 +50,10 @@ export class MockContractRepository implements ContractRepository {
     return clone(this.records);
   }
 
+  async analysisResult() {
+    return null;
+  }
+
   async get(id: string) {
     await this.delay();
     const r = this.records.find((x) => x.contract.id === id);

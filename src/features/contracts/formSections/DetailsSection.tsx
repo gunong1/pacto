@@ -26,7 +26,7 @@ export function DetailsSection({ kit, type }: { kit: FormKit; type: ContractType
     return v != null && String(v).trim() !== '';
   };
   // AI 결과 확인 화면이면 값이 있는 조건만 (직접 입력·수정 화면은 모든 조건 칸)
-  const fromAi = !!kit.evidence && Object.keys(kit.evidence).length > 0;
+  const fromAi = !kit.editing && !!kit.evidence && Object.keys(kit.evidence).length > 0;
   const shown = fromAi ? conditions.filter((f) => filled(f.key)) : conditions;
   const anyFlagged = shown.some((f) => kit.flagged?.has(`details.${f.key}`));
   const [open, setOpen] = useState(anyFlagged);
@@ -39,6 +39,7 @@ export function DetailsSection({ kit, type }: { kit: FormKit; type: ContractType
       flagged={kit.flagged?.has(`details.${spec.key}`)}
       hint={kit.hint(`details.${spec.key}`)}
       source={kit.values.valueSources?.[`details.${spec.key}`]}
+      accessory={kit.evidenceIcon(`details.${spec.key}`, spec.label)}
     />
   );
   return (
@@ -72,13 +73,13 @@ export function DetailsSection({ kit, type }: { kit: FormKit; type: ContractType
 }
 
 /** 유형별 정보 한 칸 */
-function DetailInput({ control, spec, flagged, hint, source }: { control: Control<ContractFormValues>; spec: DetailFieldSpec; flagged?: boolean; hint?: string; source?: SourceType }) {
+function DetailInput({ control, spec, flagged, hint, source, accessory }: { control: Control<ContractFormValues>; spec: DetailFieldSpec; flagged?: boolean; hint?: string; source?: SourceType; accessory?: React.ReactNode }) {
   const name = `details.${spec.key}` as FieldName;
   if (spec.input === 'enum' || spec.input === 'boolean') {
     const options = spec.input === 'enum' ? [...(spec.options ?? [])] : [{ value: 'true', label: '예' }, { value: 'false', label: '아니오' }];
     return (
       <View style={{ marginBottom: spacing.lg }}>
-        <FormLabel label={spec.label} flagged={flagged} source={source} />
+        <FormLabel label={spec.label} flagged={flagged} source={source} accessory={accessory} />
         <Controller
           control={control}
           name={name}
@@ -101,6 +102,7 @@ function DetailInput({ control, spec, flagged, hint, source }: { control: Contro
       label={source === 'inferred' ? `${spec.label} · AI 추정` : spec.label}
       hint={hint}
       flagged={flagged}
+      labelAccessory={accessory}
       amount={spec.input === 'amount'}
       multiline={spec.input === 'text'}
       keyboardType={spec.input === 'percent' ? 'decimal-pad' : spec.input === 'text' ? 'default' : 'number-pad'}

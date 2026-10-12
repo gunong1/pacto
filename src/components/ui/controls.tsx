@@ -110,9 +110,11 @@ export interface TextFieldProps extends TextInputProps {
   /** AI 추출 신뢰도가 낮아 확인이 필요한 필드 */
   flagged?: boolean;
   suffix?: string;
+  /** 라벨 옆 작은 도구 (예: 계약서 근거 보기 아이콘) */
+  labelAccessory?: React.ReactNode;
 }
 
-export function TextField({ label, error, hint, flagged, suffix, style, ...input }: TextFieldProps) {
+export function TextField({ label, error, hint, flagged, suffix, labelAccessory, style, ...input }: TextFieldProps) {
   return (
     <View style={styles.field}>
       <View style={styles.labelRow}>
@@ -120,6 +122,7 @@ export function TextField({ label, error, hint, flagged, suffix, style, ...input
           {label}
         </AppText>
         {flagged ? <Badge label="확인 필요" tone="check" /> : null}
+        {labelAccessory}
       </View>
       <View style={[styles.inputWrap, flagged && styles.inputFlagged, !!error && styles.inputError]}>
         <TextInput

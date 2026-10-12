@@ -55,7 +55,7 @@ describe('1. 저장 전 보호 — 서버 정리 결과(analysis_jobs.result · 
 describe('2. 화면 — 등록 확인 "원문" · 계약 체크 · 저장 후 상세', () => {
   test('등록 확인 화면의 원문 근거', () => {
     const m = toReviewModel(toAppResult(leakyOutput(), 'openai'), ['doc-1']);
-    expect(m.evidence.counterparty).toBe(MASKED_LINE);
+    expect(m.evidence.counterparty?.quote).toBe(MASKED_LINE);
     expect(noRaw(JSON.stringify(m))).toBe(true);
   });
 
@@ -65,7 +65,7 @@ describe('2. 화면 — 등록 확인 "원문" · 계약 체크 · 저장 후 �
     r.fields.counterparty = { ...r.fields.counterparty, evidence: [{ page: 1, quote: RAW_LINE }] };
     r.checks[0] = { ...r.checks[0], evidenceQuote: RAW_LINE, description: RAW_LINE };
     const m = toReviewModel(r, ['doc-1']);
-    expect(m.evidence.counterparty).toBe(MASKED_LINE);
+    expect(m.evidence.counterparty?.quote).toBe(MASKED_LINE);
     expect(noRaw(JSON.stringify(m.checks))).toBe(true);
   });
 

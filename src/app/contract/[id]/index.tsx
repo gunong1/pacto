@@ -1,3 +1,8 @@
+import { recordToDraft } from '@/data/draft';
+import { coreRowEvidencePath, evidenceView } from '@/domain/evidence';
+import { draftToForm } from '@/features/contracts/form';
+import { EvidenceButton, EvidenceProvider } from '@/features/evidence/EvidenceUI';
+import { useContractEvidence } from '@/features/evidence/useContractEvidence';
 import { Ionicons } from '@expo/vector-icons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -64,6 +69,7 @@ export default function ContractDetailScreen() {
     if (files) attach.mutate(files, { onError: (e) => notify('원본 추가', e instanceof Error ? e.message : '원본을 보관하지 못했어요.') });
   };
 
+  const ai = useContractEvidence(record);
   const view = useMemo(() => {
     if (!record) return null;
     const c = record.contract;
@@ -117,8 +123,23 @@ export default function ContractDetailScreen() {
     }
   };
 
+  // 기본 정보·계약 조건 행의 계약서 근거 (등록 때 분석 결과 — 등록 확인·수정 화면과 같은 규칙)
+  const currentForm = draftToForm(recordToDraft(record, today));
+  const evidenceBadge = (rowKey: string, label: string) => {
+    const path = coreRowEvidencePath(rowKey);
+    if (!path) return null;
+    const at = (o: unknown) => path.split('.').reduce<unknown>((x, k) => (x && typeof x === 'object' ? (x as Record<string, unknown>)[k] : undefined), o);
+    const v = evidenceView(ai.evidence[path], { aiValue: at(ai.aiValues), currentValue: at(currentForm) });
+    return v.hasEvidence ? <EvidenceButton label={label} view={v} testID={`evidence-${rowKey}`} /> : null;
+  };
+
   return (
-    <>
+    <EvidenceProvider
+      openDocument={(documentId, page) => {
+        const d = record.documents.find((x) => x.id === documentId) ?? record.documents[0];
+        if (d) viewDocument(d, page);
+      }}
+    >
       {protect.modal}
       <Stack.Screen
         options={{
@@ -281,13 +302,16 @@ export default function ContractDetailScreen() {
               emphasis={row.emphasis}
               testID={`core-${row.key}`}
               badge={
-                row.source === 'inferred' && row.key.startsWith('d:') ? (
-                  <Pressable onPress={() => confirmInferred(row.label, `details.${row.key.slice(2)}`)} accessibilityRole="button" testID={`confirm-${row.key}`}>
-                    <SourceBadge source="inferred" />
-                  </Pressable>
-                ) : (
-                  <SourceBadge source={row.source} />
-                )
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                  {row.source === 'inferred' && row.key.startsWith('d:') ? (
+                    <Pressable onPress={() => confirmInferred(row.label, `details.${row.key.slice(2)}`)} accessibilityRole="button" testID={`confirm-${row.key}`}>
+                      <SourceBadge source="inferred" />
+                    </Pressable>
+                  ) : (
+                    <SourceBadge source={row.source} />
+                  )}
+                  {evidenceBadge(row.key, row.label)}
+                </View>
               }
             />
           ))}
@@ -358,7 +382,7 @@ export default function ContractDetailScreen() {
           {c.earlyTerminationTerms ? <KeyValueRow label={profileKeyOf(c) === 'loan' ? '중도상환' : '중도해지'} value={c.earlyTerminationTerms} /> : null}
           {c.penaltyTerms ? <KeyValueRow label="위약금" value={c.penaltyTerms} /> : null}
           {view.other.map((row) => (
-            <KeyValueRow key={row.key} label={row.label} value={row.value} />
+            <KeyValueRow key={row.key} label={row.label} value={row.value} badge={evidenceBadge(row.key, row.label)} />
           ))}
           {!c.contractDate && !c.earlyTerminationTerms && !c.penaltyTerms && view.other.length === 0 ? (
             <AppText variant="body2" color="textTertiary">
@@ -480,7 +504,7 @@ export default function ContractDetailScreen() {
           <Button label="계약 삭제" variant="ghost" size="md" onPress={removeContract} loading={remove.isPending} testID="delete-contract" />
         </View>
       </Screen>
-    </>
+    </EvidenceProvider>
   );
 }
 

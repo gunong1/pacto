@@ -16,6 +16,7 @@ import {
 } from '@/domain/contractTypes';
 import { contractKindDef, legacyOf, type ClassificationMeta, type KindClassification } from '@/domain/contractKinds';
 import { formatWon } from '@/domain/money';
+import type { EvidenceMap } from '@/domain/evidence';
 import { maskSensitiveDeep } from '@/domain/sensitive';
 import { addDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
@@ -47,7 +48,8 @@ export interface ReviewModel {
   /** "확인 필요" 표시 경로: 'contractKind', 'startDate', 'payments.1.startsOn', 'details.interestRate', 'dates.0' … */
   flagged: Set<string>;
   /** 경로별 원문 근거(첫 번째) */
-  evidence: Partial<Record<string, string>>;
+  /** 값마다 계약서 근거 (문장·쪽·문서) — 화면에서는 "계약서 근거 보기"로만 (src/domain/evidence.ts) */
+  evidence: EvidenceMap;
   /** 경로별 안내 (왜 확인이 필요한지) */
   notes: Partial<Record<string, string>>;
   /** AI의 계약 종류 판단 (확인 화면 한 줄 표시 · 신뢰도 낮음이면 사용자가 골라야 최종 등록) */
@@ -79,10 +81,11 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
   // 방어선: 서버가 이미 가렸어도(또는 예전 서버 결과여도) 화면 모델에 들어오기 전에 공통 정책으로 다시 가린다 (이미 가린 값은 그대로)
   const result = maskSensitiveDeep(input);
   const flagged = new Set<string>();
-  const evidence: Partial<Record<string, string>> = {};
+  const evidence: EvidenceMap = {};
   const notes: Partial<Record<string, string>> = {};
-  const quote = (path: string, e?: { quote: string }[]) => {
-    if (e?.[0]?.quote) evidence[path] = e[0].quote;
+  const quote = (path: string, e?: { quote: string; page?: number | null; file?: number | null }[]) => {
+    const x = e?.[0];
+    if (x?.quote) evidence[path] = { quote: x.quote, page: x.page ?? null, documentId: (x.file ? documentIds[x.file - 1] : undefined) ?? documentIds[0] ?? null };
   };
   const uncertain = (path: string, c: Confidence) => {
     if (c !== 'high') flagged.add(path);

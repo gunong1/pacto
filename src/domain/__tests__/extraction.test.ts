@@ -550,6 +550,6 @@ describe('H. AI가 주민등록번호·계좌번호를 인용해도 저장·표�
     expect(r.details.employee_name.value).toBe('박민준');
     const m = review({ kind: k('employment'), fields: { counterparty: f('주식회사 네오링크', 'high', quote) }, details: [{ ...det('employee_name', '박민준'), evidence_quote: quote }] });
     expect(JSON.stringify([m.evidence, m.notes, m.checks])).not.toContain('1234567');
-    expect(m.evidence.counterparty).toContain('901225-1******');
+    expect(m.evidence.counterparty?.quote).toContain('901225-1******');
   });
 });
