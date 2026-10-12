@@ -5,7 +5,7 @@ import { contractRepository, documentStore, notificationStore } from '@/data';
 import type { PickedFile } from '@/data/ai/provider';
 import { activateCheckCost, activateCost, recordToDraft } from '@/data/draft';
 import type { AmountChangeOp } from '@/domain/amountEdits';
-import type { ContractDraft, CreateContractInput, NewEventInput } from '@/data/repository';
+import type { ContractDraft, CreateContractInput, NewEventInput, RefundInput } from '@/data/repository';
 import { todayInSeoul } from '@/domain/dates';
 import type { AiCheck, ContractLifecycle, ContractRecord, ISODate } from '@/domain/types';
 
@@ -96,6 +96,9 @@ export function useContractActions(id: string) {
       return contractRepository.update(id, { ...recordToDraft(r), valueSources: { ...r.contract.valueSources, [path]: 'user_confirmed' } });
     }),
     /** 선택형·조건부 비용이 실제로 생김 (락커 이용 시작, 회원권 양도) → 그날부터 확정 결제 */
+    /** 보증금·예치금 실제 반환 기록 (원래 지급 결제는 그대로) · 기록 삭제 */
+    addRefund: useAction((fundKey: string, input: RefundInput) => contractRepository.addRefund(id, fundKey, input)),
+    removeRefund: useAction((refundId: string) => contractRepository.removeRefund(id, refundId)),
     /** 아직 적용 전인 금액 변경 취소 */
     cancelAmountChange: useAction((changeId: string) => contractRepository.cancelAmountChange(id, changeId)),
     activateCost: useAction(async (paymentId: string, date: ISODate) => {

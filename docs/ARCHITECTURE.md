@@ -1501,3 +1501,30 @@ pacto/
 - 화면: 분석 전 버튼 없음 → 결과 화면 맨 위 경고 카드(`PartialAnalysisNotice`: "전체 2쪽 중 1쪽만 분석했어요." · 페이지별 사유 · [제외된 페이지 보기](원본 확인 후) · [문서 다시 등록]). 저장 전 확인 대화상자(`partialAnalysis().confirmBody`). 저장 후 계약 상세에도 같은 카드. 뺀 페이지가 있는 문서는 "일부 페이지만 보호했어요"(보호 완료로 보이지 않음).
 - AI 지시문 v15: 첨부되지 않은 쪽의 내용을 추측해 채우지 않음.
 - 테스트: `golden/security/auto-exclusion-golden.test.ts` · `tests/protection/page-selection.test.ts`(7~9) · 통합 `step27` · E2E `page-selection.js`.
+
+## 계약 당사자 식별 · 현금흐름(방향과 돈의 성격 분리) · 보증금 반환 (2026-10-12)
+
+모든 계약 종류에 공통인 구조다 (임대차 전용 예외 없음). 규칙 원본: `src/domain/cashflow.ts` · `src/domain/partyMatch.ts` · 레지스트리 `KIND_MONEY_FLOWS`.
+
+**데이터 (migration 20261026000001 — 기존 데이터 일괄 변경 없음)**
+- `contract_payments.direction`: expense / income / neutral 그대로 (새 값 없음 — 예전 앱 호환). neutral = 방향 확인 필요 (예전 "중립" 포함, 합계 제외)
+- `money_nature`(ordinary · refundable_deposit · deposit_refund) · `direction_basis`(user · role · contract) · `payer_role`/`payee_role`(계약서가 밝힌 지급자·수령자) · `fund_id`
+- `contract_funds`: 돌려받을/돌려줄 돈 묶음 — 한 계약에 여러 개(보증금 + 예치금). `total_amount null` = 계약 요약 `deposit_amount`를 총액으로 (중복 저장 없음, 계약당 1개)
+- `fund_refunds`: 실제 반환 기록 (원래 지급 행을 바꾸거나 뒤집지 않음). 상태(반환 예정·일부·완료·지연)·남은 금액은 계산
+- `contracts.user_party_relation`(self · on_behalf · unknown) — `user_party_role`은 사용자가 확정한 역할만 (추천은 저장하지 않음)
+- `profiles.contract_names`(최대 5개, 본인만) · `contract_names_skipped_at`
+- `save_contract`: 새 칸·`p_funds`는 보낸 경우에만 변경 → 예전 앱이 다시 저장해도 유지
+
+**판단 순서**
+1. AI(지시문 v16)는 당사자(보증인·대리인 포함)와, 계약서 문장이 밝힐 때만 지급자·수령자 역할을 뽑는다. 사용자 쪽은 판단하지 않음
+2. 서버 F1(`analysisRules/moneyFlow.ts`): 보증금(몫 포함) → refundable_deposit. 구독·통신·렌탈·할부·교육·보험·대출은 계약 구조로 방향 확정(basis contract), 그 밖은 neutral
+3. 앱(기기)에서 등록한 이름과 당사자를 정확히 대조 → 한 명만 일치하면 "추천". 여러 명·불일치면 추천 없음. 이름은 서버·AI로 보내지 않음
+4. 사용자가 "이 계약에서 누구세요?"에서 확정 → 변경 예정 금액 미리보기 → 적용 (`roleDirectionChanges`: role·contract 근거와 미확정 행만, 사용자가 고른 방향과 예전 출금/입금은 그대로)
+
+**합계 (홈·캘린더·상세 공통 `monthSpending` = 캘린더 일정 목록)**
+- 총 출금 = 일반 지출 + 보증금 지급 / 총 입금 = 일반 수입 + 보증금 받음·반환(실제 기록·계약서에 적힌 반환 예정)
+- 반환 확인 기준일: 계약서 반환일이 있으면 그날(입금/출금 예정에 포함), 없으면 계약 종료일(갱신 반영)에 "반환 확인" 일정만 (합계 제외)
+- 방향 확인 필요 금액은 합계에서 빼고 "확인 필요"로 표시
+
+**화면**: 등록 확인·수정의 당사자 섹션(역할 카드 · 첫 등록 이름 안내/건너뛰기) · 계약 상세 "보증금 · 예치금"(반환 기록·삭제) · MY "내 계약자 정보" · 홈/캘린더 출금 구분
+**테스트**: Golden `golden/cashflow.test.ts`(28) · `golden/cashflow-analysis.test.ts`(7) · 통합 step28 · E2E `cashflow-role`

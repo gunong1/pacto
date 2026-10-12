@@ -38,6 +38,8 @@ import { ContractNotificationSection, PushOpenedBanner, PushPromptSheet } from '
 import { PartialAnalysisNotice } from '@/features/documents/PartialAnalysisNotice';
 import { overallProtectionCopy, partialAnalysis } from '@/features/documents/protectionCopy';
 import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
+import { FundsSection } from '@/features/contracts/FundsSection';
+import { isPayoutLike } from '@/domain/cashflow';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
@@ -292,7 +294,7 @@ export default function ContractDetailScreen() {
             <View style={styles.nextPay} testID="detail-next-payment">
               <View style={{ flex: 1 }}>
                 <AppText variant="caption" color="textTertiary">
-                  {view.next.direction === 'income' ? '다음 지급' : '다음 결제'} · {view.next.label}
+                  {isPayoutLike(view.next) ? '다음 지급' : '다음 결제'} · {view.next.label}
                   {view.next.amountNote ? ` (${view.next.amountNote})` : ''}
                   {view.next.installment ? ` ${view.next.installment.no}/${view.next.installment.total}회` : ''}
                 </AppText>
@@ -308,7 +310,7 @@ export default function ContractDetailScreen() {
             <View style={styles.notice} testID="detail-payday-unknown">
               <Ionicons name="information-circle-outline" size={18} color={colors.check} />
               <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
-                {view.dayUnknown[0].kind === 'salary' ? '급여' : view.dayUnknown[0].label} {view.dayUnknown[0].direction === 'income' ? '지급일' : '결제일'} 확인 필요 — 계약서에 {view.dayUnknown[0].direction === 'income' ? '지급일' : '결제일'}이 없어 캘린더에 반복 일정을 만들지 않았어요. 알면 정보 수정에서 입력해주세요.
+                {view.dayUnknown[0].kind === 'salary' ? '급여' : view.dayUnknown[0].label} {isPayoutLike(view.dayUnknown[0]) ? '지급일' : '결제일'} 확인 필요 — 계약서에 {isPayoutLike(view.dayUnknown[0]) ? '지급일' : '결제일'}이 없어 캘린더에 반복 일정을 만들지 않았어요. 알면 정보 수정에서 입력해주세요.
               </AppText>
             </View>
           ) : null}
@@ -378,6 +380,8 @@ export default function ContractDetailScreen() {
             </AppText>
           ) : null}
         </Section>
+
+        <FundsSection record={record} today={today} confirm={confirm} />
 
         {view.extra.length > 0 ? (
           <>

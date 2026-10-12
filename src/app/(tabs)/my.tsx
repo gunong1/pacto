@@ -72,6 +72,8 @@ export default function MyScreen() {
 
       <SectionGap />
       <Section title="설정">
+        <ListRow title="내 계약자 정보" subtitle="계약서에 쓰는 이름 — 내 역할 추천에 사용" chevron onPress={() => router.push('/settings/contract-names')} testID="open-contract-names" />
+        <Divider />
         <ListRow title="알림 설정" subtitle="알림 받을 시점·시간, 잠금화면 표시" chevron onPress={() => router.push('/settings/notifications')} testID="open-notification-settings" />
         <Divider />
         <ListRow title="보안" subtitle="앱 잠금(Face ID·지문)" right={<Badge label="준비중" />} />

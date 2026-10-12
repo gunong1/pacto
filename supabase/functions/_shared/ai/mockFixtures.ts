@@ -136,6 +136,40 @@ export function rentalDiscountOutput(title: string) {
  * 월 임금 1건 + 구성 항목 2건, 지급일 휴일이면 직전 영업일, 수습 3개월 90%, 자동갱신 아님(별도 협의),
  * 자진 퇴직 30일 전 통보 = 조건부 의무 (종료일 기준 통보기한·날짜를 만들지 않음), 연봉 없음.
  */
+/** 주택 월세 임대차 (모든 값은 가짜) — 보증금 20,000,000 = 계약금 2,000,000(계약 당일) + 잔금 18,000,000(10/20), 월세 850,000 · 관리비 100,000 (매월 20일) */
+export function leaseOutput(title: string) {
+  const DEP = '보증금 금 20,000,000원정은 계약 당일 계약금 2,000,000원을 지불하고, 잔금 18,000,000원은 2026년 10월 20일에 지불한다.';
+  const RENT = '임차인은 월세 850,000원과 관리비 100,000원을 매월 20일 임대인에게 지불한다.';
+  return {
+    classification: { kind: 'lease', subtype: 'housing', domains: ['real_estate'], confidence: 'high', alternatives: [], reason: '주택을 빌려 쓰고 보증금과 월세를 내는 임대차 계약으로 기재되어 있습니다.', evidence_quote: null, evidence_page: null, evidence_file: null, secondary_elements: [] },
+    parties: [party('lessor', '김민수', '임대인 김민수'), party('lessee', '박지훈', '임차인 박지훈')],
+    fields: {
+      title: f(title),
+      counterparty: f(null, 'low'),
+      totalAmount: f(null, 'low'),
+      depositAmount: f(20000000, 'high', DEP),
+      autoRenewal: f(false, 'high'),
+      renewalPeriodMonths: f(null, 'low'),
+      terminationNoticeDays: f(null, 'low'),
+      earlyTerminationTerms: f(null, 'low'),
+      penaltyTerms: f(null, 'low'),
+    },
+    dates: [
+      { date: '2026-10-08', meaning: 'contract_signed', label: '계약일', confidence: 'high', source_type: 'explicit', ...q('계약일 2026년 10월 8일') },
+      { date: '2026-10-20', meaning: 'contract_start', label: '임대차 시작일', confidence: 'high', source_type: 'explicit', ...q('2026년 10월 20일부터 2028년 10월 19일까지') },
+      { date: '2028-10-19', meaning: 'contract_end', label: '임대차 종료일', confidence: 'high', source_type: 'explicit', ...q('2026년 10월 20일부터 2028년 10월 19일까지') },
+    ],
+    payments: [
+      pay({ role: 'one_time_cashflow', kind: 'down_payment', direction: 'expense', label: '계약금', amount: 2000000, frequency: 'one_time', day_of_month: null, date: '2026-10-08', ...q(DEP) }),
+      pay({ role: 'one_time_cashflow', kind: 'balance_payment', direction: 'expense', label: '잔금', amount: 18000000, frequency: 'one_time', day_of_month: null, date: '2026-10-20', ...q(DEP) }),
+      pay({ kind: 'rent', direction: 'expense', label: '월세', amount: 850000, frequency: 'monthly', day_of_month: 20, payer_role: 'lessee', payee_role: 'lessor', ...q(RENT) }),
+      pay({ kind: 'maintenance_fee', direction: 'expense', label: '관리비', amount: 100000, frequency: 'monthly', day_of_month: 20, payer_role: 'lessee', payee_role: 'lessor', ...q(RENT) }),
+    ],
+    details: [],
+    checks: [],
+  };
+}
+
 export function employmentOutput(title: string) {
   const wage = '월 임금은 3,600,000원으로 하며, 기본급 3,280,000원과 고정연장근로수당 320,000원으로 구성한다.';
   const payday = '임금은 매월 25일에 지급하며, 지급일이 휴일인 경우 그 전일에 지급한다.';
@@ -306,7 +340,7 @@ export function mockDocumentOutput(names: string[]) {
     const out = stampFile(rentalOutput(title) as Record<string, unknown>, main.file);
     return { document_check: check('supporting', 'medium', { ...NO_SIGNALS, parties: true, amounts: true, dates: true }), ...out };
   }
-  const base = /근로/.test(name) ? employmentOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : /통보미확인/.test(name) ? rentalNoticeUnsureOutput(title) : /연락처노출/.test(name) ? rentalLeakyContactOutput(title) : rentalOutput(title);
+  const base = /근로/.test(name) ? employmentOutput(title) : /임대차/.test(name) ? leaseOutput(title) : /헬스/.test(name) ? gymYearOutput(title) : /할인/.test(name) ? rentalDiscountOutput(title) : /통보미확인/.test(name) ? rentalNoticeUnsureOutput(title) : /연락처노출/.test(name) ? rentalLeakyContactOutput(title) : rentalOutput(title);
   const out = stampFile(base as Record<string, unknown>, main.file, /출처불명/.test(names.join(' ')));
   // 계약과 무관한 쪽(예: 책상 사진의 가격표)에서 읽힌 값 — 그 쪽을 제외하면 결과에 남으면 안 된다
   for (const junk of pages.filter((p) => p.role === 'non_contract')) {

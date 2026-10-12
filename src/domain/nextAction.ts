@@ -1,3 +1,4 @@
+import { isPayoutLike } from './cashflow';
 import { endCategoryOf, profileFor, profileKeyOf } from './contractKinds';
 import { addDays, addMonths, formatDateLongKo } from './dates';
 import { daysUntil } from './dday';
@@ -160,6 +161,8 @@ export function nextAction(record: ContractRecord, today: ISODate): NextAction |
   const pay = nextPayment(record, today);
   if (!pay || !isLive(record.contract, today)) return null;
   const days = daysUntil(pay.date, today);
+  // 받는 돈(급여 등) — 역할 확정 전(방향 확인 필요)이어도 급여면 "지급"
+  const payout = isPayoutLike(pay);
   return {
     contractId: record.contract.id,
     contractTitle: record.contract.title,
@@ -168,9 +171,9 @@ export function nextAction(record: ContractRecord, today: ISODate): NextAction |
     kind: 'payment',
     date: pay.date,
     days,
-    label: pay.direction === 'income' ? '다음 지급' : '다음 결제',
-    headline: pay.direction === 'income' ? (days === 0 ? '오늘 지급 예정일입니다.' : `다음 지급일까지 ${days}일 남았습니다.`) : days === 0 ? '오늘 결제일입니다.' : `다음 결제일까지 ${days}일 남았습니다.`,
-    guidance: `${monthDay(pay.date)}에 ${pay.label} ${formatWon(pay.amount)}${pay.amountNote ? `(${pay.amountNote})` : ''}이 ${pay.direction === 'income' ? '지급' : '결제'}될 예정이에요.`,
+    label: payout ? '다음 지급' : '다음 결제',
+    headline: payout ? (days === 0 ? '오늘 지급 예정일입니다.' : `다음 지급일까지 ${days}일 남았습니다.`) : days === 0 ? '오늘 결제일입니다.' : `다음 결제일까지 ${days}일 남았습니다.`,
+    guidance: `${monthDay(pay.date)}에 ${pay.label} ${formatWon(pay.amount)}${pay.amountNote ? `(${pay.amountNote})` : ''}이 ${payout ? '지급' : '결제'}될 예정이에요.`,
   };
 }
 

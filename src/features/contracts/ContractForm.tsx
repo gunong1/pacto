@@ -77,11 +77,11 @@ export interface ContractFormProps {
   mode?: 'create' | 'edit';
 }
 
-/** 빠른 입력의 돈 방향 (중립 = 보증금처럼 돌려받는 돈·해당 없음) */
+/** 빠른 입력의 돈 방향 (확인 필요 = 아직 누가 내는 돈인지 모름 — 합계에 넣지 않음) */
 const QUICK_DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
   { value: 'expense', label: '지출' },
   { value: 'income', label: '수입' },
-  { value: 'neutral', label: '중립·해당 없음' },
+  { value: 'neutral', label: '확인 필요' },
 ];
 
 /** 빠른 입력의 기본 주기 — 매매·일회성·용역은 일시불, 나머지는 매월 */
@@ -295,7 +295,7 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
             )}
           />
           <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.sm, marginBottom: spacing.lg }} testID="quick-direction-hint">
-            {q?.direction === 'neutral' ? '보증금처럼 돌려받는 돈 · 해당 없음 — 지출·수입 합계에 넣지 않아요.' : advice.roles}
+            {q?.direction === 'neutral' ? '누가 내는 돈인지 아직 모를 때 — 지출·수입 합계에 넣지 않아요.' : advice.roles}
           </AppText>
           <FormLabel label={income ? '지급 주기' : '결제 주기'} />
           <Controller control={control} name="quick.frequency" render={({ field: f }) => <ChipGroup options={FREQUENCY_OPTIONS} value={f.value ?? 'monthly'} onChange={f.onChange} scroll testIDPrefix="quick-frequency" />} />

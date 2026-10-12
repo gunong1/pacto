@@ -59,7 +59,7 @@ export function SchedulePreview({ values, today }: { values: ContractFormValues;
                 p.frequency === 'one_time' ? '일시불' : `${FREQUENCY_LABEL[p.frequency]}${p.dayOfMonth ? ` ${p.dayOfMonth}일` : ''}`,
                 first ? `${p.frequency === 'one_time' ? '' : '첫 결제 '}${formatDateKo(first.date)}` : null,
                 plan ? (plan.total != null ? `총 ${plan.total}회 · 마지막 ${formatDateKo(plan.last!)}` : '종료일 없이 반복') : null,
-                p.direction === 'neutral' ? '지출 합계 제외' : p.direction === 'income' ? '수입' : null,
+                p.direction === 'neutral' ? '방향 확인 필요 · 합계 제외' : p.direction === 'income' ? '수입' : null,
               ]
                 .filter(Boolean)
                 .join(' · ')}

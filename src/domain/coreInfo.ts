@@ -88,7 +88,7 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
     for (const ap of amountPeriods(record, p)) add(`period:${p.id}:${ap.from}`, `${ap.label.split(' ')[0]} ${p.label}`, `${money({ ...p, amount: ap.amount })} (${formatDateKo(ap.from)} ~ ${formatDateKo(ap.to)})`, true, 'calculated');
     const next = expandPayment(p, record.contract, { start: today, end: addDays(today, 400) }, record.dates)[0];
     if (next && p.frequency !== 'one_time' && (p.businessDayRule !== 'none' || next.amountNote)) {
-      add(`next:${p.id}`, p.direction === 'income' ? '다음 지급 예정' : '다음 결제 예정', `${formatDateKo(next.date, true)} · ${money({ ...p, amount: next.amount })}`, false, 'calculated');
+      add(`next:${p.id}`, isPayoutLike(p) ? '다음 지급 예정' : '다음 결제 예정', `${formatDateKo(next.date, true)} · ${money({ ...p, amount: next.amount })}`, false, 'calculated');
     }
   };
   const ofKind = (...kinds: PaymentKind[]) => payments.filter((p) => kinds.includes(p.kind));
@@ -103,7 +103,7 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
   const planRows = (p: ContractPayment) => {
     const plan = paymentPlan(p, record, today);
     if (!plan) return;
-    const income = p.direction === 'income';
+    const income = isPayoutLike(p);
     const conflict = plan.conflict ? ` · 계약서 ${plan.conflict.installments}회와 달라요 (확인 필요)` : '';
     const w = income ? '지급' : '결제';
     // 첫 회차: 시작일과 결제일로 계산 — 급여처럼 당월/익월이 정해지지 않았으면 "확인 필요"
@@ -249,8 +249,8 @@ export function coreInfo(record: ContractRecord, today: ISODate): CoreInfoRow[] 
 /** 일시불의 결제일이 지났으면 완료로 표시 (결제일 기준 — 실제 결제 여부는 사용자가 확인) */
 function oneTimeStatus(p: ContractPayment, today: ISODate): string {
   if (p.startsOn > today) return '';
-  if (p.startsOn === today) return p.direction === 'income' ? ' · 오늘 지급' : ' · 오늘 결제';
-  return p.direction === 'income' ? ' · 지급 완료' : ' · 결제 완료';
+  if (p.startsOn === today) return isPayoutLike(p) ? ' · 오늘 지급' : ' · 오늘 결제';
+  return isPayoutLike(p) ? ' · 지급 완료' : ' · 결제 완료';
 }
 
 /** 참고 금액의 종류 표시 */

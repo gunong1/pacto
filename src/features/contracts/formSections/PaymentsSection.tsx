@@ -28,9 +28,9 @@ export const FREQUENCY_OPTIONS = PAYMENT_FREQUENCIES.map((f) => ({ value: f, lab
 const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABEL[d] }));
 /** 금액 구분 설명 — 고른 항목이 무슨 뜻인지 */
 const DIRECTION_HINT: Record<Direction, string> = {
-  expense: '지출 = 내가 내는 돈',
-  income: '수입 = 내가 받는 돈 (급여·대금 등)',
-  neutral: '중립·해당 없음 = 보증금처럼 돌려받는 돈 (합계에 넣지 않아요)',
+  expense: '출금 = 내(관리하는 분)가 내는 돈',
+  income: '입금 = 내(관리하는 분)가 받는 돈 (급여·대금·돌려받는 보증금 등)',
+  neutral: '확인 필요 = 누가 내는 돈인지 아직 몰라요 (출금·입금 합계에 넣지 않아요). 위 "이 계약에서 누구세요?"에서 역할을 고르면 자동으로 정해져요',
 };
 const ONE_TIME_KINDS: ReadonlySet<PaymentKind> = new Set(['setup_fee', 'deposit', 'advance_payment', 'down_payment', 'interim_payment', 'balance_payment']);
 const defaultFrequency = (kind: PaymentKind): PaymentFormValues['frequency'] => (ONE_TIME_KINDS.has(kind) ? 'one_time' : kind === 'premium' ? 'yearly' : 'monthly');
@@ -111,10 +111,11 @@ export function PaymentsList({
               {pv.obligation !== 'confirmed' ? (
                 <Badge label={`${OBLIGATION_LABEL[pv.obligation]} · 캘린더·지출 제외`} tone="check" />
               ) : pv.direction === 'neutral' ? (
-                <Badge label="지출 합계 제외" />
+                <Badge label="방향 확인 필요 · 합계 제외" tone="check" />
               ) : pv.direction === 'income' ? (
-                <Badge label="수입" tone="primary" />
+                <Badge label="입금" tone="primary" />
               ) : null}
+              {pv.moneyNature === 'refundable_deposit' ? <Badge label="보증금 · 돌려받을(줄) 돈" /> : null}
               <View style={{ flex: 1 }} />
               <Pressable onPress={() => payments.remove(i)} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={`결제 ${i + 1} 삭제`} testID={`payment-${i}-remove`}>
                 <Ionicons name="trash-outline" size={18} color={colors.textTertiary} />
@@ -133,7 +134,12 @@ export function PaymentsList({
                     const frequency = getValues(`payments.${i}.frequency`);
                     if (!label || label === paymentKindLabel(f.value)) setValue(`payments.${i}.label`, paymentKindLabel(k));
                     if (frequency === defaultFrequency(f.value)) setValue(`payments.${i}.frequency`, defaultFrequency(k));
-                    if (getValues(`payments.${i}.direction`) === defaultDirection(f.value)) setValue(`payments.${i}.direction`, defaultDirection(k));
+                    // 방향을 사용자가 정하지 않았고 역할로 계산되지도 않았을 때만 새 의미의 기본값으로
+                    const basis = getValues(`payments.${i}.directionBasis`);
+                    if (!basis && getValues(`payments.${i}.direction`) === defaultDirection(f.value)) setValue(`payments.${i}.direction`, defaultDirection(k));
+                    // 보증금(돌려받을 돈)으로 바꾸면 성격도 보증금, 보증금에서 다른 의미로 바꾸면 일반 (묶음 연결은 저장된 값 유지)
+                    if (k === 'deposit') setValue(`payments.${i}.moneyNature`, 'refundable_deposit');
+                    else if (f.value === 'deposit' && getValues(`payments.${i}.moneyNature`) === 'refundable_deposit') setValue(`payments.${i}.moneyNature`, 'ordinary');
                     f.onChange(k);
                   }}
                   testIDPrefix={`payment-${i}-kind`}
@@ -169,7 +175,22 @@ export function PaymentsList({
               <ComponentsEditor components={pv.components ?? []} total={parseAmount(pv.amount)} onChange={(next) => setValue(`payments.${i}.components`, next)} testID={`payment-${i}-components`} />
             ) : null}
             <FormLabel label="금액 구분" />
-            <Controller control={control} name={`payments.${i}.direction`} render={({ field: f }) => <ChipGroup options={DIRECTION_OPTIONS} value={f.value} onChange={f.onChange} testIDPrefix={`payment-${i}-direction`} />} />
+            <Controller
+              control={control}
+              name={`payments.${i}.direction`}
+              render={({ field: f }) => (
+                <ChipGroup
+                  options={DIRECTION_OPTIONS}
+                  value={f.value}
+                  onChange={(d) => {
+                    // 사용자가 직접 고른 방향 — 역할을 바꿔도 다시 계산하지 않는다 (확인 필요로 되돌리면 근거 없음)
+                    setValue(`payments.${i}.directionBasis`, d === 'neutral' ? '' : 'user');
+                    f.onChange(d);
+                  }}
+                  testIDPrefix={`payment-${i}-direction`}
+                />
+              )}
+            />
             <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.xs }} testID={`payment-${i}-direction-hint`}>
               {DIRECTION_HINT[pv.direction]}
             </AppText>
