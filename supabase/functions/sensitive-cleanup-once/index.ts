@@ -86,6 +86,17 @@ Deno.serve(async (req) => {
   } catch {
     return json({ error: 'invalid_body' }, 400);
   }
+  try {
+    return await run(body);
+  } catch (e) {
+    // 오류 코드만 (예: select_contracts_400 — 표 이름·상태 코드). 데이터·원문은 담지 않는다
+    const code = e instanceof Error ? e.message.replace(/[^a-z0-9_]/gi, '').slice(0, 60) : 'unknown';
+    console.error(`sensitive-cleanup: result=error code=${code}`);
+    return json({ error: 'failed', code }, 500);
+  }
+});
+
+async function run(body: { mode?: string; planHash?: string }): Promise<Response> {
   const runId = crypto.randomUUID();
   const hits = await findHits(TARGETS);
   const hash = await planHash(hits);
@@ -123,4 +134,4 @@ Deno.serve(async (req) => {
   }
 
   return json({ error: 'invalid_mode' }, 400);
-});
+}
