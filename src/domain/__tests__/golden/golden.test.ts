@@ -4,11 +4,13 @@
  * 각 계약마다: 유형·분야 / 확정 금액(방향·주기·결제일) / 시작·종료 / 주요 날짜 / 계약 체크 / 참고·면제 금액 /
  * 자동갱신·통보기한 / 홈(그 달 합계) / 캘린더 일정을 고정한다.
  *
+ * 역할에 따라 방향이 바뀌는 계약(근로·임대차·용역)은 등록 확인 화면에서 사용자가 역할을 확정한 뒤의 결과 (observe의 role)
+ *
  * `test.failing` = 리팩터링 전 코드가 아직 정답과 다른 항목. 주석에 "리팩터링 전" 결과를 남긴다.
  * 리팩터링으로 고치면 jest가 "failing인데 통과함"으로 알려주므로 일반 test로 바꾼다 — 기대값을 바꿔서 통과시키지 않는다.
  */
 import * as F from './fixtures';
-import { calendarCards, month, observe, schedule } from './harness';
+import { calendarCards, month, observe, outflow, schedule } from './harness';
 
 const pay = (label: string, amount: number | null, direction: string, frequency: string, day: number | null, extra: { obligation?: string; components?: string[] } = {}) => ({
   label,
@@ -74,7 +76,7 @@ describe('1. 렌탈 — 월 렌탈료 31,900원 (같은 문장에 할인전·연
 
 describe('2. 근로 — 월 급여 1,270,000 = 기본급 + 식대 (세 금액을 각각 실제 돈으로 답함)', () => {
   describe('지급일 언급 없음', () => {
-    const o = observe(F.employment(null));
+    const o = observe(F.employment(null), 'employee');
     test('유형·분야', () => expect([o.type, o.category]).toEqual(['employment', 'employment']));
     test('확정 금액: 월 급여 1건(기본급·식대는 구성항목) · 지급일 없음', () => {
       expect(o.payments).toEqual([pay('월 급여', 1270000, 'income', 'monthly', null, { components: ['기본급', '식대'] })]);
@@ -91,7 +93,7 @@ describe('2. 근로 — 월 급여 1,270,000 = 기본급 + 식대 (세 금액을
     });
   });
   describe('매월 25일 지급', () => {
-    const o = observe(F.employment(25));
+    const o = observe(F.employment(25), 'employee');
     test('확정 금액: 월 급여 1건 매월 25일 · 구성항목 기본급·식대', () => {
       expect(o.payments).toEqual([pay('월 급여', 1270000, 'income', 'monthly', 25, { components: ['기본급', '식대'] })]);
     });
@@ -103,13 +105,14 @@ describe('2. 근로 — 월 급여 1,270,000 = 기본급 + 식대 (세 금액을
 });
 
 describe('3. 월세 — 보증금 = 계약금 + 잔금, 월세 + 관리비("수도 등 포함"), 입주일 = 시작일', () => {
-  const o = observe(F.lease());
+  const o = observe(F.lease(), 'lessee');
   test('유형·분야', () => expect([o.type, o.category]).toEqual(['lease', 'real_estate']));
   // 리팩터링 전: 관리비가 "포함" 단어 때문에 월세의 구성항목으로 합쳐짐 → 리팩터링 C에서 고침
-  test('확정 금액: 계약금·잔금(중립) + 월세 700,000 + 관리비 70,000 (각각 매월 5일)', () => {
+  // 현금흐름 개편: 임차인으로 확정 → 보증금의 계약금·잔금은 출금(성격: 보증금 — 일반 지출과 구분) · 이전 기대: neutral(합계 제외)
+  test('확정 금액: 계약금·잔금(보증금 지급) + 월세 700,000 + 관리비 70,000 (각각 매월 5일)', () => {
     expect(o.payments).toEqual([
-      pay('계약금', 10000000, 'neutral', 'one_time', null),
-      pay('잔금', 40000000, 'neutral', 'one_time', null),
+      pay('계약금', 10000000, 'expense', 'one_time', null),
+      pay('잔금', 40000000, 'expense', 'one_time', null),
       pay('월세', 700000, 'expense', 'monthly', 5),
       pay('관리비', 70000, 'expense', 'monthly', 5),
     ]);
@@ -131,7 +134,9 @@ describe('3. 월세 — 보증금 = 계약금 + 잔금, 월세 + 관리비("수�
     expect(schedule(o, '2026-11-01', '2026-11-30')).toEqual(['2026-11-05 payment 월세 700000', '2026-11-05 payment 관리비 70000']);
   });
   test('캘린더 카드: 3/1 "임대차 시작 · 입주" 하나', () => expect(calendarCards(o, '2026-03-01')).toEqual(['임대차 시작 · 입주']));
-  test('홈: 3월 중립(잔금) 40,000,000원 — 지출 합계와 분리, 보증금 총액은 더하지 않음', () => expect(month(o, 2026, 3).neutral).toBe(40000000));
+  // 현금흐름 개편: 3월 총 출금 = 잔금(보증금 지급) 40,000,000 + 월세·관리비 — 보증금 총액 50,000,000은 더하지 않음 (이전 기대: 중립 40,000,000)
+  test('홈: 3월 보증금 지급(잔금) 40,000,000원 — 일반 지출과 구분, 보증금 총액은 더하지 않음', () =>
+    expect(outflow(o, 2026, 3)).toEqual({ total: 40770000, ordinary: 770000, deposit: 40000000 }));
 });
 
 describe('4. 자동차보험 — 연 보험료 1,200,000원 일시납 (특약 포함) — 모델이 매월로 답함', () => {
@@ -198,7 +203,7 @@ describe('6. 구독·회원권 — 월 이용료("이용 시 매월 10일") + �
 });
 
 describe('7. 서비스(용역) — 총 계약금액(실제 돈으로 답함) = 착수금 + 잔금 (받는 돈), 납품일', () => {
-  const o = observe(F.service());
+  const o = observe(F.service(), 'contractor');
   test('유형·분야', () => expect([o.type, o.category]).toEqual(['service', 'service']));
   test('확정 금액: 착수금 3,000,000 · 잔금 6,000,000 (수입, 1회씩)', () => {
     expect(o.payments).toEqual([pay('착수금', 3000000, 'income', 'one_time', null), pay('잔금', 6000000, 'income', 'one_time', null)]);

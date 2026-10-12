@@ -12,6 +12,7 @@ import { MockExtractionProvider } from '../../../supabase/functions/_shared/ai/m
 import { activateCheckCost, activateCost, draftToRecord } from '@/data/draft';
 import { coreInfo, extraCosts } from '@/domain/coreInfo';
 import { BANNED_AI_PHRASES, findBannedPhrases } from '@/domain/aiCopy';
+import { withConfirmedRole } from '@/domain/cashflow';
 import { detailSchema } from '@/domain/contractTypes';
 import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
@@ -69,7 +70,7 @@ const rental = () => ({
 describe('분석 v4 — 서버 스키마·프롬프트', () => {
   test('프롬프트 버전 · 분석 순서 · 표현 규칙', () => {
     // 분류 개편: v13 — 계약 종류 하나(classification)만 판단 (분야·관리 구조를 따로 고르지 않음) / v14 — 계약 당사자(parties) 역할별 / v15 — 빠진 쪽을 추측해 채우지 않음
-    expect(PROMPT_VERSION).toBe('extract-v15');
+    expect(PROMPT_VERSION).toBe('extract-v16');
     const ins = extractionInstructions(TODAY);
     for (const s of ['1·2) classification', '결제 주기', 'domains', 'dates', 'payments', 'details', 'checks', 'employment', 'service', 'sale', '확인이 필요한 조건입니다', '7-1) parties', 'lessor(임대인)']) expect(ins).toContain(s);
   });
@@ -128,7 +129,8 @@ describe('분석 v4 — 서버 스키마·프롬프트', () => {
     expect(r.fields.renewalPeriodMonths).toMatchObject({ value: null, confidence: 'low' });
     // 출처를 모르면 추정으로 · 리팩터링 D: 서버가 날짜의 쓰임(주요 날짜·기타)을 정해 함께 준다
     expect(r.dates).toEqual([{ date: '2026-03-01', meaning: 'other', label: '기타', confidence: 'high', sourceType: 'inferred', use: 'key', keyKind: 'other' }]);
-    expect(r.payments.map((p) => [p.kind, p.direction, p.amount])).toEqual([['salary', 'income', 3000000]]);
+    // 역할을 모르는 계약(기타)의 금액은 방향 확인 필요 (사용자 쪽을 추측하지 않음 — 현금흐름 F1)
+    expect(r.payments.map((p) => [p.kind, p.direction, p.amount])).toEqual([['salary', 'neutral', 3000000]]);
     expect(Object.keys(r.details)).toEqual(['principal']);
     expect(r.checks[0].description).toBe('계약서의 해당 조항을 확인해주세요.');
     expect(r.checks[1]).toMatchObject({ confidence: 'low', evidenceFileIndex: 1, relatedDate: '2027-01-05', suggestion: { kind: 'add_event', eventDate: '2027-01-05' } });
@@ -212,11 +214,13 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
       checks: [check({ topic: 'probation', title: '수습기간', description: '수습기간 3개월 동안 급여의 90%를 지급하는 것으로 기재되어 있습니다.' }), check({ topic: 'non_compete', title: '경업금지', description: '퇴직 후 1년간 동종업계 취업을 제한하는 조건이 포함되어 있습니다.' })],
     });
     expect(m.draft).toMatchObject({ category: 'employment', contractType: 'employment', startDate: '2026-11-02', endDate: null, contractDate: '2026-10-20' });
-    expect(m.draft.payments[0]).toMatchObject({ kind: 'salary', direction: 'income', dayOfMonth: 25 });
+    // 분석 직후: 사용자가 근로자인지 고용주인지 모름 → 방향 확인 필요 (역할을 확정하면 수입)
+    expect(m.draft.payments[0]).toMatchObject({ kind: 'salary', direction: 'neutral', moneyNature: 'ordinary', dayOfMonth: 25 });
     expect(m.draft.dates).toEqual([{ kind: 'hire', label: '입사일', date: '2026-11-02' }]);
     expect(detailSchema('employment').safeParse(m.draft.details).success).toBe(true);
     expect(m.draft.details).toMatchObject({ employmentKind: 'permanent', probationMonths: 3, annualSalary: 42_000_000 });
-    const r = draftToRecord(m.draft, 'j', TODAY);
+    expect(monthSpending([draftToRecord(m.draft, 'j', TODAY)], { year: 2026, month: 11 })).toMatchObject({ total: 0, incomeTotal: 0, undeterminedTotal: 3_500_000 });
+    const r = draftToRecord(withConfirmedRole(m.draft, 'employee'), 'j', TODAY);
     expect(monthSpending([r], { year: 2026, month: 11 })).toMatchObject({ total: 0, incomeTotal: 3_500_000 });
     expect(m.flagged.has('endDate')).toBe(false); // 기간 없는 근로계약은 정상
     expect(m.checks.map((c) => c.topic)).toEqual(['probation', 'non_compete']);
@@ -236,7 +240,8 @@ describe('분석 v4 → 확인 화면 (toReviewModel)', () => {
     });
     expect(m.draft.dates.map((d) => d.kind)).toEqual(['delivery', 'inspection']);
     expect(titlesOn(m, '2026-12-15')).toEqual(['납기']);
-    expect(monthSpending([draftToRecord(m.draft, 's', TODAY)], { year: 2026, month: 12 })).toMatchObject({ total: 0, incomeTotal: 7_000_000 });
+    // 수급인(프리랜서)으로 확정하면 대금은 수입
+    expect(monthSpending([draftToRecord(withConfirmedRole(m.draft, 'contractor'), 's', TODAY)], { year: 2026, month: 12 })).toMatchObject({ total: 0, incomeTotal: 7_000_000 });
   });
 
   test('매매: 계약금·중도금·잔금 각각, 인도·소유권 이전일, 완료일 → 종료', () => {
@@ -325,7 +330,7 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
     const m = await employmentReview();
     expect(m.draft.payments).toHaveLength(1);
     expect(m.draft.payments[0]).toMatchObject({
-      label: '월 임금', amount: 3_600_000, direction: 'income', dayOfMonth: 25, businessDayRule: 'previous', obligation: 'confirmed', conditionNote: null,
+      label: '월 임금', amount: 3_600_000, direction: 'neutral', moneyNature: 'ordinary', dayOfMonth: 25, businessDayRule: 'previous', obligation: 'confirmed', conditionNote: null,
       components: [{ label: '기본급', amount: 3_280_000 }, { label: '고정연장근로수당', amount: 320_000 }],
     });
     expect(m.notes['payments.0.amount']).toContain('따로 더하지 않아요');
@@ -351,7 +356,7 @@ describe('분석 v5 — 의미 해석 (근로계약)', () => {
 
   test('관리 데이터: 2027-08-31 통보기한 없음, 수습 중 3,240,000 → 이후 3,600,000, 휴일 지급일 조정', async () => {
     const m = await employmentReview();
-    const r = draftToRecord(m.draft, 'e', TODAY);
+    const r = draftToRecord(withConfirmedRole(m.draft, 'employee'), 'e', TODAY);
     const on = (d: string) => scheduleForRange([r], { start: d, end: d }, TODAY).map((i) => `${i.title}${i.amount != null ? ` ${i.amount}` : ''}`);
     expect(on('2027-08-31')).toEqual([]);
     expect(on('2026-10-23')).toEqual(['월 임금 (수습기간 90% · 첫 지급일 확인 필요) 3240000']);

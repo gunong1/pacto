@@ -34,6 +34,10 @@ export function natureOf(p: Pick<ContractPayment, 'moneyNature' | 'kind' | 'dire
   return 'ordinary';
 }
 
+/** 받는 돈을 뜻하는 결제 종류 (급여·상여·용역 대금) — 방향을 아직 모를 때 "지급일/결제일" 같은 말을 고르는 데만 쓴다 (합계에는 쓰지 않음) */
+const PAYOUT_KINDS = new Set(['salary', 'bonus', 'service_fee']);
+export const isPayoutLike = (p: Pick<ContractPayment, 'direction' | 'kind'>): boolean => p.direction === 'income' || (p.direction === 'neutral' && PAYOUT_KINDS.has(p.kind));
+
 type KindInput = Pick<Contract, 'contractKind' | 'contractType'>;
 type SideInput = KindInput & Pick<Contract, 'userPartyRole'> & { userPartyRelation?: Contract['userPartyRelation'] };
 
@@ -116,6 +120,18 @@ export function applyDirectionChanges<P extends { direction: Direction; directio
     const c = byIndex.get(i);
     return c ? { ...p, direction: c.to, directionBasis: c.basis } : p;
   });
+}
+
+/**
+ * 역할 확정·변경을 적용한 초안 (등록 확인·수정 화면이 사용자가 "적용"을 누른 뒤에 쓴다)
+ * relation: self(내 계약) · on_behalf(다른 사람 계약 관리 — role은 그 사람의 역할) · unknown(잘 모르겠어요 — role 없음)
+ */
+export function withConfirmedRole<
+  D extends SideInput & { payments: P[] },
+  P extends Parameters<typeof roleDirectionChanges>[1][number] & { direction: Direction; directionBasis?: DirectionBasis | null },
+>(draft: D, role: string | null, relation: NonNullable<Contract['userPartyRelation']> | null = role ? 'self' : 'unknown'): D {
+  const next = { ...draft, userPartyRole: role, userPartyRelation: relation };
+  return { ...next, payments: applyDirectionChanges(next.payments, roleDirectionChanges(next, next.payments)) };
 }
 
 // ===== 돌려받을 돈 묶음 =====

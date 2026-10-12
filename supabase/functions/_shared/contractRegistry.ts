@@ -542,7 +542,7 @@ const flow = (payer: string, payee: string): MoneyFlowDef => ({ payer, payee });
 export const KIND_MONEY_FLOWS: Record<string, KindMoneyFlows> = {
   lease: { ordinary: flow('lessee', 'lessor'), deposit: flow('lessee', 'lessor') },
   employment: { ordinary: flow('employer', 'employee'), deposit: null },
-  loan: { ordinary: flow('borrower', 'lender'), deposit: null },
+  loan: { ordinary: flow('borrower', 'lender'), deposit: null, consumerRole: 'borrower' },
   insurance: { ordinary: flow('policyholder', 'insurer'), deposit: null, consumerRole: 'policyholder' },
   sale: { ordinary: flow('buyer', 'seller'), deposit: null },
   service: { ordinary: flow('client', 'contractor'), deposit: null },

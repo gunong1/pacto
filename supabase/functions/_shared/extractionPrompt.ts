@@ -35,7 +35,7 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
 /* v13: 계약 종류를 계약의 본질로 하나만 판단 (classification: kind·subtype·domains·confidence·alternatives·근거·secondary_elements).
  *      분야(category)·관리 구조(contract_type)를 따로 고르지 않음 — 결제 방식은 분류 근거가 아님 · 자동차는 종류가 아니라 대상(domains)
  *      계약 체크는 할 일·주의할 위험만 (user_action), 사실은 fields·details·payments에만 */
-export const PROMPT_VERSION = 'extract-v15';
+export const PROMPT_VERSION = 'extract-v16';
 
 /** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
 const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
@@ -124,7 +124,9 @@ export function extractionJsonSchema() {
         },
         part_of: { type: ['string', 'null'], description: 'component일 때 이 금액이 속한 금액의 label (예: 월 임금)' },
         kind: { type: 'string', enum: [...PAYMENT_KIND_CODES] },
-        direction: { type: 'string', enum: [...DIRECTIONS], description: '사용자 기준: 내는 돈 expense / 받는 돈 income / 돌려받는 보증금 등 neutral' },
+        direction: { type: 'string', enum: [...DIRECTIONS], description: '참고값 (서버가 계약 당사자 역할로 다시 정함). 모르면 neutral' },
+        payer_role: { type: 'string', enum: [...PARTY_ROLE_CODES, 'unknown'], description: '이 돈을 내는 쪽의 역할 — 계약서 문장이 밝힐 때만 (예: "임차인은 월세를 지급" → lessee). 문장에 없으면 unknown' },
+        payee_role: { type: 'string', enum: [...PARTY_ROLE_CODES, 'unknown'], description: '이 돈을 받는 쪽의 역할 — 계약서 문장이 밝힐 때만. 없으면 unknown' },
         label: { type: 'string', description: '계약서의 항목 이름 (예: 월 렌탈료, 초기 설치비, 월 급여, 잔금)' },
         amount: { type: 'integer', description: '1회 금액(원)' },
         price_basis: {
@@ -259,9 +261,10 @@ export function extractionInstructions(today: string): string {
     '   다른 날짜를 체결일로 대신 넣지 않습니다. 기간만 적혀 있으면(예: "개시일로부터 36개월") 종료일을 계산해 넣고 confidence를 medium으로.',
     '5·6) payments — 계약에서 오가는 돈을 모두 나열하고 의미(kind)·주기·방향(direction)을 정합니다. 한 계약에 여러 건일 수 있습니다.',
     `   kind: ${PAYMENT_KIND_DEFS.map((k) => `${k.code}(${k.label})`).join(', ')}`,
-    '   direction은 사용자 기준입니다 (사용자 = 근로자·고객·임차인·가입자·차주·프리랜서 수행자 등 개인 쪽). 급여·용역 대금처럼 받는 돈은 income,',
+    '   이 앱 사용자가 어느 쪽인지는 판단하지 않습니다. 대신 계약서 문장이 "누가 누구에게" 지급하는지 밝히면 payer_role·payee_role에 그 역할 코드를 넣습니다',
+    '   (계약상 역할과 실제로 돈을 내는 사람이 다르면 문장대로 — 예: "보증금은 연대보증인이 지급" → payer_role=guarantor). 문장에 없으면 unknown. direction은 참고값입니다.',
     '   보증금·전세금·매매대금 총액을 계약금·중도금·잔금으로 나눠 내면, 총액은 role=total(fields의 depositAmount·totalAmount)이고 실제로 오가는 계약금·중도금·잔금만 결제로 넣습니다 (같은 돈을 두 번 넣지 않음).',
-    '   임대차 보증금·전세금과 그 계약금·잔금은 kind=deposit, direction=neutral. 매매·용역은 사용자가 어느 쪽인지 보고 정하고, 알 수 없으면 confidence를 low로.',
+    '   임대차 보증금·전세금(돌려받을/돌려줄 돈)과 그 계약금·잔금은 kind=deposit. 매매대금·용역대금의 계약금·잔금은 보증금이 아닙니다.',
     '   연납 보험료는 frequency=yearly, 1회 납입액 그대로. 일회성 계약의 계약금/중도금/잔금은 각각 따로, 날짜는 date에.',
     '   결제일이 적혀 있지 않으면 추측하지 말고 null. 다른 결제와 "함께 청구"되면 같은 day_of_month. 같은 돈을 두 번 넣지 않습니다.',
     '   결제 날짜 해석 (중요): 날짜는 그 금액의 문구만 보고 정합니다. 같은 표·같은 섹션의 다른 줄에 날짜가 있다는 이유로 그 날짜를 옮겨 쓰지 않습니다.',
@@ -284,6 +287,7 @@ export function extractionInstructions(today: string): string {
     '7-1) parties — 계약 당사자: 계약서에 이름이 적힌 당사자만, 계약서가 쓴 역할로 (예: 임대인 김OO, 임차인 박OO). 계약 종류별 역할:',
     partyGuide(),
     '   공동 임대인·공동 임차인처럼 같은 역할이 여럿이면 각각 넣습니다. 한쪽만 적혀 있으면 그쪽만 넣고 다른 쪽을 짐작해 채우지 않습니다.',
+    '   보증인(guarantor)·대리인(agent)이 이름과 함께 적혀 있으면 그 역할로 따로 넣습니다 (계약 당사자 역할과 섞지 않음).',
     '   이 앱 사용자가 어느 쪽인지는 판단하지 않습니다. 이름 칸이 비어 있거나 서명란만 있으면 넣지 않습니다. 연락처·주민등록번호·주소는 name에 넣지 않습니다.',
     '8) fields — 계약명·상대방·총액·보증금, 종료·갱신·만기 조건(자동갱신, 연장 기간, 통보기한 일수). 계약서에 있는 key만 목록으로. 중도해지·위약금 조건은 checks에만.',
     '9) checks — PACTO 계약 체크: 계약 정보는 사실, 계약 체크는 그 사실 때문에 사용자가 해야 할 일·주의할 위험입니다.',

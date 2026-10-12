@@ -147,7 +147,10 @@ export function installmentParents(payments: ExtractedPayment[], totals: readonl
     if (!parts.length || !parts.every((p) => isPartOf(p, parent))) continue;
     for (const p of parts) {
       done.add(p);
-      if (parent.deposit) p.direction = 'neutral';
+      if (parent.deposit) {
+        p.direction = 'neutral';
+        p.moneyNature = 'refundable_deposit';
+      }
       else if (parent.direction === 'expense' || parent.direction === 'income') p.direction = parent.direction;
     }
   }

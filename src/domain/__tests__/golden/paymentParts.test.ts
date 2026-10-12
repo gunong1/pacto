@@ -2,7 +2,7 @@
  * 나눠 내는 몫(계약금·중도금·잔금·착수금)의 성격 golden — 모든 값은 가짜다.
  *
  * 원칙: "계약금"이라는 이름만 보고 일반 비용으로 분류하지 않는다. 그 몫이 무엇의 일부인지(상위 금액)로 성격을 정한다.
- *   임대차 보증금의 계약금·잔금 → 보증금 자금 이동(중립): 월 지출 합계에서 제외, 지급 일정은 각각 유지
+ *   임대차 보증금의 계약금·잔금 → 성격: 보증금 (방향은 역할을 확정해야 — 임차인이면 "보증금 지급", 일반 지출과 구분), 지급 일정은 각각 유지
  *   매매대금의 계약금·잔금 → 매매대금의 일부(지출 또는 수입) / 용역대금의 착수금·잔금 → 용역대금의 일부
  *   상위 금액(총액)은 별도 지급으로 추가하지 않는다 (같은 돈을 두 번 세지 않음)
  */
@@ -10,6 +10,7 @@ import { draftToRecord } from '@/data/draft';
 import { toReviewModel } from '@/features/registration/extraction';
 
 import { toAppResult } from '../../../../supabase/functions/_shared/extraction.ts';
+import { withConfirmedRole } from '../../cashflow';
 import { scheduleForRange } from '../../schedule';
 import { monthSpending } from '../../spending';
 import { contract, pay } from './classificationFixtures';
@@ -20,9 +21,11 @@ const f = (value: unknown, quote: string | null = null) => ({ value, confidence:
 const once = (p: Record<string, unknown>) => pay({ frequency: 'one_time', role: 'one_time_cashflow', day_of_month: null, ...p });
 const DEP = '보증금 금 20,000,000원정은 계약 당일 계약금 2,000,000원을 지불하고, 잔금 18,000,000원은 2026년 10월 20일에 지불한다.';
 
-const run = (output: unknown) => {
+/** role: 등록 확인 화면에서 사용자가 확정한 역할 (없으면 역할 미확정 — 역할에 따라 방향이 바뀌는 금액은 확인 필요) */
+const run = (output: unknown, role: string | null = null) => {
   const result = toAppResult(output, 'openai');
-  const record = draftToRecord(toReviewModel(result, ['doc-1']).draft, 'c1', TODAY);
+  const draft = toReviewModel(result, ['doc-1']).draft;
+  const record = draftToRecord(role ? withConfirmedRole(draft, role) : draft, 'c1', TODAY);
   return { result, record, oct: monthSpending([record], { year: 2026, month: 10 }), schedule: scheduleForRange([record], { start: '2026-10-01', end: '2026-10-31' }, TODAY) };
 };
 const lease = (payments: Record<string, unknown>[], fields: Record<string, unknown> = {}) =>
@@ -45,33 +48,36 @@ const DOWN = once({ kind: 'down_payment', label: '계약금', amount: 2000000, d
 const BALANCE = once({ kind: 'balance_payment', label: '잔금', amount: 18000000, date: '2026-10-20', ...q(DEP) });
 
 describe('임대차 보증금의 계약금·잔금 = 보증금 자금 이동 (실제 테스트 계약서와 같은 구조)', () => {
-  const expectDepositParts = (r: ReturnType<typeof run>) => {
-    // 1·2. 계약금·잔금은 월 지출 합계에서 제외 / 7. 월세 + 관리비만 월 지출 (10월 = 첫 달 월세·관리비)
-    expect(r.oct.total).toBe(950000);
-    expect(r.oct.items.map((i) => i.label).sort()).toEqual(['관리비', '월세']);
-    // 3. 보증금 총액은 별도 지급으로 추가하지 않음 (계약 요약의 보증금으로만)
+  const expectDepositParts = (output: unknown) => {
+    const r = run(output);
+    // 3. 보증금 총액은 별도 지급으로 추가하지 않음 (계약 요약의 보증금으로만) · 보증금 묶음 하나 (총액 = 계약 요약)
     expect(r.record.contract.depositAmount).toBe(20000000);
     expect(r.record.payments.some((p) => p.amount === 20000000)).toBe(false);
-    // 4~6. 계약금·잔금은 실제 지급 일정으로 각각 (계약 당일 10-08 · 10-20), 보증금 자금 이동(중립)
+    expect(r.record.funds!.map((f) => [f.kind, f.totalAmount])).toEqual([['deposit', null]]);
+    // 4~6. 계약금·잔금은 실제 지급 일정으로 각각 (계약 당일 10-08 · 10-20), 성격은 보증금 · 역할을 모르면 방향 확인 필요
     const parts = r.record.payments.filter((p) => p.label === '계약금' || p.label === '잔금');
-    expect(parts.map((p) => [p.label, p.direction, p.startsOn])).toEqual([
-      ['계약금', 'neutral', '2026-10-08'],
-      ['잔금', 'neutral', '2026-10-20'],
+    expect(parts.map((p) => [p.label, p.direction, p.moneyNature, p.startsOn, p.fundId])).toEqual([
+      ['계약금', 'neutral', 'refundable_deposit', '2026-10-08', 'deposit'],
+      ['잔금', 'neutral', 'refundable_deposit', '2026-10-20', 'deposit'],
     ]);
     const days = r.schedule.filter((i) => i.type === 'payment' && (i.title.includes('계약금') || i.title.includes('잔금'))).map((i) => i.date);
     expect(days).toEqual(['2026-10-08', '2026-10-20']);
-    // 보증금 이동은 지출과 따로 집계 (이번 달 오가는 보증금)
-    expect(r.oct.undeterminedTotal).toBe(20000000);
+    // 역할 미확정: 보증금·월세 모두 합계 제외 (확인 필요)
+    expect([r.oct.total, r.oct.undeterminedTotal]).toEqual([0, 20950000]);
+    // 1·2·7. 임차인으로 확정: 10월 총 출금 20,950,000 = 일반 지출(월세 + 관리비) 950,000 + 보증금 지급 20,000,000
+    const t = run(output, 'lessee');
+    expect([t.oct.total, t.oct.ordinaryExpense, t.oct.depositOut]).toEqual([20950000, 950000, 20000000]);
+    expect(t.oct.byKind.reduce((s, k) => s + k.amount, 0)).toBe(950000);
   };
 
   test('보증금 총액 + 계약금 + 잔금이 함께 결제로 온 경우', () => {
-    expectDepositParts(run(lease([once({ kind: 'deposit', direction: 'neutral', label: '보증금', amount: 20000000, date: '2026-10-08', ...q(DEP) }), DOWN, BALANCE])));
+    expectDepositParts(lease([once({ kind: 'deposit', direction: 'neutral', label: '보증금', amount: 20000000, date: '2026-10-08', ...q(DEP) }), DOWN, BALANCE]));
   });
   test('보증금은 계약 요약 칸(depositAmount)에만 있고 결제는 계약금·잔금만 온 경우', () => {
-    expectDepositParts(run(lease([DOWN, BALANCE], { depositAmount: f(20000000, DEP) })));
+    expectDepositParts(lease([DOWN, BALANCE], { depositAmount: f(20000000, DEP) }));
   });
   test('AI가 보증금을 총액(role=total)으로 답한 경우', () => {
-    expectDepositParts(run(lease([once({ kind: 'deposit', direction: 'neutral', role: 'total', label: '보증금', amount: 20000000, ...q(DEP) }), DOWN, BALANCE])));
+    expectDepositParts(lease([once({ kind: 'deposit', direction: 'neutral', role: 'total', label: '보증금', amount: 20000000, ...q(DEP) }), DOWN, BALANCE]));
   });
 });
 
@@ -89,7 +95,10 @@ describe('다른 상위 금액의 몫은 그 금액의 성격을 따른다 (이�
           once({ kind: 'balance_payment', label: '잔금', amount: 27000000, date: '2026-10-30', ...q(SALE) }),
         ],
       }),
+      'buyer',
     );
+    // 매수인으로 확정 → 지출 (보증금 아님 — 일반 지출)
+    expect(r.record.payments.map((p) => p.moneyNature)).toEqual(['ordinary', 'ordinary']);
     expect(r.record.payments.map((p) => [p.label, p.direction])).toEqual([
       ['계약금', 'expense'],
       ['잔금', 'expense'],
@@ -110,6 +119,7 @@ describe('다른 상위 금액의 몫은 그 금액의 성격을 따른다 (이�
           once({ kind: 'balance_payment', direction: 'income', label: '잔금', amount: 7000000, date: '2026-10-30', ...q(SVC) }),
         ],
       }),
+      'contractor',
     );
     expect(r.record.payments.map((p) => [p.label, p.direction])).toEqual([
       ['착수금', 'income'],
@@ -121,13 +131,13 @@ describe('다른 상위 금액의 몫은 그 금액의 성격을 따른다 (이�
 
   test('상위 금액을 알 수 없는 계약금은 그대로 (근거 없이 보증금으로 바꾸지 않음)', () => {
     const r = run(lease([once({ kind: 'down_payment', label: '가입 계약금', amount: 50000, date: '2026-10-08', ...q('가입 계약금 50,000원') })]));
-    expect(r.record.payments.find((p) => p.label === '가입 계약금')?.direction).toBe('expense');
+    expect(r.record.payments.find((p) => p.label === '가입 계약금')?.moneyNature).toBe('ordinary');
   });
 
   test('회귀: 합이 보증금과 같아도 보증금의 일부라는 근거가 없는 일반 계약금·잔금은 지출 그대로 (합계는 보조 조건)', () => {
     const PLAIN = '계약금 2,000,000원은 계약 시 지급하고, 잔금 18,000,000원은 2026년 10월 20일 지급한다.';
     const r = run(lease([{ ...DOWN, evidence_quote: PLAIN }, { ...BALANCE, evidence_quote: PLAIN }], { depositAmount: f(20000000, '보증금 20,000,000원') }));
-    expect(r.record.payments.filter((p) => p.label === '계약금' || p.label === '잔금').map((p) => p.direction)).toEqual(['expense', 'expense']);
+    expect(r.record.payments.filter((p) => p.label === '계약금' || p.label === '잔금').map((p) => p.moneyNature)).toEqual(['ordinary', 'ordinary']);
   });
 
   test('회귀: 상위 금액 이름이 근거에 없으면 매매대금의 몫으로도 바꾸지 않음 (수입 매매대금 + 근거 없는 지출 계약금)', () => {
@@ -142,11 +152,11 @@ describe('다른 상위 금액의 몫은 그 금액의 성격을 따른다 (이�
         ],
       }),
     );
-    expect(r.record.payments.map((p) => p.direction)).toEqual(['expense', 'expense']);
+    expect(r.record.payments.map((p) => p.moneyNature)).toEqual(['ordinary', 'ordinary']);
   });
 
   test('보증금 금액과 합이 맞지 않으면 바꾸지 않음 (애매하면 건드리지 않는다)', () => {
     const r = run(lease([DOWN, once({ kind: 'balance_payment', label: '잔금', amount: 17000000, date: '2026-10-20', ...q(DEP) })], { depositAmount: f(20000000, DEP) }));
-    expect(r.record.payments.filter((p) => p.label === '계약금' || p.label === '잔금').map((p) => p.direction)).toEqual(['expense', 'expense']);
+    expect(r.record.payments.filter((p) => p.label === '계약금' || p.label === '잔금').map((p) => p.moneyNature)).toEqual(['ordinary', 'ordinary']);
   });
 });

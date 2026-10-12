@@ -16,9 +16,10 @@ import {
 } from '@/domain/contractTypes';
 import { contractKindDef, legacyOf, type ClassificationMeta, type KindClassification } from '@/domain/contractKinds';
 import { formatWon } from '@/domain/money';
+import { isPayoutLike } from '@/domain/cashflow';
 import type { EvidenceMap } from '@/domain/evidence';
 import { maskSensitiveDeep } from '@/domain/sensitive';
-import { partyRolesOf } from '../../../supabase/functions/_shared/contractRegistry';
+import { kindMoneyFlows, partyRolesOf } from '../../../supabase/functions/_shared/contractRegistry';
 import { addDays, formatDateKo } from '@/domain/dates';
 import type { AiCheck, Confidence } from '@/domain/types';
 
@@ -29,6 +30,9 @@ import type { AiCheck, Confidence } from '@/domain/types';
  * 추출값은 사실이 아니라 사용자가 확인할 초안이다 — 사용자가 고친 값이 항상 우선한다.
  */
 
+
+/** 분석 결과로 만드는 보증금 묶음의 임시 키 (저장하면 DB id로 바뀐다) */
+export const DEPOSIT_FUND_KEY = 'deposit';
 
 /** 기준 날짜를 따르는 결제 날짜 안내 (계약서 문구 · 기준 날짜 이름) */
 const DATE_ANCHOR_COPY: Partial<Record<NonNullable<ExtractedPayment['dateSource']>, { phrase: string; label: string }>> = {
@@ -191,7 +195,7 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
     if (p.frequency !== 'one_time' && dayOfMonth == null && p.obligation !== 'conditional') {
       if (confirmed) flagged.add(`${path}.dayOfMonth`);
       notes[`${path}.dayOfMonth`] =
-        p.direction === 'income'
+        isPayoutLike(p)
           ? '계약서에 지급일이 없어요. 지급일을 입력하면 매월 지급 일정이 캘린더에 생겨요. (근로 시작일을 지급일로 쓰지 않아요)'
           : '계약서에 결제일이 없어요. 결제일을 입력하면 반복 결제 일정이 캘린더에 생겨요. (계약 시작일이나 다른 결제의 날짜를 결제일로 쓰지 않아요)';
     }
@@ -230,6 +234,12 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
       businessDayRule: p.businessDayRule,
       obligation: p.obligation,
       conditionNote: p.conditionNote,
+      // 돈의 성격·계약서가 밝힌 지급자/수령자·방향 근거 (서버 F1) — 이전 버전 결과에는 없음 (예전 데이터처럼)
+      ...(p.moneyNature ? { moneyNature: p.moneyNature } : {}),
+      ...(p.payerRole ? { payerRole: p.payerRole } : {}),
+      ...(p.payeeRole ? { payeeRole: p.payeeRole } : {}),
+      ...(p.directionBasis ? { directionBasis: p.directionBasis } : {}),
+      ...(p.moneyNature === 'refundable_deposit' ? { fundKey: DEPOSIT_FUND_KEY } : {}),
     };
     draft.payments.push(payment);
   });
@@ -284,6 +294,13 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
       if (mine.some((p) => p.confidence !== 'high')) flagged.add(path);
       quote(path, mine.find((p) => p.evidence?.length)?.evidence);
     }
+  }
+
+  // 돌려받을 돈 묶음 — 보증금 몫(계약금·잔금)이 있거나 계약 요약에 보증금이 있으면 보증금 묶음 하나 (총액 = 계약 요약 보증금)
+  // 반환일은 계약서에 적혀 있지 않으면 비워 둔다 (종료일을 확정 반환일로 쓰지 않음 — 종료일에 "반환 확인")
+  const depositParts = draft.payments.some((p) => p.fundKey === DEPOSIT_FUND_KEY);
+  if (depositParts || ((draft.depositAmount ?? 0) > 0 && kindMoneyFlows(c.kind).deposit)) {
+    draft.funds = [{ key: DEPOSIT_FUND_KEY, kind: 'deposit', label: '보증금', totalAmount: null, returnDueOn: null, depositorRole: null, holderRole: null }];
   }
 
   // 값이 없으면 "확인 필요"

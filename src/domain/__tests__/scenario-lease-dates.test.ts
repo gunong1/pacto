@@ -104,7 +104,8 @@ describe('보증금 총액과 계약금·잔금이 함께 오면 총액은 합�
     const record = draftToRecord(m.draft, 'lease', TODAY);
     const oct20 = record.payments.filter((p) => p.frequency === 'one_time' && p.startsOn === '2026-10-20').reduce((s, p) => s + p.amount, 0);
     expect(oct20).toBe(18000000);
-    expect(record.payments.filter((p) => p.direction === 'neutral').reduce((s, p) => s + p.amount, 0)).toBe(20000000);
+    // 보증금의 몫(성격: 보증금) 합 = 20,000,000 (총액을 따로 세지 않음)
+    expect(record.payments.filter((p) => p.moneyNature === 'refundable_deposit').reduce((s, p) => s + p.amount, 0)).toBe(20000000);
   });
 
   test('몫의 합이 총액과 다르면 그대로 둠 (함부로 지우지 않음)', () => {

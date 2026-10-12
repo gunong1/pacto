@@ -81,7 +81,8 @@ export function firstNominalDate(payment: ContractPayment): ISODate {
  * 첫 지급일을 따로 정했으면(근로 시작일·입사일과 다른 날짜) 확인 필요 아님. 시작일이 없으면 확인 필요.
  */
 export function firstPaymentNeedsCheck(payment: ContractPayment, contract: Contract, dates: ContractRecord['dates'] = []): boolean {
-  if (payment.kind !== 'salary' || payment.direction !== 'income' || payment.frequency === 'one_time') return false;
+  // 급여(kind)면 방향과 무관 — 역할 확정 전(방향 확인 필요)에도 같은 안내
+  if (payment.kind !== 'salary' || payment.frequency === 'one_time') return false;
   const start = contract.startDate;
   if (!start) return true;
   const hire = dates.find((d) => d.kind === 'hire')?.date;

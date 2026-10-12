@@ -5,6 +5,7 @@
  * C. 시작일과 지급일 모두 20일로 명시 → 매월 20일 (같은 날이라서가 아니라 명시돼 있어서)
  * 서버 안전장치(AI가 시작일 날짜를 지급일로 넣은 경우) · 앱 변환 · 일정 계산 세 단계로 확인
  */
+import { withConfirmedRole } from '@/domain/cashflow';
 import { FIELDS, quoteHasPayDay, toAppResult } from '../../../supabase/functions/_shared/extraction.ts';
 import { draftToRecord, EMPTY_DRAFT } from '@/data/draft';
 import type { ContractDraft } from '@/data/repository';
@@ -68,7 +69,8 @@ describe('A. 시작일 7월 20일 / 월급 127만원 / 지급일 없음', () => 
   const m = review({ day: null, quote: '계(약) 1,270,000' });
   test('앱 변환: 지급일 null(시작일로 채우지 않음) · "확인 필요" 표시 · 금액·구성은 그대로', () => {
     const p = m.draft.payments.find((x) => x.label === '월급여')!;
-    expect(p).toMatchObject({ amount: 1_270_000, dayOfMonth: null, direction: 'income' });
+    // 분석 직후에는 근로자인지 모름 → 방향 확인 필요 (역할을 확정하면 수입)
+    expect(p).toMatchObject({ amount: 1_270_000, dayOfMonth: null, direction: 'neutral', moneyNature: 'ordinary' });
     expect(p.components).toEqual([{ label: '기본급', amount: 1_200_000 }, { label: '직책수당', amount: 70_000 }]);
     expect(m.flagged.has('payments.0.dayOfMonth')).toBe(true);
     expect(m.notes['payments.0.dayOfMonth']).toContain('지급일이 없어요');
@@ -80,7 +82,7 @@ describe('A. 시작일 7월 20일 / 월급 127만원 / 지급일 없음', () => 
     expect(monthSpending([rec], { year: 2026, month: 10 }).incomeTotal).toBe(0);
   });
   test('계약 상세: "매월 · 지급일 확인 필요"', () => {
-    const rec = draftToRecord(m.draft, 'job', TODAY);
+    const rec = draftToRecord(withConfirmedRole(m.draft, 'employee'), 'job', TODAY);
     expect(isPaymentDayUnknown(rec.payments[0])).toBe(true);
     expect(coreInfo(rec, TODAY).find((r) => r.label === '월급여')?.value).toBe('+1,270,000원 · 매월 · 지급일 확인 필요');
   });

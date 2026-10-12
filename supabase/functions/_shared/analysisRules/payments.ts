@@ -4,7 +4,7 @@
  *       → 구성항목(R2·R3) → 총액(R4) → 구성 묶기(R5) → 할인 전(R6)
  * 조건부 비용(위약금·연체료 등)은 여기서 결제로 남겨 두고, 계약 체크로 옮기는 일은 checks.ts(C4)가 한다.
  */
-import { BUSINESS_DAY_RULES, DIRECTIONS, PAYMENT_KIND_CODES, PAYMENT_KIND_DEFS } from '../contractRegistry.ts';
+import { BUSINESS_DAY_RULES, DIRECTIONS, PARTY_ROLE_CODES, PAYMENT_KIND_CODES, PAYMENT_KIND_DEFS } from '../contractRegistry.ts';
 import { obligationOf, weakOptional } from './paymentObligation.ts';
 import { dayFromOwnDate, guardIncomePayday, lumpSum, resolvePaymentDate } from './paymentDates.ts';
 import { aggregateTotals, attachComponents, foldComponents, namedParentComponents, preDiscountSiblings, roleOf, type PendingComponent, type TotalAmount } from './paymentRoles.ts';
@@ -72,6 +72,9 @@ export function buildPayments(raw: unknown, dates: readonly ExtractedDate[]): Bu
       confidence: confidenceOf(p.confidence),
       sourceType: sourceOf(p.source_type),
       ...(evidence ? { evidence } : {}),
+      // 계약서가 지급자·수령자를 밝힌 경우만 (근거 문장이 있을 때 — 없으면 계약 종류의 기본 흐름)
+      payerRole: evidence ? (oneOf(PARTY_ROLE_CODES, p.payer_role) ?? null) : null,
+      payeeRole: evidence ? (oneOf(PARTY_ROLE_CODES, p.payee_role) ?? null) : null,
     });
   }
   guardIncomePayday(payments, dates);

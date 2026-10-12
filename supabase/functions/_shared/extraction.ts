@@ -20,6 +20,7 @@ import { cleanParties, partiesFromDetails } from './analysisRules/parties.ts';
 import { noticeSuggestions, resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
 import { buildPayments } from './analysisRules/payments.ts';
 import { installmentParents, totalsToFields } from './analysisRules/paymentRoles.ts';
+import { resolveMoneyFlow } from './analysisRules/moneyFlow.ts';
 import type { AppExtractionResult } from './analysisRules/types.ts';
 import { isObj } from './analysisRules/values.ts';
 import { FIELDS } from './analysisRules/vocabulary.ts';
@@ -71,6 +72,8 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   totalsToFields(totals, fields, references);
   // 계약금·잔금 등 몫의 성격은 상위 금액(보증금·매매대금·용역대금)을 따른다 (R7)
   installmentParents(payments, totals, fields.depositAmount?.value);
+  // 돈의 성격·방향 (F1) — 사용자 역할을 알아야 정할 수 있는 금액은 방향 확인 필요(neutral). 역할 확정은 앱에서 사용자가
+  resolveMoneyFlow(payments, classification.kind);
   // 3·4) 날짜의 쓰임 (체결·시작·종료·통보·주요 날짜·결제 정보) — 서버가 정하고 앱은 옮기기만
   assignDateUses(dates, profile, payments);
   // 7) 유형별 속성

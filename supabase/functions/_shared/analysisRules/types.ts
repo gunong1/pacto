@@ -75,6 +75,13 @@ export interface ExtractedPayment {
   confidence: Confidence;
   sourceType: ModelSource;
   evidence?: Evidence[];
+  /** 돈의 성격 — 보증금·예치금(돌려받을/돌려줄 돈)인지 일반 금액인지 (방향과 따로) */
+  moneyNature?: 'ordinary' | 'refundable_deposit';
+  /** 계약서가 "누가 누구에게" 지급하는지 밝힌 경우의 역할 코드 (계약상 역할과 실제 지급자는 다를 수 있음) */
+  payerRole?: string | null;
+  payeeRole?: string | null;
+  /** 방향을 정한 근거 — contract: 계약 구조상 사용자가 언제나 한쪽(구독·렌탈 …) · null: 사용자 역할을 알아야 정할 수 있음(neutral) */
+  directionBasis?: 'contract' | null;
 }
 
 export interface ExtractedDetail {

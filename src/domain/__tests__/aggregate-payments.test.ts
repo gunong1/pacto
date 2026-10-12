@@ -2,8 +2,8 @@
  * 총액(aggregate) ≠ 실제 지급 — 보증금 20,000,000 = 계약금 2,000,000 + 잔금 18,000,000 (주택 월세 샘플)
  * 원인: 총액 행이 결제로 저장되면(이전 서버 결과, 또는 모델이 총액·몫의 방향을 다르게 답해 안전장치를 비켜 간 경우)
  * 날짜 없는 총액이 계약 시작일(10/20)로 채워져 잔금과 같은 날 38,000,000원으로 합쳐 보였다.
- * A 구성 합계 = 20,000,000, 별도 20,000,000 결제 없음 / B 잔금일 18,000,000 · 지출 합계 제외 (38,000,000 금지)
- * C 같은 날 월세·관리비(지출)와 보증금 잔금(중립) 분리 / D 용역 10,000,000 = 3M + 3M + 4M → 20M 아님
+ * A 구성 합계 = 20,000,000, 별도 20,000,000 결제 없음 / B 역할 모름: 확인 필요(합계 제외) (38,000,000 금지)
+ * C 임차인 확정: 일반 지출과 보증금 지급 구분 / D 용역 10,000,000 = 3M + 3M + 4M → 20M 아님
  */
 import { toAppResult } from '../../../supabase/functions/_shared/extraction.ts';
 import { findAggregateTotals, findRecurringComponents, foldRecurringComponents } from '../../../supabase/functions/_shared/paymentAggregate';
@@ -12,6 +12,7 @@ import { toRecord } from '@/data/supabase/rowMapping';
 import { toReviewModel } from '@/features/registration/extraction';
 
 import { summarizeCashflows } from '../calendarGroups';
+import { applyDirectionChanges, roleDirectionChanges } from '../cashflow';
 import { scheduleForRange } from '../schedule';
 import { monthSpending } from '../spending';
 import type { ContractRecord } from '../types';
@@ -47,17 +48,20 @@ const TOTAL = pay({ label: '보증금', amount: 20000000, ...ev('보증금 20,00
 const on1020 = (r: ContractRecord) => summarizeCashflows(scheduleForRange([r], { start: '2026-10-20', end: '2026-10-20' }, TODAY));
 
 function expectFixed(r: ContractRecord) {
-  // A. 실제로 오가는 보증금 = 계약금 + 잔금 = 20,000,000 · 별도 20,000,000 결제 없음
-  const occ = scheduleForRange([r], { start: '2026-10-01', end: '2026-10-31' }, TODAY).filter((i) => i.type === 'payment' && i.direction === 'neutral');
+  // A. 실제로 오가는 보증금 = 계약금 + 잔금 = 20,000,000 · 별도 20,000,000 결제 없음 (돈의 성격: 보증금)
+  const occ = scheduleForRange([r], { start: '2026-10-01', end: '2026-10-31' }, TODAY).filter((i) => i.type === 'payment' && i.moneyNature === 'deposit');
   expect(occ.map((i) => [i.title, i.amount])).toEqual([['계약금', 2000000], ['잔금', 18000000]]);
   expect(occ.reduce((s, i) => s + i.amount!, 0)).toBe(20000000);
-  // B·C. 10/20: 950,000원 결제 예정(월세·관리비) / 18,000,000원 · 방향 확인 필요 (합계 제외) (잔금)
+  // B. 분석 직후(역할 모름): 10/20의 금액은 모두 방향 확인 필요 (합계 제외) — 38,000,000 없음
   const day = on1020(r);
-  expect(day.map((c) => c.headline)).toEqual(['950,000원 결제 예정', '18,000,000원 · 방향 확인 필요 (합계 제외)']);
-  expect(day[1].items).toEqual([{ label: '잔금', amount: 18000000, estimated: false }]);
+  expect(day.map((c) => c.headline)).toEqual(['18,950,000원 · 방향 확인 필요 (합계 제외)']);
   expect(JSON.stringify(day)).not.toContain('38,000,000');
-  // 10월 지출: 월세·관리비만 (보증금 계약금·잔금은 합계 제외)
-  expect(monthSpending([r], { year: 2026, month: 10 }).total).toBe(950000);
+  expect(monthSpending([r], { year: 2026, month: 10 })).toMatchObject({ total: 0, undeterminedTotal: 20950000 });
+  // C. 임차인으로 확정: 10월 총 출금 20,950,000 = 일반 지출 950,000 + 보증금 지급 20,000,000 · 10/20 18,950,000 (38,000,000 아님)
+  const tenant: ContractRecord = { ...r, contract: { ...r.contract, userPartyRole: 'lessee' } };
+  tenant.payments = applyDirectionChanges(r.payments, roleDirectionChanges(tenant.contract, r.payments));
+  expect(on1020(tenant).map((c) => c.headline)).toEqual(['18,950,000원 결제 예정']);
+  expect(monthSpending([tenant], { year: 2026, month: 10 })).toMatchObject({ total: 20950000, ordinaryExpense: 950000, depositOut: 20000000 });
 }
 
 describe('서버 분석 결과', () => {
