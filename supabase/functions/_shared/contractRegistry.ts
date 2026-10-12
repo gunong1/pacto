@@ -556,13 +556,16 @@ export interface NormalizedParties<P> {
  * 당사자 역할 정리 (서버 분석·앱 읽기가 같은 함수) — 계약서 용어(임대인)를 계약 종류의 자리(렌탈회사)로 연결하고 용어는 term에 남긴다.
  * - 그 자리가 비어 있거나 같은 이름이면 연결 (같은 이름이면 하나로 합침 — 같은 사람을 두 번 저장하지 않음)
  * - 그 자리에 다른 이름이 있으면 바꾸지 않고 conflicts (어느 쪽이 맞는지 사용자 확인)
+ * - distinct: 사용자가 "서로 다른 당사자"라고 정한 역할 — 그대로 둔다
  */
-export function normalizePartyRoles<P extends { role: string; name: string; term?: string | null }>(kind: string | null | undefined, parties: readonly P[]): NormalizedParties<P> {
+export function normalizePartyRoles<P extends { role: string; name: string; term?: string | null; distinct?: boolean | null }>(kind: string | null | undefined, parties: readonly P[]): NormalizedParties<P> {
   const eq = ROLE_EQUIVALENTS[kind ?? ''] ?? {};
   let list: P[] = parties.map((p) => ({ ...p }));
   const roleMap: Record<string, string> = {};
   const conflicts: string[] = [];
   for (const [from, to] of Object.entries(eq)) {
+    // 사용자가 "서로 다른 당사자"로 정한 역할은 연결·합치기·충돌 표시를 하지 않는다 (지급자·수령자도 그 역할 그대로)
+    if (list.some((p) => p.role === from && p.distinct)) continue;
     const src = list.filter((p) => p.role === from);
     const dst = list.filter((p) => p.role === to);
     if (src.length > 0 && dst.length > 0 && !src.every((s) => dst.some((d) => samePartyName(s.name, d.name)))) {

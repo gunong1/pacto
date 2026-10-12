@@ -187,6 +187,21 @@ export default function HomeScreen() {
             </View>
           </View>
         ) : null}
+        {view.spending.autoExpense + view.spending.autoIncome > 0 ? (
+          // 과거 분석이 자동으로 정한 방향 — 합계에는 그대로 두고(갑자기 사라지지 않게) 확인을 권한다
+          <View style={{ marginTop: 6 }} testID="home-auto">
+            <AppText variant="caption" color="textSecondary">
+              {view.spending.autoExpense > 0 ? `출금 중 ${formatWonCompact(view.spending.autoExpense)}` : ''}
+              {view.spending.autoExpense > 0 && view.spending.autoIncome > 0 ? ' · ' : ''}
+              {view.spending.autoIncome > 0 ? `입금 중 ${formatWonCompact(view.spending.autoIncome)}` : ''}은 이전 분석이 자동으로 정한 금액이에요. 내 역할을 확인하면 확정돼요.
+            </AppText>
+            {[...new Set([...view.spending.items, ...view.spending.incomeItems].filter((i) => i.auto).map((i) => i.contractId))].slice(0, 3).map((cid) => {
+              const record = records!.find((r) => r.contract.id === cid);
+              const amount = [...view.spending.items, ...view.spending.incomeItems].filter((i) => i.auto && i.contractId === cid).reduce((s, i) => s + i.amount, 0);
+              return record ? <RoleConfirmCard key={cid} record={record} amount={amount} mode="auto" /> : null;
+            })}
+          </View>
+        ) : null}
         {view.spending.undeterminedTotal > 0 ? (
           // 방향을 모르는 금액은 합계에서 빼지만, 금액이 없는 것처럼 보이지 않게 — 역할을 한 번 확인하면 관련 금액이 모두 정리된다
           <View style={{ marginTop: 6 }} testID="home-undetermined">

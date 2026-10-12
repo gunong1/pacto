@@ -1,4 +1,4 @@
-import { fundCashEntries, natureOf, type FlowNature } from './cashflow';
+import { directionStatusOf, fundCashEntries, natureOf, type DirectionStatus, type FlowNature } from './cashflow';
 import { profileFor, profileKeyOf } from './contractKinds';
 import { isConfirmedPayment, type PaymentKind } from './contractTypes';
 import { adjustToBusinessDay } from './businessDays';
@@ -221,6 +221,8 @@ export interface ScheduleItem {
   direction: Direction | null;
   /** 결제 항목의 돈 성격 — 일반 / 보증금·예치금(지급·반환) · null = 알 수 없음 (cashflow.ts) */
   moneyNature?: FlowNature | null;
+  /** 결제 방향의 상태 (확인한 역할 · 사용자 선택 · 자동 판단 · 예전 값 · 확인 필요) — 결제 일정만 */
+  directionStatus?: DirectionStatus;
   amount: number | null;
   estimated: boolean;
   contractId: string;
@@ -328,6 +330,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
         title: `${o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label}${o.amountNote ? ` (${o.amountNote})` : ''}`,
         paymentKind: p.kind,
         direction: p.direction,
+        directionStatus: directionStatusOf(p, contract),
         moneyNature: natureOf(p),
         amount: o.amount,
         estimated: o.estimated,

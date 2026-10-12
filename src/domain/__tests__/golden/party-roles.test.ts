@@ -10,8 +10,8 @@ import { contractFormSchema, draftToForm, formToDraft } from '@/features/contrac
 import { toReviewModel } from '@/features/registration/extraction';
 
 import { toAppResult } from '../../../../supabase/functions/_shared/extraction.ts';
-import { normalizePartyRoles, splitRepresentative } from '../../../../supabase/functions/_shared/contractRegistry.ts';
-import { needsRoleQuestion, normalizeRecord, recommendedSide, roleDirectionChanges, userSideOf, withConfirmedRole } from '../../cashflow';
+import { normalizePartyRoles, samePartyName, splitRepresentative } from '../../../../supabase/functions/_shared/contractRegistry.ts';
+import { directionStatusOf, needsRoleQuestion, normalizeRecord, recommendedSide, roleDirectionChanges, userSideOf, withConfirmedRole } from '../../cashflow';
 import { partyRows, partySummary } from '../../parties';
 import { matchUserParty } from '../../partyMatch';
 import { scheduleForRange } from '../../schedule';
@@ -232,16 +232,56 @@ describe('10·11·13 기존 데이터 · 수동 수정 · 재계산', () => {
     expect(totals(r)).toEqual({ total: 5769000, ordinary: 769000, deposit: 5000000, income: 0, undetermined: 0 });
   });
 
-  test('이전 분석이 계약 구조로 정한 출금(basis=contract)은 역할 확인 전까지 확정 출금으로 세지 않음', () => {
+  test('과거 AI 자동 판단(계약 구조로 출금): 일괄로 확인 필요로 바꾸지 않음 — 계약서 지급자와 맞으면 유지 · "자동 판단"으로 따로 표시', () => {
     const before = legacy();
     before.payments = before.payments.map((p) => ({ ...p, direction: 'expense', directionBasis: 'contract' }));
     const r = normalizeRecord(before);
-    expect(r.payments.map((p) => [p.direction, p.directionBasis ?? null])).toEqual(before.payments.map(() => ['neutral', null]));
-    expect(totals(r).undetermined).toBe(5769000);
-    // 예전 데이터의 출금(근거 없음)·사용자가 고른 방향은 그대로
-    const legacyPlain = legacy();
-    legacyPlain.payments = legacyPlain.payments.map((p) => ({ ...p, direction: 'expense', directionBasis: null }));
-    expect(totals(normalizeRecord(legacyPlain)).total).toBe(5769000);
+    expect(r.payments.map((p) => [p.direction, p.directionBasis ?? null, p.reviewReason ?? null])).toEqual(before.payments.map(() => ['expense', 'contract', null]));
+    const t = monthSpending([r], OCT, TODAY);
+    expect([t.total, t.autoExpense, t.undeterminedTotal]).toEqual([5769000, 5769000, 0]);
+  });
+
+  test('과거 자동 판단이 계약서 지급자·수령자와 반대(임차인이 내는데 입금으로 저장) → 그 결제만 확인 필요 + 이유', () => {
+    const before = legacy();
+    before.payments = before.payments.map((p, i) => ({ ...p, direction: i === 1 ? 'income' : 'expense', directionBasis: 'contract' }));
+    const r = normalizeRecord(before);
+    expect(r.payments.map((p) => [p.label, p.direction, p.reviewReason ?? null])).toEqual([
+      ['보증금', 'expense', null],
+      ['월 렌트료', 'neutral', 'document_conflict'],
+      ['초기 등록대행비', 'expense', null],
+      ['탁송비', 'expense', null],
+    ]);
+  });
+
+  test('네 가지 상태 구분: 확인한 역할 · 사용자 선택 · 과거 자동 판단(계약서로 등록, 근거 없음 포함) · 직접 입력 예전 값 · 확인 필요', () => {
+    const c = rec(review(rentalOut()).draft).contract;
+    const upload = { ...c, source: 'upload' as const, userPartyRole: null };
+    const manual = { ...c, source: 'manual' as const, userPartyRole: null };
+    expect(directionStatusOf({ direction: 'expense', directionBasis: 'role' }, { ...upload, userPartyRole: 'customer' })).toBe('role');
+    expect(directionStatusOf({ direction: 'income', directionBasis: 'user' }, upload)).toBe('user');
+    expect(directionStatusOf({ direction: 'expense', directionBasis: 'contract' }, upload)).toBe('auto');
+    expect(directionStatusOf({ direction: 'expense', directionBasis: null }, upload)).toBe('auto');
+    expect(directionStatusOf({ direction: 'expense', directionBasis: null }, manual)).toBe('legacy');
+    expect(directionStatusOf({ direction: 'neutral', directionBasis: null }, upload)).toBe('pending');
+  });
+
+  test('직접 입력한 예전 계약·사용자가 고른 방향은 재검증으로도 바꾸지 않음', () => {
+    const before = legacy();
+    before.contract = { ...before.contract, source: 'manual' };
+    before.payments = before.payments.map((p) => ({ ...p, direction: 'income', directionBasis: null }));
+    expect(normalizeRecord(before).payments.every((p) => p.direction === 'income')).toBe(true);
+    const userPicked = legacy();
+    userPicked.payments = userPicked.payments.map((p) => ({ ...p, direction: 'income', directionBasis: 'user' }));
+    expect(normalizeRecord(userPicked).payments.every((p) => p.direction === 'income' && !p.reviewReason)).toBe(true);
+  });
+
+  test('임대차처럼 추천 쪽이 없는 과거 자동 판단은 재검증할 근거가 없어 유지(자동 판단 표시)', () => {
+    const before = legacy();
+    before.contract = { ...before.contract, contractKind: 'lease', source: 'upload', parties: [{ role: 'lessor', name: '김민수' }, { role: 'lessee', name: '박지훈' }] };
+    before.payments = before.payments.map((p) => ({ ...p, direction: 'expense', directionBasis: null, payerRole: null, payeeRole: null }));
+    const r = normalizeRecord(before);
+    expect(r.payments.every((p) => p.direction === 'expense')).toBe(true);
+    expect(monthSpending([r], OCT, TODAY).autoExpense).toBe(5769000);
   });
 
   test('13. 사용자가 직접 고른 방향(입금)과 예외 지급자는 덮어쓰지 않음', () => {
@@ -288,6 +328,38 @@ describe('기존 계약의 직접 입력 이름 ↔ 계약서 이름 (덮어쓰�
     expect(d.parties.map((p) => [p.role, p.name])).toEqual([['provider', '팩토렌트카'], ['lessor', '주식회사 팩토렌터카'], ['customer', '김도윤']]);
     expect(rec(d).contract.parties.map((p) => [p.role, p.name])).toEqual([['provider', '팩토렌트카'], ['lessor', '주식회사 팩토렌터카'], ['customer', '김도윤']]);
     expect(normalizePartyRoles('rental', d.parties).conflicts).toEqual(['lessor']);
+  });
+});
+
+describe('"서로 다른 당사자" · 법인과 대표자 — 합치지 않고 방향에도 잘못 반영하지 않음', () => {
+  const draftWith = (parties: { role: string; name: string; term?: string; distinct?: boolean }[]) => ({ ...review(rentalOut()).draft, parties });
+  test('렌탈회사 "가상렌탈"과 계약서 임대인 "주식회사 팩토렌터카"를 서로 다른 당사자로 → 연결·충돌 표시 없음 · 저장 후에도 유지', () => {
+    const parties = [{ role: 'provider', name: '가상렌탈' }, { role: 'lessor', name: '주식회사 팩토렌터카', distinct: true }, { role: 'customer', name: '김도윤', term: '임차인' }];
+    const n = normalizePartyRoles('rental', parties);
+    expect(n.conflicts).toEqual([]);
+    expect(n.parties.map((p) => p.role)).toEqual(['provider', 'lessor', 'customer']);
+    const r = rec(draftWith(parties));
+    const again = formToDraft(contractFormSchema.parse(draftToForm(recordToDraft(r))));
+    expect(again.parties).toEqual(r.contract.parties);
+    expect(again.parties.find((p) => p.role === 'lessor')?.distinct).toBe(true);
+  });
+
+  test('방향: 계약서가 "임대인에게 지급"이라고 했으면, 따로 둔 임대인이 받는 쪽 — 렌탈회사로 확인해도 입금으로 단정하지 않음', () => {
+    const base = review(rentalOut()).draft;
+    const d = { ...base, parties: [{ role: 'provider', name: '가상렌탈' }, { role: 'lessor', name: '주식회사 팩토렌터카', distinct: true }, { role: 'customer', name: '김도윤' }], payments: base.payments.map((p) => (p.label === '월 렌트료' ? { ...p, payerRole: 'customer', payeeRole: 'lessor' } : p)) };
+    const rent = (role: string) => withConfirmedRole(d, role).payments.find((p) => p.label === '월 렌트료')!.direction;
+    expect(rent('customer')).toBe('expense');
+    expect(rent('provider')).toBe('neutral');
+    expect(rent('lessor')).toBe('income');
+  });
+
+  test('법인과 대표자는 같은 자리로 합치지 않음 · 대표자로 확인하면 어떤 금액도 출금·입금으로 정하지 않음', () => {
+    const parties = [{ role: 'provider', name: '주식회사 팩토렌터카' }, { role: 'customer', name: '김도윤' }, { role: 'representative', name: '박지훈' }];
+    expect(normalizePartyRoles('rental', parties)).toEqual({ parties, roleMap: { lessor: 'provider', lessee: 'customer' }, conflicts: [] });
+    expect(samePartyName('주식회사 팩토렌터카', '박지훈')).toBe(false);
+    const d = withConfirmedRole(draftWith(parties), 'representative');
+    expect(d.payments.every((p) => p.direction === 'neutral')).toBe(true);
+    expect(matchUserParty('rental', parties, ['박지훈'])).toMatchObject({ role: 'representative', moneySide: false });
   });
 });
 

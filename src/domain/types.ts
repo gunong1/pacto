@@ -140,6 +140,8 @@ export interface ContractPayment {
   /** 계약서가 밝힌 실제 지급자·수령자 역할 (계약상 역할과 지급자가 다를 수 있음) — 없으면 계약 종류의 기본 흐름 */
   payerRole?: string | null;
   payeeRole?: string | null;
+  /** 읽을 때만 붙는 안내 (저장하지 않음) — document_conflict: 과거 자동 판단 방향이 계약서 지급자·수령자와 반대라 확인 필요로 돌림 */
+  reviewReason?: 'document_conflict' | null;
   /** 이 금액이 속한 돌려받을 돈 묶음 (보증금 계약금·잔금 → 보증금 묶음) */
   fundId?: string | null;
   label: string;

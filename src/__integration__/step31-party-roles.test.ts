@@ -7,6 +7,7 @@
  * - 사용자가 직접 고른 방향은 바뀌지 않음
  */
 import { recordToDraft } from '@/data/draft';
+import { withConfirmedRole } from '@/domain/cashflow';
 import { SupabaseContractRepository } from '@/data/supabase/SupabaseContractRepository';
 import { monthSpending } from '@/domain/spending';
 
@@ -18,7 +19,7 @@ type Rpc = { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ d
 const TODAY = '2026-10-09';
 const pay = (o: Record<string, unknown>) => ({ kind: 'other', frequency: 'one_time', amount: 1, direction: 'neutral', ...o });
 
-async function seedLegacy(prefix: string, userDirection = false, confirmedRole: string | null = null) {
+async function seedLegacy(prefix: string, userDirection = false, confirmedRole: string | null = null, autoContract = false) {
   const a = await newUser(prefix);
   const r = await (a.client as unknown as Rpc).rpc('save_contract', {
     p_contract: {
@@ -29,9 +30,9 @@ async function seedLegacy(prefix: string, userDirection = false, confirmedRole: 
     },
     p_funds: [{ key: 'dep', kind: 'deposit', label: '보증금', total_amount: null }],
     p_payments: [
-      pay({ kind: 'deposit', label: '보증금', amount: 5_000_000, starts_on: '2026-10-20', money_nature: 'refundable_deposit', payer_role: 'lessee', payee_role: 'lessor', fund_key: 'dep' }),
-      pay({ kind: 'rent', label: '월 렌트료', amount: 649_000, frequency: 'monthly', day_of_month: 20, starts_on: '2026-10-20', money_nature: 'ordinary', payer_role: 'lessee', payee_role: 'lessor', ...(userDirection ? { direction: 'income', direction_basis: 'user' } : {}) }),
-      pay({ kind: 'setup_fee', label: '초기 등록대행비', amount: 120_000, starts_on: '2026-10-20', money_nature: 'ordinary', payer_role: 'lessee', payee_role: 'lessor' }),
+      pay({ ...(autoContract ? { direction: 'expense', direction_basis: 'contract' } : {}), kind: 'deposit', label: '보증금', amount: 5_000_000, starts_on: '2026-10-20', money_nature: 'refundable_deposit', payer_role: 'lessee', payee_role: 'lessor', fund_key: 'dep' }),
+      pay({ kind: 'rent', label: '월 렌트료', amount: 649_000, frequency: 'monthly', day_of_month: 20, starts_on: '2026-10-20', money_nature: 'ordinary', payer_role: 'lessee', payee_role: 'lessor', ...(userDirection ? { direction: 'income', direction_basis: 'user' } : autoContract ? { direction: 'expense', direction_basis: 'contract' } : {}) }),
+      pay({ ...(autoContract ? { direction: 'expense', direction_basis: 'contract' } : {}), kind: 'setup_fee', label: '초기 등록대행비', amount: 120_000, starts_on: '2026-10-20', money_nature: 'ordinary', payer_role: 'lessee', payee_role: 'lessor' }),
     ],
   });
   if (r.error) throw new Error(r.error.message);
@@ -79,4 +80,15 @@ test('사용자가 직접 고른 방향은 덮어쓰지 않음', async () => {
     ['월 렌트료', 'income', 'user'],
     ['초기 등록대행비', 'expense', 'role'],
   ]);
+});
+
+test('과거 자동 판단(계약 구조 출금)은 일괄로 빼지 않음 → 합계 유지 + 자동 판단 금액 표시 · 역할 확인하면 확정(같은 결제 id)', async () => {
+  const { id, repo } = await seedLegacy('roles-auto', false, null, true);
+  const before = await dbPayments(id);
+  const rec = (await repo.get(id))!;
+  expect(monthSpending([rec], { year: 2026, month: 10 }, TODAY)).toMatchObject({ total: 5_769_000, autoExpense: 5_769_000, undeterminedTotal: 0 });
+  await repo.update(id, withConfirmedRole(recordToDraft(rec), 'customer'));
+  const after = (await repo.get(id))!;
+  expect(after.payments.map((p) => p.id)).toEqual(before.map((p) => p.id));
+  expect(monthSpending([after], { year: 2026, month: 10 }, TODAY)).toMatchObject({ total: 5_769_000, autoExpense: 0, undeterminedTotal: 0 });
 });

@@ -335,9 +335,11 @@ export function needsRoleQuestion(
  * 저장된 계약을 읽을 때 같은 규칙으로 정리 (앱·서버 알림이 같은 함수 — 저장된 값은 사용자가 다시 저장할 때 바뀜)
  * - 당사자 역할: 계약서 용어 → 계약 종류의 자리 (렌탈의 임대인 → 렌탈회사). 충돌하면 그대로
  * - 결제의 지급자·수령자·사용자 역할·보증금 묶음 역할: 같은 변환
- * - 방향: 사용자가 확인한 역할로 계산할 수 있는 결제만 채운다. 예전 분석이 계약 구조로 정한 방향(basis=contract)은
- *   역할을 확인하기 전까지 "방향 확인 필요"로 본다 (추천을 확정 출금으로 세지 않음)
- *   (결제 id·근거·묶음·변경 이력 그대로, 사용자가 고른 방향·다른 사람이 내는 예외·예전 출금/입금(basis 없음)은 건드리지 않음)
+ * - 방향 (기존 계약을 일괄로 "확인 필요"로 바꾸지 않는다):
+ *   확인한 역할이 있으면 그 역할로 계산 · 사용자가 고른 방향은 그대로 ·
+ *   과거 자동 판단(directionStatusOf = auto)은 유지하되 계약서 지급자·수령자(없으면 계약 구조)와 반대일 때만 확인 필요(reviewReason)
+ *   새 분석 결과는 처음부터 neutral(확인 필요)이라 사용자가 역할을 확인해야 합계에 들어간다
+ *   (결제 id·근거·묶음·변경 이력 그대로)
  */
 export function normalizeRecord(record: ContractRecord): ContractRecord {
   const c = record.contract;
@@ -345,13 +347,43 @@ export function normalizeRecord(record: ContractRecord): ContractRecord {
   const n = normalizePartyRoles(kind, c.parties);
   const m = (r: string | null | undefined) => (r ? mapRole(n.roleMap, r) : r);
   const contract: Contract = { ...c, parties: n.parties, userPartyRole: m(c.userPartyRole) ?? null };
-  const mapped = record.payments.map((p) => ({ ...p, payerRole: m(p.payerRole), payeeRole: m(p.payeeRole) }));
-  const fill = roleDirectionChanges(contract, mapped);
+  const mapped: ContractPayment[] = record.payments.map((p) => ({ ...p, payerRole: m(p.payerRole), payeeRole: m(p.payeeRole) }));
   const funds = record.funds?.map((f) => ({ ...f, depositorRole: m(f.depositorRole) ?? null, holderRole: m(f.holderRole) ?? null }));
-  // 예전 데이터는 "neutral인 계약금·잔금 = 보증금의 몫"으로 읽었다 (natureOf) — 방향을 채우면 그 해석을 성격으로 고정한다
-  const filled = new Set(fill.filter((ch) => ch.from === 'neutral').map((ch) => ch.index));
-  const payments = applyDirectionChanges(mapped, fill).map((p, i) =>
-    filled.has(i) && !p.moneyNature ? { ...p, moneyNature: natureOf(mapped[i]) === 'deposit' ? ('refundable_deposit' as const) : ('ordinary' as const) } : p,
-  );
+  // 1) 확인한 역할이 있으면 그 역할로 다시 계산 (neutral 채우기 · 예전 자동 판단을 역할 기준으로)
+  // 2) 없으면 바꾸지 않는다 — 단, 과거 자동 판단이 계약서 지급자·수령자(또는 계약 구조)와 반대면 확인 필요로 (모순만)
+  const confirmed = !!contract.userPartyRole;
+  const changes = confirmed ? roleDirectionChanges(contract, mapped) : [];
+  const filled = new Set(changes.filter((ch) => ch.from === 'neutral').map((ch) => ch.index));
+  const payments = applyDirectionChanges(mapped, changes).map((p, i): ContractPayment => {
+    // 예전 데이터는 "neutral인 계약금·잔금 = 보증금의 몫"으로 읽었다 (natureOf) — 방향을 채우면 그 해석을 성격으로 고정한다
+    if (filled.has(i) && !p.moneyNature) return { ...p, moneyNature: natureOf(mapped[i]) === 'deposit' ? 'refundable_deposit' : 'ordinary' };
+    if (!confirmed && directionStatusOf(p, contract) === 'auto' && contradictsDocument(contract, p)) {
+      return { ...p, direction: 'neutral', directionBasis: null, reviewReason: 'document_conflict' };
+    }
+    return p;
+  });
   return { ...record, contract, payments, ...(funds ? { funds } : {}) };
+}
+
+/**
+ * 결제 방향의 상태 (화면 안내·합계 구분용 — 저장하지 않음)
+ * - role: 사용자가 확인한 역할로 계산 · user: 사용자가 직접 고른 방향
+ * - auto: 과거 분석이 자동으로 정한 방향 (계약 구조 근거, 또는 계약서로 등록한 계약의 근거 없는 출금·입금) — 역할을 확인하기 전까지 "자동 판단"
+ * - legacy: 직접 입력한 계약의 예전 값 · pending: 방향 확인 필요(neutral)
+ */
+export type DirectionStatus = 'role' | 'user' | 'auto' | 'legacy' | 'pending';
+export function directionStatusOf(p: Pick<ContractPayment, 'direction' | 'directionBasis'>, contract: Pick<Contract, 'source' | 'userPartyRole'>): DirectionStatus {
+  if (p.direction === 'neutral') return 'pending';
+  if (p.directionBasis === 'user') return 'user';
+  if (p.directionBasis === 'role') return 'role';
+  if (p.directionBasis === 'contract') return contract.userPartyRole ? 'role' : 'auto';
+  return contract.source === 'upload' && !contract.userPartyRole ? 'auto' : 'legacy';
+}
+
+/** 과거 자동 판단이 계약서의 지급자·수령자(없으면 계약 구조의 추천 쪽)와 반대인지 — 반대면 확인 필요 */
+function contradictsDocument(contract: Contract, p: ContractPayment): boolean {
+  const rec = recommendedSide(contract);
+  if (!rec) return false;
+  const expected = directionForRole(partyKindOf(contract), p, rec.role);
+  return expected !== null && expected !== p.direction;
 }

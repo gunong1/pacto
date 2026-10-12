@@ -15,6 +15,8 @@ export interface SpendingItem {
   direction: Direction;
   /** 일반 / 보증금·예치금 · null = 알 수 없음 */
   nature: FlowNature | null;
+  /** 과거 분석이 자동으로 정한 방향 (역할 확인 전) — 합계에는 넣고 "자동 판단"으로 따로 알린다 */
+  auto?: boolean;
   estimated: boolean;
   contractId: string;
   contractTitle: string;
@@ -51,6 +53,9 @@ export interface MonthSpending {
   /** 방향 확인 필요 금액 (합계 제외) */
   undeterminedTotal: number;
   undetermined: SpendingItem[];
+  /** 출금·입금 중 과거 자동 판단 금액 (역할 확인 전) */
+  autoExpense: number;
+  autoIncome: number;
   /** 일반 지출 분야별 / 계약 종류별 (보증금은 섞지 않는다) */
   byCategory: CategorySpending[];
   byKind: { label: string; amount: number }[];
@@ -75,6 +80,7 @@ export function cashItems(records: ContractRecord[], start: ISODate, end: ISODat
         label: i.title,
         direction: i.direction!,
         nature: i.moneyNature ?? null,
+        auto: i.directionStatus === 'auto',
         estimated: i.estimated,
         contractId: contract.id,
         contractTitle: contract.title,
@@ -108,6 +114,8 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth, today?: 
     depositIn: sum(incomeItems.filter((i) => i.nature === 'deposit')),
     undeterminedTotal: sum(undetermined),
     undetermined,
+    autoExpense: sum(items.filter((i) => i.auto)),
+    autoIncome: sum(incomeItems.filter((i) => i.auto)),
     byCategory: [...byCat.entries()]
       .map(([category, amount]) => ({ category, amount }))
       .sort((a, b) => b.amount - a.amount),

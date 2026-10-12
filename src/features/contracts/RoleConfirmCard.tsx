@@ -17,7 +17,10 @@ import { spacing } from '@/theme';
 
 import { useContractActions } from './queries';
 
-export function RoleConfirmCard({ record, amount }: { record: ContractRecord; amount: number }) {
+/**
+ * mode: pending = 방향 확인 필요(합계 제외) · auto = 이전 분석이 자동으로 정한 방향(합계 포함, 확인 권장)
+ */
+export function RoleConfirmCard({ record, amount, mode = 'pending' }: { record: ContractRecord; amount: number; mode?: 'pending' | 'auto' }) {
   const { contract } = record;
   const names = useProfile().data?.contractNames ?? [];
   const actions = useContractActions(contract.id);
@@ -29,6 +32,13 @@ export function RoleConfirmCard({ record, amount }: { record: ContractRecord; am
     <View style={{ marginTop: spacing.sm }} testID={`role-confirm-${contract.id}`}>
       <AppText variant="captionStrong" numberOfLines={1}>
         {contract.title} · {formatWon(amount)}
+      </AppText>
+      <AppText variant="caption" color="textTertiary" testID="role-confirm-reason">
+        {mode === 'auto'
+          ? '이전 분석이 자동으로 정한 방향이라 합계에 넣었어요. 내 역할을 확인하면 확정돼요.'
+          : record.payments.some((p) => p.reviewReason === 'document_conflict')
+            ? '저장된 방향이 계약서의 지급자·수령자 정보와 달라 합계에서 뺐어요.'
+            : '내 역할을 확인하기 전이라 합계에서 뺐어요.'}
       </AppText>
       {recText ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 2 }}>

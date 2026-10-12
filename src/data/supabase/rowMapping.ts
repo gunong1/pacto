@@ -216,7 +216,7 @@ function toParties(v: unknown): Contract['parties'] {
   if (!Array.isArray(v)) return [];
   return v.flatMap((p) =>
     p && typeof p === 'object' && typeof p.role === 'string' && typeof p.name === 'string' && p.name.trim()
-      ? [typeof p.term === 'string' && p.term.trim() ? { role: p.role, name: p.name, term: p.term.trim().slice(0, 20) } : { role: p.role, name: p.name }]
+      ? [{ role: p.role, name: p.name, ...(typeof p.term === 'string' && p.term.trim() ? { term: p.term.trim().slice(0, 20) } : {}), ...(p.distinct === true ? { distinct: true } : {}) }]
       : [],
   );
 }

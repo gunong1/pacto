@@ -62,12 +62,13 @@ export function PartiesSection({ kit, kind }: { kit: FormKit; kind: string }) {
  * - 실제로 다른 이름이면 덮어쓰지 않고 두 후보와 계약서 근거를 보여주고 사용자가 고른다
  */
 function PartyConflicts({ kit, kind }: { kit: FormKit; kind: string }) {
-  const [kept, setKept] = useState<string[]>([]);
   const inputs = (kit.values.parties ?? {}) as Record<string, string | undefined>;
   const terms = (kit.values.partyTerms ?? {}) as Record<string, string | undefined>;
-  const parties = partiesFromInputs(inputs, terms);
+  const distinct = (kit.values.partyDistinct ?? []) as string[];
+  const parties = partiesFromInputs(inputs, terms, distinct);
   const eq = ROLE_EQUIVALENTS[kind] ?? {};
-  const conflicts = normalizePartyRoles(kind, parties).conflicts.filter((from) => !kept.includes(from));
+  const conflicts = normalizePartyRoles(kind, parties).conflicts;
+  const setDistinct = (next: string[]) => kit.setValue('partyDistinct' as never, next as never, { shouldDirty: true });
   // 표기만 다른 같은 이름 (저장할 때 칸의 이름으로 합쳐짐)
   const sameNotation = Object.entries(eq).flatMap(([from, to]) =>
     parties.filter((p) => p.role === from).flatMap((p) => parties.filter((d) => d.role === to && d.name !== p.name && samePartyName(d.name, p.name)).map((d) => ({ from, to, doc: p.name, kept: d.name }))),
@@ -79,13 +80,26 @@ function PartyConflicts({ kit, kind }: { kit: FormKit; kind: string }) {
     }
     kit.setValue(`parties.${from}` as never, '' as never, { shouldDirty: true });
   };
-  if (conflicts.length === 0 && sameNotation.length === 0) return null;
+  const separate = distinct.filter((r) => eq[r] && inputs[r]?.trim());
+  if (conflicts.length === 0 && sameNotation.length === 0 && separate.length === 0) return null;
   return (
     <View testID="party-conflicts">
       {sameNotation.map((x) => (
         <AppText key={`${x.from}-${x.doc}`} variant="caption" color="textTertiary" style={{ marginBottom: spacing.sm }} testID={`party-same-${x.from}`}>
           계약서의 {partyRoleDef(null, x.from).label} &quot;{x.doc}&quot;는 {partyRoleLabel(kind, x.to)} &quot;{x.kept}&quot;와 표기만 달라 같은 당사자로 봤어요 (입력된 이름 유지).
         </AppText>
+      ))}
+      {separate.map((r) => (
+        <View key={`sep-${r}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }} testID={`party-separate-${r}`}>
+          <AppText variant="caption" color="textTertiary" style={{ flex: 1 }}>
+            {partyRoleDef(null, r).label} &quot;{inputs[r]}&quot;는 {partyRoleLabel(kind, eq[r])}와 다른 당사자로 따로 둬요. 금액 방향은 계약서의 지급자·수령자 그대로예요.
+          </AppText>
+          <Pressable onPress={() => setDistinct(distinct.filter((x) => x !== r))} accessibilityRole="button" testID={`party-separate-undo-${r}`}>
+            <AppText variant="captionStrong" color="primary">
+              되돌리기
+            </AppText>
+          </Pressable>
+        </View>
       ))}
       {conflicts.map((from) => {
         const to = eq[from];
@@ -98,13 +112,13 @@ function PartyConflicts({ kit, kind }: { kit: FormKit; kind: string }) {
               {toLabel} 이름이 두 가지예요. 어느 쪽이 맞나요?
             </AppText>
             <AppText variant="caption" color="textTertiary" style={{ marginBottom: spacing.sm }}>
-              다른 이름이라 자동으로 바꾸지 않았어요. 계약서를 보고 골라주세요.
+              다른 이름이라 자동으로 바꾸지 않았어요. 같은 회사의 다른 이름이면 표시할 이름 하나를 고르고, 정말 서로 다른 당사자면 아래에서 따로 두세요.
             </AppText>
             <Candidate label={toFromDoc ? `계약서의 ${toLabel}` : `${toLabel} 칸에 입력된 이름`} name={inputs[to] ?? ''} evidence={kit.evidenceIcon(`parties.${to}`, toLabel)} onPick={() => choose(from, to, false)} testID={`party-conflict-keep-${from}`} />
             <Candidate label={`계약서의 ${fromLabel}`} name={inputs[from] ?? ''} evidence={kit.evidenceIcon(`parties.${from}`, fromLabel)} onPick={() => choose(from, to, true)} testID={`party-conflict-doc-${from}`} />
-            <Pressable onPress={() => setKept([...kept, from])} accessibilityRole="button" testID={`party-conflict-both-${from}`} style={{ alignSelf: 'flex-start', paddingVertical: spacing.xs }}>
+            <Pressable onPress={() => setDistinct([...distinct, from])} accessibilityRole="button" testID={`party-conflict-both-${from}`} style={{ alignSelf: 'flex-start', paddingVertical: spacing.xs }}>
               <AppText variant="captionStrong" color="textSecondary">
-                둘 다 맞아요 (따로 두기)
+                서로 다른 당사자예요 ({toLabel}와 {fromLabel}를 따로 두기)
               </AppText>
             </Pressable>
           </View>

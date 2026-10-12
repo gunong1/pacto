@@ -18,6 +18,8 @@ export interface ContractParty {
   name: string;
   /** 계약서가 쓴 역할 이름이 계약 종류의 역할 이름과 다를 때 (렌탈회사 ← 계약서 "임대인") — 표시용, 저장된 역할은 role 하나 */
   term?: string | null;
+  /** 사용자가 "같은 자리의 다른 당사자"라고 정함 (예: 렌탈회사와 별개의 임대인) — 자동 연결·합치기 안 함 */
+  distinct?: boolean;
 }
 
 /** 역할 표시: "렌탈회사(임대인)" — 계약서 용어가 다를 때만 괄호로 */
@@ -117,15 +119,18 @@ export function partySummary(c: PartyInput): string | null {
 export const partySearchText = (c: PartyInput): string => [clean(c.counterparty), ...c.parties.map((p) => clean(p.name)), ...legacyDetailParties(c.contractType, c.details).map((p) => p.name)].join(' ');
 
 /** 폼의 역할별 입력값 "김민수, 이수진" → 당사자 목록 (쉼표로 나눈 이름 각각). terms: 역할별 계약서 용어 (그대로 유지) */
-export function partiesFromInputs(inputs: Record<string, string | undefined>, terms: Record<string, string | undefined> = {}): ContractParty[] {
+export function partiesFromInputs(inputs: Record<string, string | undefined>, terms: Record<string, string | undefined> = {}, distinct: readonly string[] = []): ContractParty[] {
   return Object.entries(inputs).flatMap(([role, text]) =>
     (text ?? '')
       .split(',')
       .map((n) => n.trim())
       .filter(Boolean)
-      .map((name) => (terms[role] ? { role, name: name.slice(0, 100), term: terms[role] } : { role, name: name.slice(0, 100) })),
+      .map((name) => ({ role, name: name.slice(0, 100), ...(terms[role] ? { term: terms[role] } : {}), ...(distinct.includes(role) ? { distinct: true } : {}) })),
   );
 }
+
+/** "서로 다른 당사자"로 정한 역할 목록 (폼에 숨겨 두었다가 저장할 때 다시 붙인다) */
+export const partyDistinctOf = (parties: readonly ContractParty[]): string[] => [...new Set(parties.filter((p) => p.distinct).map((p) => p.role))];
 
 /** 당사자 목록 → 역할별 계약서 용어 (폼에 숨겨 두었다가 저장할 때 다시 붙인다) */
 export function partyTermsOf(parties: readonly ContractParty[]): Record<string, string> {

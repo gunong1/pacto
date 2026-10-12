@@ -126,6 +126,21 @@ const PDF = require('./cleanPdf')();
   await page.waitForTimeout(400);
   check('F2', '계약서 이름 선택 → 렌탈회사 = 주식회사 팩토렌터카 · 후보 카드 사라짐', (await val('field-parties.provider')) === '주식회사 팩토렌터카' && (await page.locator(tid('party-conflict-lessor')).count()) === 0);
 
+  // F3 서로 다른 당사자로 두기 → 저장 → 다시 열어도 그대로 (충돌 카드 다시 안 뜸)
+  await page.goto(BASE + '/register', { waitUntil: 'networkidle' });
+  const [ch3] = await Promise.all([page.waitForEvent('filechooser'), page.click(tid('method-pdf'))]);
+  await ch3.setFiles({ name: '장기렌트_이름충돌_계약서.pdf', mimeType: 'application/pdf', buffer: PDF });
+  await page.waitForSelector(tid('party-conflict-lessor'), { timeout: 30000 });
+  await page.click(tid('party-conflict-both-lessor'));
+  await page.waitForTimeout(400);
+  const sep = (await page.locator(tid('party-separate-lessor')).count()) ? await text('party-separate-lessor') : '';
+  check('F3', '"서로 다른 당사자예요" → 임대인은 렌탈회사와 따로 (되돌리기 가능) · 두 이름 유지', sep.includes('다른 당사자로 따로') && (await val('field-parties.provider')) === '가상렌탈' && (await val('field-parties.lessor')) === '주식회사 팩토렌터카' && (await page.locator(tid('party-conflict-lessor')).count()) === 0, sep);
+  await page.click(tid('submit-contract'));
+  await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
+  await page.goto(page.url().replace(/\?.*$/, '') + '/edit', { waitUntil: 'networkidle' });
+  await page.waitForSelector(tid('section-parties'), { timeout: 15000 });
+  check('F4', '다시 열어도 "다른 당사자" 유지 · 충돌 카드 없음', (await page.locator(tid('party-separate-lessor')).count()) === 1 && (await page.locator(tid('party-conflict-lessor')).count()) === 0);
+
   check('Z', '페이지 오류 없음', errors.length === 0, errors.join(' | '));
   await browser.close();
 })();
