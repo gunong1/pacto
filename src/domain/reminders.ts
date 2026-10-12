@@ -11,6 +11,8 @@ import {
   type NotificationPriority,
   type NotificationSource,
 } from "./notificationPriority";
+import { fundViews, type FundView } from "./cashflow";
+import { formatWon } from "./money";
 import { expandPayment } from "./schedule";
 import { currentTerm, isLive, terminationNoticeDeadline } from "./status";
 import type { ContractRecord, Direction, ISODate } from "./types";
@@ -30,6 +32,8 @@ export interface ReminderRules {
   /** 갱신 여부 확인·협의 시점 */
   renewalDecision: readonly number[];
   payment: readonly number[];
+  /** 보증금·예치금 반환 확인 (반환 예정일 또는 계약 종료일 기준) — 기준일이 지나도 반환 기록이 없으면 PACTO가 이어서 알린다 */
+  depositReturn: readonly number[];
 }
 
 /** PACTO 기본 알림 시점 */
@@ -40,7 +44,11 @@ export const REMINDER_RULES: ReminderRules = {
   renewalNotice: [30, 7, 1, 0],
   renewalDecision: [30, 7],
   payment: [1],
+  depositReturn: [30, 7, 0],
 };
+
+/** 반환 확인 기준일이 지났는데 반환 기록이 없을 때 이어서 알리는 시점 (기준일 + N일) — PACTO 고정, 그 종류 알림을 끄면 함께 꺼짐 */
+export const DEPOSIT_FOLLOW_UP_DAYS: readonly number[] = [7, 30, 60, 90];
 
 /** "30·7·1일 전과 당일" / "하루 전" / "당일" / "꺼짐" */
 export function offsetsText(xs: readonly number[]): string {
@@ -63,6 +71,7 @@ export function reminderPolicySummary(
     { label: "갱신 여부 확인", when: offsetsText(rules.renewalDecision) },
     { label: "계약 만료", when: offsetsText(rules.contractEnd) },
     { label: "자동갱신 예정일", when: offsetsText(rules.renewal) },
+    { label: "보증금 반환 확인", when: rules.depositReturn.length ? `${offsetsText(rules.depositReturn)} · 반환 전까지 이후에도` : offsetsText(rules.depositReturn) },
   ];
 }
 
@@ -70,7 +79,8 @@ export type ReminderKind =
   | "contract_end"
   | "renewal"
   | "termination_notice"
-  | "payment";
+  | "payment"
+  | "deposit_return";
 
 /**
  * 알림 원본 한 건 — 결제·통보기한·만료 하나당 하나.
@@ -98,14 +108,17 @@ export interface Reminder {
   needsReview: boolean;
   /** 계약서 근거 (계약서 기준 일정이고 관련 조항을 찾은 경우만) */
   evidence: NotificationEvidence | null;
-  /** 기한까지 남은 날 (D-30 → 30) */
+  /** 기한까지 남은 날 (D-30 → 30). 기준일이 지난 뒤 알림(보증금 반환 확인)은 음수 (+7일 → -7) */
   daysBefore: number;
+  /** 해야 할 일 문장 (보증금 반환 확인 — 받을 쪽/줄 쪽/모름에 따라 다름). 없으면 종류별 기본 안내 */
+  hint?: string;
 }
 
 const KIND_TARGET_LABEL: Record<Exclude<ReminderKind, "payment">, string> = {
   contract_end: "계약 종료",
   renewal: "자동갱신 예정일",
   termination_notice: "해지 통보기한",
+  deposit_return: "보증금 반환 확인",
 };
 
 /** 통보기한 종류별 알림 시점 — 의미가 불확실한 기한(unknown)은 해지·종료 통보기한 시점으로 놓치지 않게 */
@@ -180,6 +193,71 @@ function paymentWhen(off: number): string {
 }
 
 /**
+ * 보증금 반환 확인 문구 — 반환이 확정되지 않았으므로 "입금됩니다"처럼 단정하지 않는다.
+ * 기준: 계약서에 적힌 반환 예정일(explicit) / 계약 종료일(contract_end — 확정 반환일 아님)
+ * 해야 할 일: 돌려받을 쪽 → 돌려받으면 기록 · 돌려줄 쪽 → 반환·정산 확인 · 모름 → 역할 확인
+ */
+export function depositReminderText(v: Pick<FundView, "label" | "checkBasis" | "userSide" | "refunded" | "remaining">, daysBefore: number): { message: string; hint: string } {
+  const basisName = v.checkBasis === "explicit" ? `계약서에 적힌 ${v.label} 반환 예정일` : `${v.label} 반환 확인 기준일(계약 종료일)`;
+  let message: string;
+  if (daysBefore > 1) message = `${basisName}까지 ${daysBefore}일 남았어요.`;
+  else if (daysBefore === 1) message = `내일이 ${basisName}이에요.`;
+  else if (daysBefore === 0) message = `오늘이 ${basisName}이에요.`;
+  else message = `${basisName}이 ${-daysBefore}일 지났는데 아직 반환 완료 기록이 없어요.`;
+  const left = v.refunded > 0 ? `일부 반환 후 남은 금액 ${formatWon(v.remaining)}` : null;
+  let hint: string;
+  if (v.userSide === "depositor") hint = `${left ? `${left}을 ` : ""}돌려받으면 반환 기록을 남겨주세요.`;
+  else if (v.userSide === "holder") hint = `${left ? `${left}의 ` : `돌려줄 ${v.label}의 `}반환·정산을 확인하고 기록해주세요.`;
+  else hint = `${left ? `${left}의 ` : ""}반환·정산 상황을 확인해주세요. 이 계약에서 내 역할을 정하면 받을 돈인지 줄 돈인지 구분해 알려드려요.`;
+  return { message, hint };
+}
+
+/**
+ * 보증금·예치금 반환 확인 알림 — 계약 종료(상태)와 반환 완료(정산)는 따로 본다.
+ * 계약이 끝났어도 반환이 끝나지 않았으면 계속 알리고, 반환 완료(남은 금액 0)면 알리지 않는다.
+ * - 기준일 전: 사용자 설정 시점 (기본 30·7일 전과 당일)
+ * - 기준일 후: 반환 기록이 없으면 +7·30·60·90일 (설정에서 이 종류를 끄면 함께 꺼짐)
+ * - 자동갱신 중인 계약의 계약 종료일 기준은 반환 시점이 아니므로 알리지 않는다 (해지·종료 처리 후 또는 계약서 반환 예정일이 있으면 알림)
+ */
+function depositReminders(record: ContractRecord, rules: ReminderRules, today: ISODate, inWindow: (d: ISODate) => boolean): Reminder[] {
+  if (rules.depositReturn.length === 0) return [];
+  const { contract } = record;
+  const out: Reminder[] = [];
+  for (const v of fundViews(record, today)) {
+    if (v.status === "returned" || v.remaining <= 0 || !v.checkDate || !v.checkBasis) continue;
+    if (v.checkBasis === "contract_end" && contract.lifecycle === "active" && contract.autoRenewal) continue;
+    const m = meta(record, "deposit_return", v.checkBasis === "explicit" ? [] : ["endDate"]);
+    const slots = [
+      ...rules.depositReturn.map((off) => ({ off, key: `deposit:${v.key}:${v.checkDate}:${off}` })),
+      ...DEPOSIT_FOLLOW_UP_DAYS.map((n) => ({ off: -n, key: `deposit-after:${v.key}:${v.checkDate}:${n}` })),
+    ];
+    for (const { off, key } of slots) {
+      const fireOn = addDays(v.checkDate, -off);
+      if (!inWindow(fireOn)) continue;
+      const text = depositReminderText(v, off);
+      out.push({
+        contractId: contract.id,
+        contractTitle: contract.title,
+        ...m,
+        key,
+        kind: "deposit_return",
+        fireOn,
+        targetDate: v.checkDate,
+        label: `${v.label} 반환 확인`,
+        // 반환은 확정 금액이 아니므로 결제 합계에 넣지 않는다
+        amount: null,
+        direction: null,
+        estimated: false,
+        daysBefore: off,
+        message: text.message,
+        hint: text.hint,
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * today ~ today+horizonDays 사이에 울릴 알림. 계약별 알림이 꺼져 있으면 제외.
  * rulesFor: 계약마다 적용할 알림 시점 (사용자 설정 + 계약별 설정). 없으면 PACTO 기본값, null이면 그 계약 알림 없음.
  */
@@ -197,9 +275,12 @@ export function upcomingReminders(
 
   for (const record of records) {
     const { contract } = record;
-    if (!contract.notificationsEnabled || !isLive(contract, today)) continue;
+    if (!contract.notificationsEnabled) continue;
     const rules = opts.rulesFor ? opts.rulesFor(contract) : REMINDER_RULES;
     if (!rules) continue;
+    // 보증금 반환 확인은 계약이 끝난 뒤에도 (반환이 끝날 때까지)
+    out.push(...depositReminders(record, rules, today, inWindow));
+    if (!isLive(contract, today)) continue;
     const base = { contractId: contract.id, contractTitle: contract.title };
 
     const term = currentTerm(contract, today);

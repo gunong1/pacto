@@ -19,7 +19,7 @@ import type { Contract, ContractRecord, ISODate } from './types';
 
 // ===== 3·4·5) 알림 설정 =====
 
-export const NOTIFICATION_CATEGORIES = ['payment', 'termination_notice', 'renewal_notice', 'renewal_decision', 'contract_end', 'renewal'] as const;
+export const NOTIFICATION_CATEGORIES = ['payment', 'termination_notice', 'renewal_notice', 'renewal_decision', 'contract_end', 'renewal', 'deposit_return'] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_DEFS: Record<NotificationCategory, { label: string; description: string; rule: keyof ReminderRules; critical: boolean }> = {
@@ -29,6 +29,7 @@ export const NOTIFICATION_CATEGORY_DEFS: Record<NotificationCategory, { label: s
   renewal_decision: { label: '갱신 여부 확인', description: '갱신 여부를 상대방과 확인·협의하는 시점', rule: 'renewalDecision', critical: false },
   contract_end: { label: '계약 만료', description: '계약·만기가 끝나는 날', rule: 'contractEnd', critical: false },
   renewal: { label: '자동갱신 예정일', description: '자동으로 연장되는 날', rule: 'renewal', critical: false },
+  deposit_return: { label: '보증금 반환 확인', description: '보증금·예치금 반환 예정일(없으면 계약 종료일) 전후 — 반환을 기록할 때까지', rule: 'depositReturn', critical: false },
 };
 
 /**
@@ -41,6 +42,7 @@ export const NOTIFICATION_CATEGORY_GROUPS: readonly { key: NotificationCategory;
   { key: 'renewal_decision', members: ['renewal_decision'], label: '갱신 여부 확인', description: '갱신 여부를 상대방과 확인·협의하는 시점' },
   { key: 'contract_end', members: ['contract_end'], label: '계약 만료', description: '계약·만기가 끝나는 날' },
   { key: 'renewal', members: ['renewal'], label: '자동갱신 예정일', description: '자동으로 연장되는 날' },
+  { key: 'deposit_return', members: ['deposit_return'], label: '보증금 반환 확인', description: '반환 예정일(없으면 계약 종료일) 전후 — 반환을 기록할 때까지 알려드려요' },
 ];
 
 /**
@@ -181,6 +183,7 @@ export function reminderCategory(r: Pick<Reminder, 'kind' | 'actionType'>): Noti
   if (r.kind === 'payment') return 'payment';
   if (r.kind === 'contract_end') return 'contract_end';
   if (r.kind === 'renewal') return 'renewal';
+  if (r.kind === 'deposit_return') return 'deposit_return';
   if (r.actionType === 'renewal_notice') return 'renewal_notice';
   if (r.actionType === 'renewal_decision') return 'renewal_decision';
   return 'termination_notice';
@@ -191,6 +194,8 @@ export function reminderCategory(r: Pick<Reminder, 'kind' | 'actionType'>): Noti
  * 기간 종료: 자동갱신이면 "자동갱신 예정일" 알림 시점, 아니면 "계약 만료" 알림 시점 (Push도 같은 규칙).
  */
 export function scheduleItemCategory(item: Pick<ScheduleItem, 'type' | 'actionType'>, autoRenewal: boolean): NotificationCategory | null {
+  // 보증금 반환 예정·반환 확인 기준일 (금액이 있어도 결제 알림이 아니라 반환 확인 알림)
+  if (item.actionType === 'deposit_return') return 'deposit_return';
   switch (item.type) {
     case 'payment':
       return 'payment';
@@ -230,6 +235,7 @@ export function toReminderRules(p: Pick<EffectivePreferences, 'categories'>): Re
     renewalDecision: on('renewal_decision'),
     contractEnd: on('contract_end'),
     renewal: on('renewal'),
+    depositReturn: on('deposit_return'),
   };
 }
 
@@ -404,6 +410,7 @@ function actionHint(kind: ReminderGroup['kind'], type: ActionEventType): string 
   if (kind === 'termination_notice') return '계약을 끝내려면 계약 내용을 확인해보세요.';
   if (kind === 'contract_end') return '계약을 계속할지 확인해보세요.';
   if (kind === 'renewal') return '갱신을 원하지 않는다면 해지 통보기한을 확인해보세요.';
+  if (kind === 'deposit_return') return '보증금 반환·정산 상황을 확인해주세요.';
   return null;
 }
 
@@ -417,6 +424,7 @@ function headline(group: ReminderGroup): string {
   }
   if (group.kind === 'contract_end') return head.actionType === 'maturity' ? `만기가 ${left}.` : `계약 만료가 ${left}.`;
   if (group.kind === 'renewal') return `자동갱신 예정일이 ${left}.`;
+  if (group.kind === 'deposit_return') return head.message;
   return group.message;
 }
 
@@ -435,7 +443,8 @@ export function buildNotificationMessage(group: ReminderGroup, opts: { showDetai
   // 같은 날 함께 있는 금액 — 방향별로 (방향을 모르는 금액을 결제·수령으로 단정하지 않음)
   const payWord = pays.every((p) => p.direction === 'income') ? '수령' : pays.every((p) => p.direction === 'expense') ? '결제' : '금액 확인';
   const payLine = pays.length ? `${pays.map((p) => `${p.label} ${p.amount != null ? `${p.amount.toLocaleString('ko-KR')}원` : ''}`.trim()).join(' · ')} ${payWord}도 예정되어 있어요.` : null;
-  return { title: `${group.contractTitle} · ${headline(group)}`, body: [payLine ?? actionHint(group.kind, eventTypeOf(group))].filter(Boolean).join('\n') };
+  const head = group.reminders.find((r) => r.kind === group.kind);
+  return { title: `${group.contractTitle} · ${headline(group)}`, body: [payLine ?? head?.hint ?? actionHint(group.kind, eventTypeOf(group))].filter(Boolean).join('\n') };
 }
 
 /** 같은 알림이면 항상 같은 키 — 사용자·계약·발송 시각·담긴 일정(종류·날짜·며칠 전) */
@@ -508,7 +517,7 @@ export function planNotifications(input: PlanInput): PlannedNotification[] {
         data: { url: notificationUrl(group.contractId, eventType, checkId), contractId: group.contractId, eventType, eventKey: head.key, checkId },
         display: {
           contractTitle: group.contractTitle,
-          message: group.kind === 'payment' ? group.message : headline(group),
+          message: group.kind === 'payment' || group.kind === 'deposit_return' ? group.message : headline(group),
           detail: group.detail,
           eventLines: group.eventLines,
           sourceLabel: group.kind === 'payment' ? null : NOTIFICATION_SOURCE_LABEL[head.source],

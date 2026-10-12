@@ -20,6 +20,16 @@ import type { Json } from '@/types/database';
 
 import type { PactoSupabase } from './supabase/client';
 
+/**
+ * 저장 형식 표시 (_v: 2) — 이 표시가 없는 저장은 알림 종류가 추가되기 전의 앱이 보낸 것.
+ * DB 트리거가 그때 예전 앱이 모르는 종류(보증금 반환 확인 등)의 기존 설정을 지우지 않고 이어붙인다.
+ * 새 앱은 항상 표시를 붙이므로 "기본값으로 되돌리기"({})도 그대로 저장된다.
+ */
+export const CATEGORY_STORAGE_VERSION = 2;
+function storedCategories(c: unknown): { [key: string]: Json } {
+  return { ...(normalizeCategoryPrefs(c) as unknown as { [key: string]: Json }), _v: CATEGORY_STORAGE_VERSION };
+}
+
 export interface UpcomingNotification {
   id: string;
   contractId: string;
@@ -107,7 +117,7 @@ export class SupabaseNotificationStore implements NotificationStore {
           ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
           // time_of_day는 DB 트리거가 default_times[1]로 맞춘다 (예전 앱 호환)
           ...(patch.defaultTimes !== undefined ? { default_times: normalizeTimes(patch.defaultTimes) ?? [...DEFAULT_TIMES] } : {}),
-          ...(patch.categories !== undefined ? { categories: normalizeCategoryPrefs(patch.categories) as unknown as { [key: string]: Json } } : {}),
+          ...(patch.categories !== undefined ? { categories: storedCategories(patch.categories) } : {}),
         }),
       );
     }
@@ -133,7 +143,7 @@ export class SupabaseNotificationStore implements NotificationStore {
       const { error } = await this.sb.from('contract_notification_overrides').delete().eq('contract_id', contractId);
       if (error) throw new Error('save_failed');
     } else {
-      const { error } = await this.sb.from('contract_notification_overrides').upsert({ contract_id: contractId, categories: normalizeCategoryPrefs(override) as unknown as { [key: string]: Json } });
+      const { error } = await this.sb.from('contract_notification_overrides').upsert({ contract_id: contractId, categories: storedCategories(override) });
       if (error) throw new Error('save_failed');
     }
     await this.requestPlan();

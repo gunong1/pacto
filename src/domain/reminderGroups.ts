@@ -18,9 +18,10 @@ export const REMINDER_KIND_LABEL: Record<ReminderKind, string> = {
   renewal: '자동갱신',
   contract_end: '만료',
   payment: '결제',
+  deposit_return: '보증금 반환 확인',
 };
 
-const PRIORITY: Record<ReminderKind, number> = { termination_notice: 0, renewal: 1, contract_end: 2, payment: 3 };
+const PRIORITY: Record<ReminderKind, number> = { termination_notice: 0, renewal: 1, contract_end: 2, deposit_return: 3, payment: 4 };
 
 export interface ReminderGroup {
   key: string;
@@ -28,7 +29,7 @@ export interface ReminderGroup {
   contractTitle: string;
   /** 알림이 울리는 날 */
   fireOn: ISODate;
-  /** 대표 종류 (통보기한 > 갱신 > 만료 > 결제) */
+  /** 대표 종류 (통보기한 > 갱신 > 만료 > 보증금 반환 확인 > 결제) */
   kind: ReminderKind;
   /** "가정용 공기청정기 렌탈계약서 · 결제" */
   title: string;
@@ -101,6 +102,8 @@ function paymentTitle(pays: Reminder[]): string {
   return REMINDER_KIND_LABEL.payment;
 }
 
+const withHint = (r: Reminder) => (r.hint ? `${r.message} ${r.hint}` : r.message);
+
 function summarize(key: string, list: Reminder[]): ReminderGroup {
   const sorted = [...list].sort((a, b) => PRIORITY[a.kind] - PRIORITY[b.kind] || a.targetDate.localeCompare(b.targetDate));
   const head = sorted[0];
@@ -113,8 +116,8 @@ function summarize(key: string, list: Reminder[]): ReminderGroup {
     detail = d;
   } else {
     // 행동이 필요한 알림이 대표, 같은 날 결제는 아래에 함께
-    message = head.message;
-    const others = sorted.slice(1).filter((r) => r.kind !== 'payment').map((r) => r.message);
+    message = withHint(head);
+    const others = sorted.slice(1).filter((r) => r.kind !== 'payment').map(withHint);
     const pay = pays.length ? paymentSentence(relative(pays[0].fireOn, pays[0].targetDate), pays) : null;
     detail = [...others, ...(pay ? [`${pay.short}${pay.detail ? ` · ${pay.detail}` : ''}`] : [])].join('\n') || null;
   }
