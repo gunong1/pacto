@@ -5,6 +5,7 @@
  * 조건부 비용(위약금·연체료 등)은 여기서 결제로 남겨 두고, 계약 체크로 옮기는 일은 checks.ts(C4)가 한다.
  */
 import { BUSINESS_DAY_RULES, DIRECTIONS, PARTY_ROLE_CODES, PAYMENT_KIND_CODES, PAYMENT_KIND_DEFS } from '../contractRegistry.ts';
+import { INSTALLMENT_PART } from '../paymentAggregate.ts';
 import { obligationOf, weakOptional } from './paymentObligation.ts';
 import { dayFromOwnDate, guardIncomePayday, lumpSum, resolvePaymentDate } from './paymentDates.ts';
 import { aggregateTotals, attachComponents, foldComponents, namedParentComponents, preDiscountSiblings, roleOf, type PendingComponent, type TotalAmount } from './paymentRoles.ts';
@@ -75,6 +76,8 @@ export function buildPayments(raw: unknown, dates: readonly ExtractedDate[]): Bu
       // 계약서가 지급자·수령자를 밝힌 경우만 (근거 문장이 있을 때 — 없으면 계약 종류의 기본 흐름)
       payerRole: evidence ? (oneOf(PARTY_ROLE_CODES, p.payer_role) ?? null) : null,
       payeeRole: evidence ? (oneOf(PARTY_ROLE_CODES, p.payee_role) ?? null) : null,
+      // 나눠 내는 몫의 상위 금액 (AI가 계약서 구조로 답한 이름) — 의미 관계 근거로만 (installmentParents)
+      ...(INSTALLMENT_PART.test(label) && text(p.part_of, 40) ? { partOf: text(p.part_of, 40) } : {}),
     });
   }
   guardIncomePayday(payments, dates);

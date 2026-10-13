@@ -50,6 +50,12 @@ const LEGACY_OBLIGATION_OPTIONS = [
 ];
 const obligationOptions = (current: string) => [...OBLIGATION_OPTIONS, ...LEGACY_OBLIGATION_OPTIONS.filter((o) => o.value === current)];
 
+/** 돈의 성격 — 일반 결제 / 돌려받을(줄) 돈. 계약금·잔금처럼 이름만으로 알 수 없는 금액을 사용자가 정한다 (모든 계약 종류 공통) */
+const NATURE_OPTIONS: { value: 'ordinary' | 'refundable_deposit'; label: string }[] = [
+  { value: 'ordinary', label: '일반 결제' },
+  { value: 'refundable_deposit', label: '보증금·예치금 (돌려받을 돈)' },
+];
+
 const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
 
 function newPayment(kind: PaymentKind): PaymentFormValues {
@@ -157,6 +163,25 @@ export function PaymentsList({
               <AppText variant="caption" color={flagged?.has(`${path}.obligation`) ? 'check' : 'textTertiary'} style={{ marginTop: 6 }}>
                 {hint(`${path}.obligation`)}
               </AppText>
+            ) : null}
+            {/* 돈의 성격 — 보증금 결제(kind=deposit)는 늘 보증금, 반환 기록은 따로 관리하므로 고르지 않는다 */}
+            {pv.kind !== 'deposit' && pv.moneyNature !== 'deposit_refund' ? (
+              <>
+                <View style={{ height: spacing.md }} />
+                <FormLabel label="이 돈의 성격" flagged={flagged?.has(`${path}.moneyNature`)} />
+                <Controller
+                  control={control}
+                  name={`payments.${i}.moneyNature`}
+                  render={({ field: f }) => (
+                    <ChipGroup options={NATURE_OPTIONS} value={f.value || 'ordinary'} onChange={f.onChange} testIDPrefix={`payment-${i}-nature`} />
+                  )}
+                />
+                {hint(`${path}.moneyNature`) ? (
+                  <AppText variant="caption" color={flagged?.has(`${path}.moneyNature`) ? 'check' : 'textTertiary'} style={{ marginTop: 6 }}>
+                    {hint(`${path}.moneyNature`)}
+                  </AppText>
+                ) : null}
+              </>
             ) : null}
             {pv.obligation !== 'confirmed' ? (
               <View style={{ marginTop: spacing.md }}>

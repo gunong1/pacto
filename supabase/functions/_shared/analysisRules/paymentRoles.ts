@@ -21,9 +21,10 @@
  * 규칙 R6 preDiscountSiblings — 할인 전 금액과 실제(할인 적용) 금액이 함께 결제로 오면 할인 전 금액은 참고 금액(할인 전).
  *   실제 금액이 없으면 결제로 두되 금액을 비워 사용자가 실제 결제액을 입력하게 한다 (자동으로 빼서 계산하지 않음)
  * 규칙 R7 installmentParents — 나눠 내는 몫(계약금·중도금·잔금·착수금)은 이름이 아니라 상위 금액(총액)과의 관계로 성격을 정한다
- *   ① 의미 관계(필수): 몫의 이름·근거 문장이 상위 금액을 가리킨다 (보증금 → "보증금·전세금", 그 밖 → 상위 금액 이름)
+ *   ① 의미 관계(필수): 몫의 이름·근거 문장, 또는 AI가 계약서 구조로 답한 part_of가 상위 금액을 가리킨다 (보증금 → "보증금·전세금", 그 밖 → 상위 금액 이름)
+ *      표 형식 계약서는 계약금·잔금 줄에 "보증금"이 없다 — 표의 묶음(보증금 아래 계약금·잔금)은 part_of로만 전달된다
  *   ② 합계 일치(보조 검증): 몫들의 합이 상위 금액(총액·role=total·보증금 칸)과 정확히 같다 (paymentAggregate.partsOfTotal)
- *   둘 다 맞을 때만 바꾼다 — 합만 맞는 일반 계약금(보증금 언급 없음)은 그대로:
+ *   둘 다 맞을 때만 바꾼다 — 합만 맞는 일반 계약금(보증금 언급 없음)은 성격을 그대로 두고 natureCheck=deposit_part (사용자 확인):
  *   보증금(총액 또는 계약 요약 칸)의 몫 → 보증금 자금 이동(neutral): 월 지출에서 빠지고 지급 일정은 각각 유지
  *   매매대금·용역대금 등의 몫 → 그 금액의 방향(지출·수입)을 따른다. 상위 금액을 알 수 없으면 그대로 둔다
  *   예) 보증금 20,000,000 = 계약금 2,000,000(계약 당일) + 잔금 18,000,000(10-20) → 둘 다 neutral, 월 지출은 월세·관리비만
@@ -127,9 +128,14 @@ export function totalsToFields(totals: readonly TotalAmount[], fields: Record<st
 /** R7 — 몫의 성격은 상위 금액을 따른다 (보증금 칸 값도 상위 금액으로 본다) */
 const DEPOSIT_WORD = /보증금|전세금/;
 
-/** 의미 관계: 몫의 이름·근거 문장이 상위 금액을 가리키는가 (보증금은 "보증금·전세금", 그 밖은 상위 금액 이름) */
-export function isPartOf(p: Pick<ExtractedPayment, 'label' | 'evidence'>, parent: { deposit: boolean; label: string }): boolean {
-  const said = [p.label, ...(p.evidence ?? []).map((e) => e.quote)].join(' ');
+/**
+ * 의미 관계: 몫이 상위 금액을 가리키는가 (보증금은 "보증금·전세금", 그 밖은 상위 금액 이름)
+ *  - 몫의 이름·근거 문장 (문장형: "보증금 중 계약금 2,000,000원은 …")
+ *  - AI가 계약서 구조를 보고 답한 상위 금액(part_of) (표형: "보증금 및 월세" 묶음 아래의 계약금·잔금 줄 — 줄에는 "보증금"이 없다)
+ * 금액 합계는 여기서 보지 않는다 (합만 맞는 것은 근거가 아님 — 호출하는 쪽의 보조 조건)
+ */
+export function isPartOf(p: Pick<ExtractedPayment, 'label' | 'evidence' | 'partOf'>, parent: { deposit: boolean; label: string }): boolean {
+  const said = [p.label, p.partOf ?? '', ...(p.evidence ?? []).map((e) => e.quote)].join(' ');
   if (parent.deposit) return DEPOSIT_WORD.test(said);
   const name = parent.label.replace(/\s+/g, '');
   return name.length >= 2 && !/^(총액|합계|금액)$/.test(name) && said.replace(/\s+/g, '').includes(name);
@@ -143,8 +149,13 @@ export function installmentParents(payments: ExtractedPayment[], totals: readonl
   const done = new Set<ExtractedPayment>();
   for (const parent of parents) {
     const parts = partsOfTotal(payments.filter((p) => !done.has(p)), parent.amount);
+    if (!parts.length) continue;
     // 합이 맞아도 몫 모두가 그 상위 금액의 일부라는 근거가 있어야 한다 (합계는 보조 조건)
-    if (!parts.length || !parts.every((p) => isPartOf(p, parent))) continue;
+    if (!parts.every((p) => isPartOf(p, parent))) {
+      // 보증금과 합이 정확히 같은데 근거가 없으면 성격을 단정하지 않고 사용자에게 확인을 요청한다 (일반 지출로 조용히 넘기지 않음)
+      if (parent.deposit) for (const p of parts) if (p.moneyNature !== 'refundable_deposit') p.natureCheck = 'deposit_part';
+      continue;
+    }
     for (const p of parts) {
       done.add(p);
       if (parent.deposit) {

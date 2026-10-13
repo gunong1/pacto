@@ -35,7 +35,7 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
 /* v13: 계약 종류를 계약의 본질로 하나만 판단 (classification: kind·subtype·domains·confidence·alternatives·근거·secondary_elements).
  *      분야(category)·관리 구조(contract_type)를 따로 고르지 않음 — 결제 방식은 분류 근거가 아님 · 자동차는 종류가 아니라 대상(domains)
  *      계약 체크는 할 일·주의할 위험만 (user_action), 사실은 fields·details·payments에만 */
-export const PROMPT_VERSION = 'extract-v17';
+export const PROMPT_VERSION = 'extract-v18';
 
 /** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
 const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
@@ -122,7 +122,7 @@ export function extractionJsonSchema() {
           enum: [...AMOUNT_ROLES],
           description: '실제로 오가는 돈(recurring_cashflow·one_time_cashflow·deposit)인지, 다른 금액의 구성 항목(component)·합계(total)·참고 금액(reference: 차량가·대출금액·할인 전 금액·예상·최대 금액)·면제(waived: 면제·무료·무상·0원)인지',
         },
-        part_of: { type: ['string', 'null'], description: 'component일 때 이 금액이 속한 금액의 label (예: 월 임금)' },
+        part_of: { type: ['string', 'null'], description: 'component일 때 이 금액이 속한 금액의 label (예: 월 임금). 계약금·중도금·잔금·착수금처럼 다른 금액을 나눠 내는 몫이면 그 금액의 label (예: 보증금, 전세금, 매매대금, 총 계약금액). 계약서에서 그 관계가 보일 때만 (모르면 null)' },
         kind: { type: 'string', enum: [...PAYMENT_KIND_CODES] },
         direction: { type: 'string', enum: [...DIRECTIONS], description: '참고값 (서버가 계약 당사자 역할로 다시 정함). 모르면 neutral' },
         payer_role: { type: 'string', enum: [...PARTY_ROLE_CODES, 'unknown'], description: '이 돈을 내는 쪽의 역할 — 계약서 문장이 밝힐 때만 (예: "임차인은 월세를 지급" → lessee). 문장에 없으면 unknown' },
@@ -305,6 +305,9 @@ export function extractionInstructions(today: string): string {
     '- 금액의 role: 실제로 오가는 돈만 recurring_cashflow / one_time_cashflow / deposit. 다른 금액을 이루는 하위 항목은 component(part_of에 상위 금액 이름),',
     '  예) "월 임금 3,600,000원은 기본급 3,280,000원과 고정연장근로수당 320,000원으로 구성" → 월 임금 recurring_cashflow 1건 + 기본급·고정연장근로수당 component 2건 (별도 수입 아님).',
     '  차량가·총 대출한도처럼 오가는 돈이 아닌 금액은 reference.',
+  '- 나눠 내는 몫(계약금·중도금·잔금·착수금): 그 몫이 어느 금액을 나눈 것인지 계약서에서 보이면 part_of에 그 금액의 label을 넣습니다.',
+  '  표에서 "보증금" 줄 아래에 계약금·잔금 줄이 묶여 있으면 part_of=보증금 (줄에 "보증금"이라는 말이 없어도 표의 묶음으로 판단). 문장으로 "매매대금 중 계약금"이면 part_of=매매대금.',
+  '  관계가 보이지 않으면 null (금액의 합이 같다는 이유만으로 정하지 않습니다).',
     '- 금액의 의무 수준(payment_obligation): 금액이 적혀 있다는 이유만으로 결제가 아닙니다. 금액 발견 → 의미 → 실제 의무인지 → 조건이 있는지 순서로 판단합니다.',
     '  confirmed만 캘린더·지출에 들어갑니다. "월 렌탈료·월 이용료·월 납입금·월 보험료·월 통신요금·월 구독료·월세·대출 상환금·급여"처럼 정상적으로 계약을 유지하는 동안 내거나 받는 돈은 confirmed.',
     '  "…하는 경우/…시/…할 때" 내는 돈은 조건부이고 checks로 갑니다. "(선택)·신청 시·가입 시" 부가 비용은 사용자가 실제로 신청했다는 기재가 없으면 optional ("특약 포함" 보험료처럼 실제 납입액은 confirmed).',

@@ -82,6 +82,10 @@ export interface ExtractedPayment {
   payeeRole?: string | null;
   /** 방향을 정한 근거 — contract: 계약 구조상 사용자가 언제나 한쪽(구독·렌탈 …) · null: 사용자 역할을 알아야 정할 수 있음(neutral) */
   directionBasis?: 'contract' | null;
+  /** 나눠 내는 몫(계약금·잔금 …)이 어느 금액을 나눈 것인지 — AI가 계약서 구조(표의 묶음·문장)를 보고 답한 상위 금액 이름. R7 의미 관계의 근거로만 쓴다 */
+  partOf?: string | null;
+  /** 성격 확인 필요 — deposit_part: 몫들의 합이 보증금과 정확히 같지만 보증금의 일부라는 근거가 없어 성격을 정하지 않음 (사용자 확인) */
+  natureCheck?: 'deposit_part' | null;
 }
 
 export interface ExtractedDetail {

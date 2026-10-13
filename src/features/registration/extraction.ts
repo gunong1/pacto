@@ -215,6 +215,11 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
       notes[`${path}.obligation`] = '상황이 생겼을 때만 내는 돈이에요. 캘린더·지출에는 넣지 않고 계약 조건으로 보관해요.';
     }
     source(`${path}.amount`, p.sourceType);
+    // 나눠 내는 몫들의 합이 보증금과 같지만 보증금의 일부라는 근거가 계약서에서 확인되지 않음 → 성격을 사용자가 고른다 (자동으로 정하지 않음)
+    if (p.natureCheck === 'deposit_part') {
+      flagged.add(`${path}.moneyNature`);
+      notes[`${path}.moneyNature`] = '나눠 내는 금액들의 합이 계약서의 보증금과 같아요. 이 금액이 보증금의 일부라면 "보증금·예치금"을 골라주세요. (계약서에서 연결을 확인하지 못해 자동으로 정하지 않았어요)';
+    }
     if (p.components.length > 0 && !notes[`${path}.amount`]) {
       notes[`${path}.amount`] = `${p.components.map((c) => `${c.label} ${formatWon(c.amount)}`).join(' + ')}로 구성된 금액이에요 (따로 더하지 않아요).`;
     }
