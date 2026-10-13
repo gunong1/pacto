@@ -48,3 +48,7 @@ supabase/functions/.env
 
 # 단계별 마이그레이션 적용 폴더 (scripts/deploy/stage.mjs)
 .deploy-stage/
+
+# 저장소 루트의 DB 백업·덤프 파일 (개인정보 가능) — git과 EAS 빌드 업로드에서 제외
+/*.sql
+/*.dump
