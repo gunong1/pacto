@@ -115,6 +115,20 @@ export const DETAIL_FIELD_DEFS: readonly {
   { type: 'employment', key: 'annualSalary', db: 'annual_salary', label: '연봉', input: 'amount', suffix: '원' },
   { type: 'employment', key: 'probationMonths', db: 'probation_months', label: '수습기간', input: 'integer', suffix: '개월' },
   { type: 'employment', key: 'probationPayRate', db: 'probation_pay_rate', label: '수습기간 임금 비율', input: 'percent', suffix: '%' },
+  // 급여 산정·지급 규정 — 계약서에 있거나 사용자가 확인한 경우에만 첫·마지막 급여 일할 계산에 쓴다 (src/domain/payroll.ts). 임의로 채우지 않음
+  { type: 'employment', key: 'payPeriodStartDay', db: 'pay_period_start_day', label: '급여 산정기간 시작일', input: 'integer', suffix: '일' },
+  {
+    type: 'employment', key: 'payTiming', db: 'pay_timing', label: '급여 지급 시기', input: 'enum',
+    options: [{ value: 'same_month', label: '산정기간이 끝나는 달' }, { value: 'next_month', label: '산정기간 다음 달' }],
+  },
+  {
+    type: 'employment', key: 'prorationBasis', db: 'proration_basis', label: '중도 입사·퇴사 일할 계산', input: 'enum',
+    options: [{ value: 'calendar_days', label: '해당 기간 달력 일수' }, { value: 'scheduled_workdays', label: '소정근로일수' }, { value: 'none', label: '일할 계산 없음 (전액)' }],
+  },
+  {
+    type: 'employment', key: 'payRounding', db: 'pay_rounding', label: '일할 금액 원 단위 처리', input: 'enum',
+    options: [{ value: 'floor_1', label: '원 미만 버림' }, { value: 'round_1', label: '원 미만 반올림' }, { value: 'floor_10', label: '10원 미만 버림' }, { value: 'floor_100', label: '100원 미만 버림' }, { value: 'floor_1000', label: '1,000원 미만 버림' }],
+  },
   { type: 'employment', key: 'workHours', db: 'work_hours', label: '근무시간', input: 'text' },
   { type: 'employment', key: 'workDays', db: 'work_days', label: '근무일', input: 'text' },
   { type: 'employment', key: 'holidays', db: 'holidays', label: '휴일', input: 'text' },

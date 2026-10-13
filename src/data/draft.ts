@@ -310,3 +310,51 @@ export function activateCost(record: ContractRecord, paymentId: string, date: st
   };
   return draft;
 }
+
+/**
+ * 급여의 조건부·변동·일회성 구성항목을 "지급 확정" — 사용자가 실제 지급일·금액을 입력했을 때만 (payroll.ts).
+ * 그날 1회 확정 수입(결제)을 만들고 항목 상태를 confirmed로 둔다. 같은 항목으로 두 번 만들지 않는다.
+ * 확정 전에는 확정 수입 합계·캘린더에 넣지 않는다. 금액은 사용자가 입력한 실제 금액 (최대 금액을 그대로 쓰지 않음).
+ */
+export function confirmComponentPay(record: ContractRecord, paymentId: string, index: number, input: { date: ISODate; amount: number }): ContractDraft {
+  const draft = recordToDraft(record);
+  const pi = record.payments.findIndex((p) => p.id === paymentId);
+  const parent = draft.payments[pi];
+  const c = parent?.components[index];
+  if (!parent || !c) throw new Error('구성항목을 찾을 수 없어요.');
+  if (c.status === 'confirmed') throw new Error('이미 지급 확정한 항목이에요.');
+  if (!(input.amount > 0)) throw new Error('지급 금액을 입력해주세요.');
+  draft.payments[pi] = { ...parent, components: parent.components.map((x, i) => (i === index ? { ...x, status: 'confirmed' } : x)) };
+  draft.payments.push({
+    kind: 'bonus',
+    direction: parent.direction,
+    directionBasis: parent.directionBasis ?? null,
+    payerRole: parent.payerRole ?? null,
+    payeeRole: parent.payeeRole ?? null,
+    moneyNature: 'ordinary',
+    label: c.label,
+    amount: input.amount,
+    frequency: 'one_time',
+    dayOfMonth: null,
+    monthOfYear: null,
+    startsOn: input.date,
+    endsOn: null,
+    installmentCount: null,
+    isVariable: false,
+    components: [],
+    businessDayRule: 'none',
+    obligation: 'confirmed',
+    conditionNote: c.condition ?? null,
+  });
+  return draft;
+}
+
+/** 구성항목 상태만 바꿈 (미확정·확인 필요·지급 제외) — 지급 확정은 confirmComponentPay로 (결제를 함께 만든다) */
+export function setComponentStatus(record: ContractRecord, paymentId: string, index: number, status: 'pending' | 'needs_check' | 'excluded'): ContractDraft {
+  const draft = recordToDraft(record);
+  const pi = record.payments.findIndex((p) => p.id === paymentId);
+  const parent = draft.payments[pi];
+  if (!parent?.components[index]) throw new Error('구성항목을 찾을 수 없어요.');
+  draft.payments[pi] = { ...parent, components: parent.components.map((x, i) => (i === index ? { ...x, status } : x)) };
+  return draft;
+}

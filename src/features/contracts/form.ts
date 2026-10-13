@@ -1,6 +1,8 @@
 import { contractKindDef, isSubtypeOf, profileKeyOf, type ClassificationMeta } from '@/domain/contractKinds';
 import { z } from 'zod';
 
+import type { PaymentComponent } from '@/domain/types';
+
 import { NOTICE_KINDS } from '@/domain/noticeKind';
 import { legacyDetailParties, partiesFromInputs, partiesToInputs, partyDistinctOf, partyKindOf, partyTermsOf, type ContractParty } from '@/domain/parties';
 import type { ContractDraft, DateDraft, FundDraft, PaymentDraft } from '@/data/repository';
@@ -25,6 +27,9 @@ import {
 import { daysInMonth, isValidISODate, normalizeDateInput, toISODate, todayInSeoul } from '@/domain/dates';
 import { formatAmountInput, parseAmount } from '@/domain/money';
 import { CONTRACT_CATEGORIES, PAYMENT_FREQUENCIES } from '@/domain/types';
+
+/** 구성항목 — label·amount 외의 칸(지급 유형·조건·상태 …)도 그대로 보존 (저장할 때 지우지 않음) */
+const componentSchema = z.custom<PaymentComponent>((v) => !!v && typeof v === 'object' && typeof (v as PaymentComponent).label === 'string' && typeof (v as PaymentComponent).amount === 'number');
 
 /**
  * 계약 확인/수정 폼 스키마. AI 등록·직접 입력·수정 화면이 같은 폼을 쓴다.
@@ -65,7 +70,7 @@ const paymentFormSchema = z.object({
   installmentCount: optionalInt(1, 600, '1~600 사이로 입력해주세요'),
   isVariable: z.boolean(),
   /** 금액 구성 (AI가 찾은 하위 항목, 표시용 — 합산하지 않음) */
-  components: z.array(z.object({ label: z.string(), amount: z.number() })),
+  components: z.array(componentSchema),
   businessDayRule: z.enum(BUSINESS_DAY_RULES),
   obligation: z.enum(PAYMENT_OBLIGATIONS),
   conditionNote: z.string(),
@@ -96,7 +101,7 @@ const quickFormSchema = z.object({
    */
   base: paymentFormSchema.optional(),
   /** 구성항목 (기본급·수당 등) — 위 금액을 이루는 하위 항목, 따로 더하지 않는다 */
-  components: z.array(z.object({ label: z.string(), amount: z.number() })).optional(),
+  components: z.array(componentSchema).optional(),
 });
 
 const dateFormSchema = z.object({

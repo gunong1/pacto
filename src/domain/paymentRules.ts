@@ -59,8 +59,9 @@ export function amountPeriods(record: Pick<ContractRecord, 'contract' | 'dates'>
  * 계약서상 지급일(nominal) 기준으로 그 회차 금액.
  * 먼저 amountAt(date)로 그날의 기준 금액(변경 이력 반영)을 구하고, 그다음 기간 규칙(수습 90% 등)을 적용한다.
  */
-export function amountOn(periods: readonly AmountPeriod[], payment: ContractPayment, nominalDate: ISODate): { amount: number; note: string | null } {
-  const base = amountAt(payment, nominalDate);
+export function amountOn(periods: readonly AmountPeriod[], payment: ContractPayment, nominalDate: ISODate, override?: number): { amount: number; note: string | null } {
+  // override: 이 회차만 다른 기준 금액 (첫·마지막 급여 일할 계산 — payroll.ts). 기간 비율(수습 90% 등)은 그 위에 적용
+  const base = override ?? amountAt(payment, nominalDate);
   const p = periods.find((x) => nominalDate >= x.from && nominalDate <= x.to);
   return p ? { amount: Math.round((base * p.rate) / 100), note: p.label } : { amount: base, note: null };
 }

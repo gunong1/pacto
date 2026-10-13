@@ -14,11 +14,34 @@ export { CONTRACT_CATEGORIES } from './contractTypes';
 export type { BusinessDayRule, CheckBehavior, ContractCategory, ContractDateKind, ContractDetails, ContractType, Direction, PaymentKind, PaymentObligation, SourceType } from './contractTypes';
 export type { DirectionBasis, FundKind, MoneyNature, PartyRelation } from '../../supabase/functions/_shared/contractRegistry';
 
-/** 금액의 구성 항목 (예: 월 임금 = 기본급 + 고정연장근로수당). 표시용 — 합산하지 않는다 */
+/**
+ * 금액의 구성 항목 (예: 월 임금 = 기본급 + 고정연장근로수당). 표시용 — 일정·합계에 따로 더하지 않는다.
+ * 아래 칸은 모두 선택 (예전 데이터·예전 앱은 label·amount만) — 규칙: src/domain/payroll.ts
+ */
 export interface PaymentComponent {
   label: string;
   amount: number;
+  /**
+   * 지급 유형 (지급 예측·현금흐름용 — 통상임금·과세 판정 아님)
+   * fixed 매월 확정 · conditional 조건 충족 시(성과급 등) · variable 실제 근무·실적에 따라(연장근로수당 등) · one_time 특정 시점 1회 · unknown 확인 필요
+   * 없으면 예전 데이터 (unknown과 같이 다루되, 합계가 맞으면 고정으로 본다)
+   */
+  pay?: ComponentPayType;
+  /** 금액 성격 — exact 확정 금액 · max 최대(상한) · range 범위. max·range는 확정 금액으로 쓰지 않는다 */
+  amountKind?: 'exact' | 'max' | 'range';
+  /** 지급 조건 (계약서 문구 요약) */
+  condition?: string | null;
+  /** 조건부·변동·일회성 항목의 상태 — pending 미확정 · needs_check 확인 필요 · confirmed 지급 확정 · excluded 지급 제외 */
+  status?: ComponentStatus;
+  /** 입사·퇴사 달 일할 계산 — daily 일할 · full 전액 · 없으면 계약의 일할 계산 규정을 따름 */
+  prorate?: 'daily' | 'full' | null;
+  /** 변동수당 산식 (예: 통상시급 × 연장근로시간 × 150%) — 셋 다 있을 때만 금액을 계산한다 */
+  calc?: { unitAmount: number | null; quantity: number | null; ratePct: number | null } | null;
+  /** 지급 확정으로 만든 결제 id (같은 항목으로 결제를 두 번 만들지 않음) */
+  paymentId?: string | null;
 }
+export type ComponentPayType = 'fixed' | 'conditional' | 'variable' | 'one_time' | 'unknown';
+export type ComponentStatus = 'pending' | 'needs_check' | 'confirmed' | 'excluded';
 
 export type ISODate = string;
 

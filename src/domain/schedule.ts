@@ -6,6 +6,7 @@ import { contractTermSource, getNotificationPriority, termNeedsReview, type Acti
 import { addDays, dateInMonth, parseISODate } from './dates';
 import { noticeActionType, noticeLabelOf } from './noticeKind';
 import { amountOn, amountPeriods, periodBoundaries } from './paymentRules';
+import { prorationPlan, proratedFor } from './payroll';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
 import type {
   Contract,
@@ -83,6 +84,8 @@ export function firstNominalDate(payment: ContractPayment): ISODate {
 export function firstPaymentNeedsCheck(payment: ContractPayment, contract: Contract, dates: ContractRecord['dates'] = []): boolean {
   // 급여(kind)면 방향과 무관 — 역할 확정 전(방향 확인 필요)에도 같은 안내
   if (payment.kind !== 'salary' || payment.frequency === 'one_time') return false;
+  // 급여 산정기간·지급 시기·일할 기준이 확인되면 첫 지급일은 계산으로 정해진다 (payroll.ts)
+  if (prorationPlan({ contract, dates }, payment).status === 'ready') return false;
   const start = contract.startDate;
   if (!start) return true;
   const hire = dates.find((d) => d.kind === 'hire')?.date;
@@ -115,14 +118,19 @@ export function expandPayment(
   if (!isConfirmedPayment(payment)) return [];
   const rule = payment.businessDayRule ?? 'none';
   const margin = rule === 'none' ? 0 : 10;
-  const nominal = expandNominal(payment, contract, { start: addDays(range.start, -margin), end: addDays(range.end, margin) });
+  // 급여 규정이 확인된 급여: 첫 지급일 전 회차 없음 · 마지막 지급일 뒤 회차 없음 · 첫·마지막 급여는 일할 계산 금액 (payroll.ts)
+  const plan = prorationPlan({ contract, dates }, payment);
+  const nominal = expandNominal(payment, contract, { start: addDays(range.start, -margin), end: addDays(range.end, margin) }, plan.status === 'ready' ? plan.lastPayDate : null);
   const periods = amountPeriods({ contract, dates }, payment);
   // 첫 지급일이 계약서·사용자로 정해지지 않은 급여 → 첫 회차는 "확인 필요" (당월/익월 지급을 임의로 추론하지 않음)
   const firstUnsure = firstPaymentNeedsCheck(payment, contract, dates) ? firstNominalDate(payment) : null;
   return nominal
+    .filter((o) => plan.status !== 'ready' || (o.nominalDate >= plan.firstPayDate && (plan.lastPayDate == null || o.nominalDate <= plan.lastPayDate)))
     .map((o) => {
-      const { amount, note } = amountOn(periods, payment, o.nominalDate);
-      const amountNote = o.nominalDate === firstUnsure ? [note, FIRST_PAYMENT_CHECK].filter(Boolean).join(' · ') : note;
+      const prorated = proratedFor(plan, o.nominalDate);
+      const { amount, note } = amountOn(periods, payment, o.nominalDate, prorated?.total);
+      const proNote = prorated ? `${prorated.kind === 'first' ? '첫 급여' : '마지막 급여'} 일할 ${prorated.days}/${prorated.periodDays}일` : null;
+      const amountNote = [proNote, note, o.nominalDate === firstUnsure ? FIRST_PAYMENT_CHECK : null].filter(Boolean).join(' · ') || null;
       return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote };
     })
     .filter((o) => o.date >= range.start && o.date <= range.end);
@@ -145,6 +153,8 @@ function expandNominal(
   payment: ContractPayment,
   contract: Contract,
   range: DateRange,
+  /** 끝난 기간의 급여를 그 뒤에 받는 경우 (퇴사 후 마지막 급여) — 이 날짜까지는 회차를 만든다 (payroll.ts) */
+  extendTo: ISODate | null = null,
 ): PaymentOccurrence[] {
   if (isPaymentDayUnknown(payment)) return [];
   const start = payment.startsOn;
@@ -153,6 +163,7 @@ function expandNominal(
   if (cutoff != null) end = end == null ? cutoff : end < cutoff ? end : cutoff;
   const last = lastInstallmentDate(payment);
   if (last != null) end = end == null || last < end ? last : end;
+  if (extendTo != null && end != null && extendTo > end && contract.lifecycle === 'active') end = extendTo;
 
   const s = parseISODate(start);
   const day = payment.dayOfMonth ?? s.day;
