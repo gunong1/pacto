@@ -25,7 +25,7 @@ if (!out || !host || !user) {
 const INTERNAL_DATA = 'information_schema|pg_*|graphql|graphql_public|pgsodium|pgsodium_masks|pgtle|repack|tiger|tiger_data|timescaledb_*|_timescaledb_*|topology|vault|etl|extensions|pgbouncer|realtime|supabase_migrations|_analytics|_realtime|_supavisor';
 const INTERNAL_SCHEMA = 'information_schema|pg_*|_analytics|_realtime|_supavisor|auth|etl|extensions|pgbouncer|realtime|storage|supabase_functions|supabase_migrations|cron|dbdev|graphql|graphql_public|net|pgmq|pgsodium|pgsodium_masks|pgtle|repack|tiger|tiger_data|timescaledb_*|_timescaledb_*|topology|vault';
 const EXCLUDED_TABLES = ['auth.schema_migrations', 'storage.migrations', 'supabase_functions.migrations'];
-const common = ['--quote-all-identifier', '--role', 'postgres'];
+const common = ['--quote-all-identifiers', '--role', 'postgres'];
 const restrict = (l) => l.replace(/^\\(un)?restrict .*$/, (m) => `-- ${m}`);
 
 // CLI의 schema 덤프 sed 목록을 줄 단위로 옮긴 것
