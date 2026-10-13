@@ -32,6 +32,7 @@
 | `scripts/deploy/storage-manifest.sql` | 읽기 전용 SELECT 한 문장. Storage 파일 목록(경로·크기·eTag) | 로컬 80개 파일 목록 |
 | `scripts/deploy/verify-storage.mjs` | 내려받은 Storage 파일을 목록과 하나씩 대조 (있음·크기·md5) | 정상 PASS. 다음 4가지는 모두 FAIL: 파일 삭제, 1바이트 변경, 끝 잘림, 여분 파일 |
 | `scripts/deploy/storage-restore-plan.mjs` | 백업 목록과 현재 목록을 비교해 복구 계획만 만듦 (실행 안 함) | 빠진 파일 1개를 정확히 찾음. 그 파일을 다시 올린 뒤 목록이 원래와 같음 |
+| `scripts/deploy/dump-native.mjs` | Docker 없이 pg_dump 17로 CLI와 같은 백업 3개 생성 | CLI 결과와 3개 파일 모두 동일, 접속 실패 시 중단, pg_dump 17 미만이면 중단 |
 | `scripts/deploy/match-function-commit.mjs` | 내려받은 함수 코드가 git의 어느 커밋과 같은지 바이트 단위로 확인 | 현재 코드 → 정확한 커밋, 옛 코드 → 해당 커밋, CRLF도 일치. 한 줄 수정은 FAIL |
 | `scripts/deploy/gen-check-schema.mjs` | check-schema.sql의 기대값을 로컬 DB 두 상태에서 자동 생성 | 이미 적용된 항목은 두 상태 값이 같고, 미적용 항목은 값이 다름을 확인 |
 
@@ -257,6 +258,14 @@ npx supabase db dump --linked --data-only -f "$B\data.sql"
 npx supabase db query --linked -o csv -f scripts/deploy/backup-counts.sql | Out-File -Encoding utf8 "$B\counts.csv"
 node scripts/deploy/verify-backup.mjs "$B\data.sql" --counts "$B\counts.csv" --schema "$B\schema.sql"
 ```
+- **Docker가 없으면 `db dump`는 0바이트 파일만 만듭니다** (운영 0단계에서 실제로 발생). 이때는 위 세 줄 대신 아래 방법을 씁니다.
+  ```powershell
+  node scripts/deploy/dump-native.mjs --out "$B" --host <Session pooler 호스트> --user postgres.yoftnocpaxkbqqajgfvl --pg-dump "C:\Program Files\PostgreSQL\17\bin\pg_dump.exe"
+  ```
+  - 필요한 것: PostgreSQL 17 Command Line Tools(설치 프로그램에서 이 항목만 선택). 호스트는 대시보드 **Connect → Session pooler**에 나온 값을 씁니다.
+  - CLI가 Docker 안에서 실행하는 pg_dump 옵션과 후처리를 그대로 옮겼습니다. 로컬에서 만든 schema/history/data 세 파일이 CLI 결과와 **바이트 단위로 같고**, verify-backup PASS를 확인했습니다.
+  - 읽기 전용(pg_dump)이며, 비밀번호는 한 번만 묻고 파일·로그에 남기지 않습니다.
+  - 그다음 `counts.csv`와 `verify-backup.mjs` 두 줄은 그대로 실행합니다.
 - DB 비밀번호를 물으면 직접 입력합니다. 채팅에는 보내지 않습니다.
 - `counts.csv`는 data.sql을 받은 **직후** 만듭니다. 그 사이 사용자가 계약을 수정하면 FAIL이 날 수 있습니다. 그때는 마지막 두 줄(data.sql·counts.csv)을 한 번만 다시 실행합니다.
 - 판정
