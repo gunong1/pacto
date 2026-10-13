@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 
 import { contractRepository, documentStore, notificationStore } from '@/data';
 import type { PickedFile } from '@/data/ai/provider';
-import { activateCheckCost, activateCost, recordToDraft } from '@/data/draft';
+import { activateCheckCost, activateCost, confirmComponentPay, fixDepositReturn, recordToDraft, setComponentStatus } from '@/data/draft';
 import type { AmountChangeOp } from '@/domain/amountEdits';
 import type { ContractDraft, CreateContractInput, NewEventInput, RefundInput } from '@/data/repository';
 import { todayInSeoul } from '@/domain/dates';
@@ -112,6 +112,23 @@ export function useContractActions(id: string) {
       const r = await contractRepository.get(id);
       if (!r) throw new Error('계약을 찾을 수 없어요.');
       return contractRepository.update(id, activateCost(r, paymentId, date));
+    }),
+    /** 급여의 조건부·변동·일회성 항목 지급 확정 (실제 지급일·금액 → 그날 1회 수입) / 상태만 변경 (지급 제외 등) */
+    confirmComponentPay: useAction(async (paymentId: string, index: number, input: { date: ISODate; amount: number }) => {
+      const r = await contractRepository.get(id);
+      if (!r) throw new Error('계약을 찾을 수 없어요.');
+      return contractRepository.update(id, confirmComponentPay(r, paymentId, index, input));
+    }),
+    setComponentStatus: useAction(async (paymentId: string, index: number, status: 'pending' | 'needs_check' | 'excluded') => {
+      const r = await contractRepository.get(id);
+      if (!r) throw new Error('계약을 찾을 수 없어요.');
+      return contractRepository.update(id, setComponentStatus(r, paymentId, index, status));
+    }),
+    /** 결제로 잘못 저장된 보증금 반환 정리 (사용자가 확인했을 때만) */
+    fixDepositReturn: useAction(async (paymentId: string, dateIsStated: boolean) => {
+      const r = await contractRepository.get(id);
+      if (!r) throw new Error('계약을 찾을 수 없어요.');
+      return contractRepository.update(id, fixDepositReturn(r, paymentId, dateIsStated));
     }),
     /** 계약 체크의 조건부 비용이 실제로 생김 → 그날 1회 결제 */
     activateCheckCost: useAction(async (checkId: string, date: ISODate) => {

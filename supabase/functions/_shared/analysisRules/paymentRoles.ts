@@ -33,7 +33,7 @@
 import { findAggregateTotals, foldRecurringComponents, partsOfTotal } from '../paymentAggregate.ts';
 import { AMOUNT_ROLES, DIRECTIONS, PAYMENT_OBLIGATIONS } from '../contractRegistry.ts';
 import { DISCOUNT_APPLIED, DISCOUNT_ITEM, isPreDiscountAmount, PRE_DISCOUNT, WAIVED } from './keywords.ts';
-import type { AppExtractionResult, Extracted, ExtractedPayment, ReferenceRole } from './types.ts';
+import type { AppExtractionResult, Extracted, ExtractedComponent, ExtractedPayment, ReferenceRole } from './types.ts';
 import { oneOf, text } from './values.ts';
 import { FREQUENCIES } from './vocabulary.ts';
 
@@ -43,7 +43,27 @@ export interface PendingComponent {
   partOf: string | null;
   direction: string | null;
   frequency: string | null;
+  /** 지급 유형·금액 성격·조건·일할 (componentMeta) */
+  meta?: Omit<ExtractedComponent, 'label' | 'amount'>;
 }
+
+/**
+ * 구성항목의 지급 유형 — AI가 지급 조건으로 답한 기존 칸에서 (새 칸을 늘리지 않음):
+ *   frequency one_time → one_time · is_variable → variable · payment_obligation conditional/optional → conditional · confirmed → fixed · 답 없음 → unknown
+ *   price_basis max(최대·한도) → 확정 금액 아님 (amountKind max)
+ * 고정인데 최대 금액이거나 유형을 모르면 확인 필요, 조건부·변동·일회성은 미확정(pending)으로 시작 — 사용자가 지급 확정·제외를 정한다
+ */
+export function componentMeta(p: Record<string, unknown>): NonNullable<PendingComponent['meta']> {
+  // 지급 조건 칸이 하나도 없는 출력(예전 형식·mock)은 예전 데이터처럼 이름·금액만 (합계가 맞으면 고정으로 본다)
+  if (p.payment_obligation === undefined && p.is_variable === undefined && p.price_basis === undefined) return {};
+  const obligation = oneOf(PAYMENT_OBLIGATIONS, p.payment_obligation);
+  const pay = p.frequency === 'one_time' ? 'one_time' : p.is_variable === true ? 'variable' : obligation === 'conditional' || obligation === 'optional' ? 'conditional' : obligation === 'confirmed' ? 'fixed' : 'unknown';
+  const amountKind = p.price_basis === 'max' ? 'max' : 'exact';
+  const condition = pay === 'fixed' ? null : text(p.condition, 80);
+  const status = pay === 'unknown' || (pay === 'fixed' && amountKind !== 'exact') ? 'needs_check' : pay === 'fixed' ? undefined : 'pending';
+  return { pay, amountKind, ...(condition ? { condition } : {}), ...(status ? { status } : {}) };
+}
+
 
 export interface TotalAmount {
   label: string;
@@ -60,12 +80,13 @@ export type Role =
   | { kind: 'reference'; role: Exclude<ReferenceRole, 'total'> }
   | { kind: 'payment'; beforeDiscount: boolean };
 
+
 const isDeposit = (kind: unknown, label: string) => kind === 'deposit' || /보증금|전세금/.test(label);
 
 export function roleOf(p: Record<string, unknown>, label: string, amount: number, quote: string, said: string): Role {
   const role = oneOf(AMOUNT_ROLES, p.role);
   if (role === 'component') {
-    return { kind: 'component', component: { label, amount, partOf: text(p.part_of, 40), direction: oneOf(DIRECTIONS, p.direction), frequency: oneOf(FREQUENCIES, p.frequency) } };
+    return { kind: 'component', component: { label, amount, partOf: text(p.part_of, 40), direction: oneOf(DIRECTIONS, p.direction), frequency: oneOf(FREQUENCIES, p.frequency), meta: componentMeta(p) } };
   }
   if (role === 'total') return { kind: 'total', deposit: isDeposit(p.kind, label), direction: oneOf(DIRECTIONS, p.direction) };
   const beforeDiscount = p.price_basis === 'before_discount' || PRE_DISCOUNT.test(label) || isPreDiscountAmount(quote, amount);
@@ -102,7 +123,7 @@ export function attachComponents(payments: ExtractedPayment[], pending: readonly
       recurring.find((x) => c.partOf && (x.label.includes(c.partOf) || c.partOf.includes(x.label))) ??
       recurring.find((x) => (!c.direction || x.direction === c.direction) && (!c.frequency || x.frequency === c.frequency)) ??
       null;
-    if (parent && parent.components.length < 10 && !parent.components.some((x) => x.label === c.label)) parent.components.push({ label: c.label, amount: c.amount });
+    if (parent && parent.components.length < 10 && !parent.components.some((x) => x.label === c.label)) parent.components.push({ label: c.label, amount: c.amount, ...(c.meta ?? {}) });
     else if (!parent) references.push({ label: c.label, amount: c.amount, role: 'reference' });
   }
 }

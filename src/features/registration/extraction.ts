@@ -16,6 +16,7 @@ import {
 } from '@/domain/contractTypes';
 import { contractKindDef, legacyOf, type ClassificationMeta, type KindClassification } from '@/domain/contractKinds';
 import { formatWon } from '@/domain/money';
+import { salaryBreakdown } from '@/domain/payroll';
 import { isPayoutLike } from '@/domain/cashflow';
 import type { EvidenceMap } from '@/domain/evidence';
 import { maskSensitiveDeep } from '@/domain/sensitive';
@@ -221,7 +222,20 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
       notes[`${path}.moneyNature`] = '나눠 내는 금액들의 합이 계약서의 보증금과 같아요. 이 금액이 보증금의 일부라면 "보증금·예치금"을 골라주세요. (계약서에서 연결을 확인하지 못해 자동으로 정하지 않았어요)';
     }
     if (p.components.length > 0 && !notes[`${path}.amount`]) {
-      notes[`${path}.amount`] = `${p.components.map((c) => `${c.label} ${formatWon(c.amount)}`).join(' + ')}로 구성된 금액이에요 (따로 더하지 않아요).`;
+      // 확정 항목만 합계로 — 조건부·변동·최대 금액은 따로 (payroll.ts). 불일치·불명확할 때만 확인 필요
+      const b = salaryBreakdown({ amount: p.amount, components: p.components });
+      const fixedText = b.fixed.map((c) => `${c.label} ${formatWon(c.amount)}`).join(' + ');
+      const extraText = b.extra.length > 0 ? ` 추가 지급 가능: ${b.extra.map((c) => `${c.label}${c.amountKind === 'max' ? ' 최대' : ''} ${formatWon(c.amount)}`).join(', ')} (확정 금액에 넣지 않아요).` : '';
+      if (b.check === 'match') notes[`${path}.amount`] = `${fixedText}로 구성된 금액이에요 (따로 더하지 않아요).${extraText}`;
+      else {
+        flagged.add(`${path}.amount`);
+        notes[`${path}.amount`] =
+          b.check === 'includes_conditional'
+            ? `확정 항목 합계(${formatWon(b.fixedTotal)})에 조건부 항목을 더해야 이 금액이 돼요. 이 금액이 조건부 항목을 포함한 금액인지 계약서를 확인해주세요.`
+            : b.check === 'needs_classification'
+              ? `구성항목 중 지급 조건을 알 수 없는 항목이 있어요. 매월 확정인지 조건부인지 확인해주세요.${extraText}`
+              : `확정 항목 합계(${formatWon(b.fixedTotal)})가 이 금액과 달라요. 계약서를 확인해주세요.${extraText}`;
+      }
     }
     const payment: PaymentDraft = {
       kind: p.kind,
@@ -312,9 +326,20 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
 
   // 돌려받을 돈 묶음 — 보증금 몫(계약금·잔금)이 있거나 계약 요약에 보증금이 있으면 보증금 묶음 하나 (총액 = 계약 요약 보증금)
   // 반환일은 계약서에 적혀 있지 않으면 비워 둔다 (종료일을 확정 반환일로 쓰지 않음 — 종료일에 "반환 확인")
+  // 보증금 반환(서버가 결제에서 뺀 금액): 결제·일반 수입/지출로 만들지 않고 묶음의 반환으로 — 문구에 적힌 반환일만 반환 예정일
+  const returns = result.depositReturns ?? [];
+  const returnOn = returns.find((r) => r.date)?.date ?? null;
+  if (returns.length > 0 && draft.depositAmount == null) {
+    draft.depositAmount = returns[0].amount;
+    flagged.add('depositAmount');
+    notes.depositAmount = `계약서의 "${returns[0].label}" 금액으로 보증금을 채웠어요. 맞는지 확인해주세요.`;
+  } else if (returns.some((r) => r.amount !== draft.depositAmount)) {
+    flagged.add('depositAmount');
+    notes.depositAmount = `계약서의 반환 금액(${returns.map((r) => formatWon(r.amount)).join(', ')})이 보증금과 달라요. 일부 반환·정산 조건인지 확인해주세요.`;
+  }
   const depositParts = draft.payments.some((p) => p.fundKey === DEPOSIT_FUND_KEY);
   if (depositParts || ((draft.depositAmount ?? 0) > 0 && kindMoneyFlows(c.kind).deposit)) {
-    draft.funds = [{ key: DEPOSIT_FUND_KEY, kind: 'deposit', label: '보증금', totalAmount: null, returnDueOn: null, depositorRole: null, holderRole: null }];
+    draft.funds = [{ key: DEPOSIT_FUND_KEY, kind: 'deposit', label: '보증금', totalAmount: null, returnDueOn: returnOn, depositorRole: null, holderRole: null }];
   }
 
   // 값이 없으면 "확인 필요"

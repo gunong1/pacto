@@ -17,7 +17,8 @@ import { formatDateKo } from '@/domain/dates';
 import { FREQUENCY_LABEL } from '@/domain/labels';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
 import { planSummary, type PaymentPlan } from '@/domain/paymentPlan';
-import { PAYMENT_FREQUENCIES } from '@/domain/types';
+import { salaryBreakdown } from '@/domain/payroll';
+import { PAYMENT_FREQUENCIES, type ComponentPayType, type PaymentComponent } from '@/domain/types';
 import { colors, hitSlop, spacing } from '@/theme';
 
 import type { ContractFormValues, PaymentFormValues } from '../form';
@@ -280,14 +281,24 @@ export function PlanLine({ plan, income, testID }: { plan: PaymentPlan | null; i
 
 /**
  * 구성항목 (기본급·수당 등) — 위 금액을 이루는 하위 항목. 따로 일정·지출·수입에 더하지 않는다.
- * 추가·삭제할 수 있고, 합계가 위 금액과 다르면 알려준다 (금액 자체는 바꾸지 않음).
+ * 항목마다 지급 유형(고정·조건부·변동·일회성)·최대 금액·지급 조건·첫 달 전액을 정할 수 있다 (payroll.ts).
+ * 합계 확인은 확정 항목(고정·확정 금액)만으로 — 조건부 성과급 때문에 전체 합계가 커진 것은 불일치가 아니다 (금액 자체는 바꾸지 않음).
  */
-export function ComponentsEditor({ components, total, onChange, testID }: { components: { label: string; amount: number }[]; total: number | null; onChange: (next: { label: string; amount: number }[]) => void; testID: string }) {
+const PAY_TYPE_OPTIONS: { value: ComponentPayType; label: string }[] = [
+  { value: 'fixed', label: '매월 확정' },
+  { value: 'conditional', label: '조건부' },
+  { value: 'variable', label: '변동' },
+  { value: 'one_time', label: '일회성' },
+  { value: 'unknown', label: '모름' },
+];
+export function ComponentsEditor({ components, total, onChange, testID }: { components: PaymentComponent[]; total: number | null; onChange: (next: PaymentComponent[]) => void; testID: string }) {
+  const patch = (j: number, next: Partial<PaymentComponent>) => onChange(components.map((c, k) => (k === j ? { ...c, ...next } : c)));
+  const check = total == null ? null : salaryBreakdown({ amount: total, components });
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState('');
   const [amountText, setAmountText] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const sum = components.reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
+  const sum = check ? check.fixedTotal : components.reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
   const add = () => {
     const amount = parseAmount(amountText);
     if (!label.trim()) return setError('항목 이름을 입력해주세요');
@@ -306,20 +317,49 @@ export function ComponentsEditor({ components, total, onChange, testID }: { comp
             구성항목 · 따로 더하지 않아요
           </AppText>
           {components.map((c, j) => (
-            <View key={`${c.label}-${j}`} style={styles.componentRow}>
-              <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
-                {c.label}
-              </AppText>
-              <AppText variant="caption" color="textSecondary" tabular>
-                {formatWon(Number(c.amount) || 0)}
-              </AppText>
-              <Pressable onPress={() => onChange(components.filter((_, k) => k !== j))} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={`구성항목 ${c.label} 삭제`} testID={`${testID}-${j}-delete`}>
-                <Ionicons name="close" size={14} color={colors.textTertiary} />
-              </Pressable>
+            <View key={`${c.label}-${j}`} style={{ marginBottom: spacing.xs }} testID={`${testID}-${j}`}>
+              <View style={styles.componentRow}>
+                <AppText variant="caption" color="textSecondary" style={{ flex: 1 }}>
+                  {c.label}
+                </AppText>
+                <AppText variant="caption" color="textSecondary" tabular>
+                  {c.amountKind === 'max' ? '최대 ' : ''}
+                  {formatWon(Number(c.amount) || 0)}
+                </AppText>
+                <Pressable onPress={() => onChange(components.filter((_, k) => k !== j))} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={`구성항목 ${c.label} 삭제`} testID={`${testID}-${j}-delete`}>
+                  <Ionicons name="close" size={14} color={colors.textTertiary} />
+                </Pressable>
+              </View>
+              <ChipGroup options={PAY_TYPE_OPTIONS} value={c.pay ?? (check?.check === 'match' ? 'fixed' : 'unknown')} onChange={(v) => patch(j, { pay: v, status: v === 'fixed' ? undefined : v === 'unknown' ? 'needs_check' : (c.status ?? 'pending') })} testIDPrefix={`${testID}-${j}-pay`} />
+              <View style={{ flexDirection: 'row', gap: spacing.md, flexWrap: 'wrap' }}>
+                <Pressable onPress={() => patch(j, { amountKind: c.amountKind === 'max' ? 'exact' : 'max' })} accessibilityRole="checkbox" aria-checked={c.amountKind === 'max'} testID={`${testID}-${j}-max`}>
+                  <AppText variant="small" color={c.amountKind === 'max' ? 'primary' : 'textTertiary'}>
+                    {c.amountKind === 'max' ? '☑' : '☐'} 최대(상한) 금액
+                  </AppText>
+                </Pressable>
+                {(c.pay ?? 'fixed') === 'fixed' ? (
+                  <Pressable onPress={() => patch(j, { prorate: c.prorate === 'full' ? null : 'full' })} accessibilityRole="checkbox" aria-checked={c.prorate === 'full'} testID={`${testID}-${j}-full`}>
+                    <AppText variant="small" color={c.prorate === 'full' ? 'primary' : 'textTertiary'}>
+                      {c.prorate === 'full' ? '☑' : '☐'} 입사·퇴사 달에도 전액
+                    </AppText>
+                  </Pressable>
+                ) : null}
+              </View>
+              {c.pay && c.pay !== 'fixed' ? (
+                <TextField label="지급 조건" value={c.condition ?? ''} onChangeText={(t) => patch(j, { condition: t.slice(0, 80) || null })} placeholder="예: 분기 목표 달성 시" testID={`${testID}-${j}-condition`} />
+              ) : null}
             </View>
           ))}
-          <AppText variant="caption" color={total != null && sum !== total ? 'caution' : 'textTertiary'} testID={`${testID}-sum`}>
-            {total == null ? `합계 ${formatWon(sum)}` : sum === total ? `합계 ${formatWon(sum)} · 위 금액과 같아요` : `합계 ${formatWon(sum)} · 위 금액(${formatWon(total)})과 달라요 — 확인해주세요`}
+          <AppText variant="caption" color={check && check.check !== 'match' ? 'caution' : 'textTertiary'} testID={`${testID}-sum`}>
+            {check == null
+              ? `합계 ${formatWon(sum)}`
+              : check.check === 'match'
+                ? `확정 항목 합계 ${formatWon(sum)} · 위 금액과 같아요${check.extra.length ? ` (조건부·변동 ${check.extra.length}개는 따로)` : ''}`
+                : check.check === 'includes_conditional'
+                  ? `확정 항목 합계 ${formatWon(sum)} — 위 금액이 조건부 항목을 포함한 금액인지 확인해주세요`
+                  : check.check === 'needs_classification'
+                    ? '지급 유형을 모르는 항목이 있어요 — 매월 확정인지 조건부인지 골라주세요'
+                    : `확정 항목 합계 ${formatWon(sum)} · 위 금액(${formatWon(total!)})과 달라요 — 확인해주세요`}
           </AppText>
         </>
       ) : null}

@@ -68,7 +68,8 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   // 3·4) 날짜
   const dates = cleanDates(output.dates);
   // 5·6) 금액 — 결제 + 결제가 아닌 금액(참고·면제·할인·할인 전) + 총액(계약 요약 칸으로)
-  const { payments, references, totals } = buildPayments(output.payments, dates);
+  // (보증금 반환은 결제가 아니다 — buildPayments가 묶음의 반환(문구에 적힌 반환일만)으로 따로 넘긴다)
+  const { payments, references, totals, depositReturns } = buildPayments(output.payments, dates);
   totalsToFields(totals, fields, references);
   // 계약금·잔금 등 몫의 성격은 상위 금액(보증금·매매대금·용역대금)을 따른다 (R7)
   installmentParents(payments, totals, fields.depositAmount?.value);
@@ -107,5 +108,5 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
 
   // 민감정보(Level 1 + 2: 주민·외국인·카드·계좌·전화·이메일) 원문이 인용문·설명·값에 남지 않도록 저장·반환 전에 가린다 (의미는 유지)
   // 보안 판단은 AI가 아니라 공통 탐지기·가림 정책(protection/sensitive.ts)이 한다
-  return maskSensitiveDeep({ classification, category, contractType, fields, dates, payments, references, details, parties, checks, provider, promptVersion: PROMPT_VERSION });
+  return maskSensitiveDeep({ classification, category, contractType, fields, dates, payments, references, details, parties, checks, ...(depositReturns.length ? { depositReturns } : {}), provider, promptVersion: PROMPT_VERSION });
 }

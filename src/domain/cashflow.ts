@@ -16,6 +16,7 @@
  */
 import { kindMoneyFlows, mapRole, partyRoleDef, partyRolesOf, normalizePartyRoles, ROLE_EQUIVALENTS, type MoneyFlowDef } from '../../supabase/functions/_shared/contractRegistry';
 
+import { DEPOSIT_RETURN_LABEL } from '../../supabase/functions/_shared/analysisRules/depositReturn';
 import { partyKindOf, type ContractParty } from './parties';
 import { isMoneySideRole, matchUserParty } from './partyMatch';
 import { currentTerm } from './status';
@@ -419,4 +420,13 @@ function contradictsDocument(contract: Contract, p: ContractPayment): boolean {
   if (!rec) return false;
   const expected = directionForRole(partyKindOf(contract), p, rec.role);
   return expected !== null && expected !== p.direction;
+}
+
+/**
+ * 보증금 반환인데 결제로 저장된 금액 (이전 분석이 "보증금 반환 예정"을 일반 결제·출금으로 만든 경우 — 2026-10 실기기).
+ * 저장된 값은 자동으로 바꾸지 않는다: 상세 화면에서 알리고 사용자가 확인하면 정리 (data/draft.ts fixDepositReturn).
+ * 이미 반환으로 표시(deposit_refund)한 금액은 제외. 이름으로만 찾는다 (최초 지급 "보증금"은 반환 표현이 없어 제외).
+ */
+export function misfiledDepositReturns(record: ContractRecord): ContractPayment[] {
+  return record.payments.filter((p) => p.moneyNature !== 'deposit_refund' && DEPOSIT_RETURN_LABEL.test(p.label.replace(/\s+/g, ' ')));
 }

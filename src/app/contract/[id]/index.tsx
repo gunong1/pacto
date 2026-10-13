@@ -39,7 +39,10 @@ import { PartialAnalysisNotice } from '@/features/documents/PartialAnalysisNotic
 import { overallProtectionCopy, partialAnalysis } from '@/features/documents/protectionCopy';
 import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { FundsSection } from '@/features/contracts/FundsSection';
-import { isPayoutLike } from '@/domain/cashflow';
+import { DepositReturnFixCard } from '@/features/contracts/DepositReturnFixCard';
+import { SalaryCard } from '@/features/contracts/SalaryCard';
+import { isSalaryPayment } from '@/domain/payroll';
+import { isPayoutLike, misfiledDepositReturns } from '@/domain/cashflow';
 import { pickPdf, pickPhotos } from '@/features/registration/pickers';
 import { confirm, notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
@@ -381,7 +384,24 @@ export default function ContractDetailScreen() {
           ) : null}
         </Section>
 
+        {/* 결제로 잘못 저장된 보증금 반환 (이전 분석) — 사용자가 확인해야 정리 */}
+        {misfiledDepositReturns(record).map((p) => (
+          <DepositReturnFixCard key={`dr-${p.id}`} payment={p} busy={actions.fixDepositReturn.isPending} onFix={(dated) => actions.fixDepositReturn.mutate([p.id, dated])} />
+        ))}
+
         <FundsSection record={record} today={today} confirm={confirm} />
+
+        {/* 급여: 세전 고정 월 급여 · 추가 지급 가능 수당 · 첫·마지막 급여 일할 계산 (payroll.ts) */}
+        {record.payments.filter((p) => isSalaryPayment(p) && isConfirmedPayment(p)).map((p) => (
+          <View key={`salary-${p.id}`}>
+            <SectionGap />
+            <SalaryCard
+              record={record}
+              payment={p}
+              actions={{ confirm: (i, input) => actions.confirmComponentPay.mutate([p.id, i, input]), setStatus: (i, st) => actions.setComponentStatus.mutate([p.id, i, st]) }}
+            />
+          </View>
+        ))}
 
         {view.extra.length > 0 ? (
           <>

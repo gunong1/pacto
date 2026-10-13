@@ -35,7 +35,7 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
 /* v13: 계약 종류를 계약의 본질로 하나만 판단 (classification: kind·subtype·domains·confidence·alternatives·근거·secondary_elements).
  *      분야(category)·관리 구조(contract_type)를 따로 고르지 않음 — 결제 방식은 분류 근거가 아님 · 자동차는 종류가 아니라 대상(domains)
  *      계약 체크는 할 일·주의할 위험만 (user_action), 사실은 fields·details·payments에만 */
-export const PROMPT_VERSION = 'extract-v18';
+export const PROMPT_VERSION = 'extract-v19';
 
 /** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
 const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
@@ -132,7 +132,7 @@ export function extractionJsonSchema() {
         price_basis: {
           type: 'string',
           enum: [...PRICE_BASES],
-          description: 'actual: 실제로 내는(받는) 금액 / before_discount: "할인전·할인 전·정상가·프로모션 적용 전"처럼 할인을 적용하기 전 금액 (실제 결제액이 아님)',
+          description: 'actual: 실제로 내는(받는) 금액 / before_discount: "할인전·할인 전·정상가·프로모션 적용 전"처럼 할인을 적용하기 전 금액 (실제 결제액이 아님) / max: "최대·한도·이내·~까지"처럼 상한·범위로 적힌 금액 (확정 금액이 아님)',
         },
         frequency: { type: 'string', enum: [...FREQUENCIES] },
         day_of_month: { type: ['integer', 'null'], description: '정기 결제·지급일(매월 N일의 N). 명시된 경우만' },
@@ -265,6 +265,8 @@ export function extractionInstructions(today: string): string {
     '   (계약상 역할과 실제로 돈을 내는 사람이 다르면 문장대로 — 예: "보증금은 연대보증인이 지급" → payer_role=guarantor). 문장에 없으면 unknown. direction은 참고값입니다.',
     '   보증금·전세금·매매대금 총액을 계약금·중도금·잔금으로 나눠 내면, 총액은 role=total(fields의 depositAmount·totalAmount)이고 실제로 오가는 계약금·중도금·잔금만 결제로 넣습니다 (같은 돈을 두 번 넣지 않음).',
     '   임대차 보증금·전세금(돌려받을/돌려줄 돈)과 그 계약금·잔금은 kind=deposit. 매매대금·용역대금의 계약금·잔금은 보증금이 아닙니다.',
+    '   보증금 반환(종료 시 반환·반환 예정·정산·잔액 반환)은 처음 낸 보증금과 같은 돈이 돌아오는 것입니다. 일반 결제·수입으로 보지 않습니다.',
+    '   반환을 결제로 넣는다면 label에 "보증금 반환"을 쓰고, date는 그 문구에 반환 날짜가 직접 적혀 있을 때만 (계약 종료일을 반환일로 옮겨 쓰지 않음, 없으면 null). 반환 조건(원상복구·공제 후 반환 등)은 checks에.',
     '   연납 보험료는 frequency=yearly, 1회 납입액 그대로. 일회성 계약의 계약금/중도금/잔금은 각각 따로, 날짜는 date에.',
     '   결제일이 적혀 있지 않으면 추측하지 말고 null. 다른 결제와 "함께 청구"되면 같은 day_of_month. 같은 돈을 두 번 넣지 않습니다.',
     '   결제 날짜 해석 (중요): 날짜는 그 금액의 문구만 보고 정합니다. 같은 표·같은 섹션의 다른 줄에 날짜가 있다는 이유로 그 날짜를 옮겨 쓰지 않습니다.',
@@ -282,6 +284,12 @@ export function extractionInstructions(today: string): string {
     '   조건부 비용(위약금·연체료·지연배상금·파손/분실 배상금·초과 사용료·양도 수수료·중도상환수수료)은 payments에 넣지 않고 checks에 넣습니다:',
     '   금액이 적혀 있으면 checks.amount, 계산식이면 checks.amount_basis (예: 잔여 렌탈료의 10%). behavior=conditional_rule, condition=언제 내는지.',
     '   같은 문장에 실제 납입금과 조건부 비용이 함께 있어도(예: "월 렌탈료 31,900원, 연체 시 연체료 부과") 월 렌탈료는 confirmed 결제입니다.',
+    '   급여(근로계약): 월 급여(세전)는 salary 결제 하나로, 기본급·수당은 그 금액의 구성 항목(role=component, part_of=월 급여 label)으로 넣습니다.',
+    '   - 각 항목의 지급 유형은 이름이 아니라 지급 조건으로 정합니다: 매월 확정 지급이면 payment_obligation=confirmed, 조건 충족 시만(성과·목표 달성·만근 등)이면 conditional + condition에 조건,',
+    '     실제 근무시간·실적에 따라 달라지면(연장·야간·휴일근로수당) is_variable=true, 특정 시점 1회(입사축하금·특별상여)면 frequency=one_time. "성과급"이라도 매월 확정이면 confirmed, "수당"이라도 조건부면 conditional.',
+    '   - "최대·한도·이내" 금액은 price_basis=max (확정 금액이 아님).',
+    '   - 월 급여(세전)가 성과급을 포함한 금액인지 계약서가 밝히지 않으면 짐작해 더하거나 빼지 않습니다. 실수령액(공제 후)을 계산해 넣지 않습니다.',
+    '   - 급여 산정기간·지급 시기(당월·익월)·중도 입사 일할 계산 기준·원 단위 처리는 계약서에 적혀 있을 때만 details에 (pay_period_start_day·pay_timing·proration_basis·pay_rounding). 없으면 넣지 않습니다.',
     '7) details — 해당 유형의 속성 중 계약서에 실제로 있는 것만 (없는 속성은 넣지 않음):',
     detailGuide(),
     '7-1) parties — 계약 당사자: 계약서에 이름이 적힌 당사자만, 계약서가 쓴 역할로 (예: 임대인 김OO, 임차인 박OO). 계약 종류별 역할:',

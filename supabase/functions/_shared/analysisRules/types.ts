@@ -44,6 +44,16 @@ export interface ExtractedDate {
 export interface ExtractedComponent {
   label: string;
   amount: number;
+  /** 지급 유형 (fixed·conditional·variable·one_time·unknown) — 지급 조건으로 판단, 이름만으로 정하지 않음. 앱 src/domain/payroll.ts */
+  pay?: 'fixed' | 'conditional' | 'variable' | 'one_time' | 'unknown';
+  /** exact 확정 금액 · max 최대(상한) · range 범위 */
+  amountKind?: 'exact' | 'max' | 'range';
+  /** 지급 조건 (계약서 문구 요약) */
+  condition?: string | null;
+  /** 조건부·변동·일회성: pending 미확정 · 유형을 모르면 needs_check */
+  status?: 'pending' | 'needs_check';
+  /** 입사·퇴사 달: daily 일할 · full 전액 (이 항목만 다른 규정이 있을 때) */
+  prorate?: 'daily' | 'full' | null;
 }
 
 export interface ExtractedPayment {
@@ -174,6 +184,8 @@ export interface AppExtractionResult {
   details: Record<string, ExtractedDetail>;
   /** 계약 당사자 (계약서에 이름이 있는 쪽만 — 이전 버전 결과에는 없음) */
   parties: ExtractedParty[];
+  /** 보증금 반환 (결제가 아님 — 보증금 묶음의 반환일로). 이전 버전 결과에는 없음 · analysisRules/depositReturn.ts */
+  depositReturns?: { label: string; amount: number; date: string | null; quote: string | null }[];
   checks: ExtractedCheck[];
   provider: string;
   promptVersion: string;

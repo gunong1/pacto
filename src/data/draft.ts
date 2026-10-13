@@ -358,3 +358,25 @@ export function setComponentStatus(record: ContractRecord, paymentId: string, in
   draft.payments[pi] = { ...parent, components: parent.components.map((x, i) => (i === index ? { ...x, status } : x)) };
   return draft;
 }
+
+/**
+ * 결제로 잘못 저장된 보증금 반환을 정리 (사용자가 상세 화면에서 확인했을 때만 — 일괄 변경 없음):
+ * - 그 결제를 지운다 (일반 지출·수입·캘린더에서 빠짐 — 최초 보증금 지급과 반환을 함께 세지 않음)
+ * - 보증금 묶음의 반환일: dateIsStated(계약서에 그 날짜가 반환일로 적혀 있음)일 때만 그 날짜, 아니면 비워 둠 (계약 종료일에 "반환 확인")
+ * - 계약 요약 보증금이 비어 있으면 그 금액으로 채움 · 묶음이 없으면 만든다 (다른 결제·묶음 연결·반환 기록은 그대로)
+ */
+export function fixDepositReturn(record: ContractRecord, paymentId: string, dateIsStated: boolean): ContractDraft {
+  const draft = recordToDraft(record);
+  const idx = record.payments.findIndex((p) => p.id === paymentId);
+  if (idx < 0) throw new Error('결제 항목을 찾을 수 없어요.');
+  const p = record.payments[idx];
+  draft.payments = draft.payments.filter((_, i) => i !== idx);
+  if (draft.depositAmount == null) draft.depositAmount = p.amount;
+  const returnDueOn = dateIsStated ? p.startsOn : null;
+  const funds = draft.funds ?? [];
+  const target = funds.find((f) => f.kind === 'deposit' && f.totalAmount == null) ?? funds.find((f) => f.kind === 'deposit');
+  draft.funds = target
+    ? funds.map((f) => (f === target ? { ...f, returnDueOn: dateIsStated ? returnDueOn : f.returnDueOn } : f))
+    : [...funds, { key: 'deposit-return-fix', kind: 'deposit', label: '보증금', totalAmount: null, returnDueOn, depositorRole: null, holderRole: null }];
+  return draft;
+}

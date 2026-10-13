@@ -51,7 +51,7 @@
 
 ## 확인용 SQL (대시보드 SQL Editor — 읽기만, 계약서 원문·개인정보를 출력하지 않음)
 ```sql
--- 최근 분석 지시문 버전 (extract-v18 이어야 함)
+-- 최근 분석 지시문 버전 (extract-v19 이어야 함)
 select prompt_version, status, created_at from analysis_jobs order by created_at desc limit 3;
 -- 테스트 계약의 결제 방향·지급자 (금액·이름만)
 select p.label, p.amount, p.direction, p.direction_basis, p.payer_role, p.payee_role, p.money_nature

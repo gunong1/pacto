@@ -179,7 +179,8 @@ export type PaymentObligation = (typeof PAYMENT_OBLIGATIONS)[number];
 /** 지급일이 휴일일 때 실제 지급일 규칙 */
 export const BUSINESS_DAY_RULES = ['none', 'previous', 'next'] as const;
 /** 금액의 기준: 실제 결제액 / 할인 전(정상가) 금액 */
-export const PRICE_BASES = ['actual', 'before_discount'] as const;
+/** 금액 기준 — actual 실제 금액 · before_discount 할인 전(정상가) · max 최대·한도·범위 금액 (확정 금액이 아님) */
+export const PRICE_BASES = ['actual', 'before_discount', 'max'] as const;
 export type BusinessDayRule = (typeof BUSINESS_DAY_RULES)[number];
 
 /**
