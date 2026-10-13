@@ -51,7 +51,15 @@ fs.rmSync(stage, { recursive: true, force: true });
 fs.mkdirSync(path.join(stage, 'supabase', 'migrations'), { recursive: true });
 fs.copyFileSync(path.join(src, 'config.toml'), path.join(stage, 'supabase', 'config.toml'));
 const linked = fs.existsSync(path.join(src, '.temp'));
-if (linked) fs.cpSync(path.join(src, '.temp'), path.join(stage, 'supabase', '.temp'), { recursive: true });
+// fs.cpSync는 쓰지 않는다 — Windows의 Node 24에서 한글 경로(C:\\Users\\김지은\\...)일 때 프로세스가 0xC0000409로 비정상 종료됨
+const copyDir = (from, to) => {
+  fs.mkdirSync(to, { recursive: true });
+  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    if (e.isDirectory()) copyDir(path.join(from, e.name), path.join(to, e.name));
+    else if (e.isFile()) fs.copyFileSync(path.join(from, e.name), path.join(to, e.name));
+  }
+};
+if (linked) copyDir(path.join(src, '.temp'), path.join(stage, 'supabase', '.temp'));
 const picked = all.filter((f) => f.slice(0, 14) <= version);
 for (const f of picked) fs.copyFileSync(path.join(migDir, f), path.join(stage, 'supabase', 'migrations', f));
 
