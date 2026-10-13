@@ -292,8 +292,10 @@ DB 백업에는 계약서 PDF와 사진 파일 자체가 없습니다. 여기서
 npx supabase storage ls ss:/// --linked --experimental                       # 버킷 목록 (contract-files, profile-images 예상)
 npx supabase db query --linked -o csv -f scripts/deploy/storage-manifest.sql | Out-File -Encoding utf8 "$B\storage-manifest.csv"
 # 주의: PowerShell 변수는 대소문자를 구분하지 않는다 → $b 를 쓰면 백업 폴더 $B 를 덮어쓴다. 반드시 $bucket
+# 주의: CLI가 Windows 절대 경로의 "C:"를 URL 형식(scheme)으로 읽어 "Unsupported operation"으로 거부한다 → 상대 경로로 넘긴다
+$rel = Resolve-Path -Relative $B
 foreach ($bucket in 'contract-files','profile-images') {
-  npx supabase storage cp -r "ss:///$bucket" "$B\storage\$bucket" --linked --experimental -j 4 *> "$B\storage-$bucket.log"
+  npx supabase storage cp -r "ss:///$bucket" "$rel\storage\$bucket" --linked --experimental -j 4 *> "$B\storage-$bucket.log"
   if ($LASTEXITCODE -ne 0) { Write-Host "중단: $bucket 다운로드 실패"; break }
 }
 node scripts/deploy/verify-storage.mjs "$B\storage-manifest.csv" "$B\storage"
