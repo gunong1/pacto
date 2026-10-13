@@ -59,11 +59,64 @@ export interface MonthSpending {
   /** 일반 지출 분야별 / 계약 종류별 (보증금은 섞지 않는다) */
   byCategory: CategorySpending[];
   byKind: { label: string; amount: number }[];
+  /** 화면 요약 (계층) — 총 출금 > 일반 지출·보증금 지급 > 계약 종류별. 아래 항목들에서만 계산 (화면이 다시 더하지 않음) */
+  outflow: FlowSummary;
+  /** 총 입금 > 일반 수입·보증금 받음 > 계약 종류별 */
+  inflow: FlowSummary;
   /** 출금 항목 (일반 + 보증금) */
   items: SpendingItem[];
   /** 입금 항목 */
   incomeItems: SpendingItem[];
   hasEstimated: boolean;
+}
+
+/** 계층 요약의 하위 항목 (계약 종류별) — 상위 항목 금액에 포함된다 */
+export interface FlowLine {
+  label: string;
+  amount: number;
+  /** 이 줄에 들어간 계약 수 */
+  contracts: number;
+}
+/** 상위 항목: 돈의 성격별 (일반 / 보증금·예치금) — 서로 섞지 않는다 */
+export interface FlowGroup {
+  nature: FlowNature;
+  label: string;
+  amount: number;
+  lines: FlowLine[];
+}
+/**
+ * 방향 하나(출금 또는 입금)의 계층 요약 — 모든 금액은 items 한 목록에서 한 번씩만 센다.
+ * total = Σ groups.amount, group.amount = Σ lines.amount (하위 금액은 상위 금액에 포함 — 따로 더하지 않음)
+ * 반환·환급 등 다른 방향도 같은 구조 (FLOW_LABELS로 이름만 다름)
+ */
+export interface FlowSummary {
+  direction: 'expense' | 'income';
+  total: number;
+  groups: FlowGroup[];
+}
+export const FLOW_LABELS: Record<FlowSummary['direction'], { total: string; ordinary: string; deposit: string }> = {
+  expense: { total: '총 출금 예정', ordinary: '일반 지출', deposit: '보증금 지급' },
+  income: { total: '총 입금 예정', ordinary: '일반 수입', deposit: '보증금 받음·반환' },
+};
+
+export function flowSummary(items: readonly SpendingItem[], direction: FlowSummary['direction']): FlowSummary {
+  const mine = items.filter((i) => i.direction === direction);
+  const groups = (['ordinary', 'deposit'] as const)
+    .map((nature): FlowGroup => {
+      // 성격을 모르는 금액(예전 데이터)은 지금처럼 일반으로 (monthSpending의 ordinaryExpense와 같은 기준)
+      const list = mine.filter((i) => (nature === 'deposit' ? i.nature === 'deposit' : i.nature !== 'deposit'));
+      const byKind = new Map<string, { amount: number; contracts: Set<string> }>();
+      for (const i of list) {
+        const g = byKind.get(i.kindLabel) ?? { amount: 0, contracts: new Set<string>() };
+        g.amount += i.amount;
+        g.contracts.add(i.contractId);
+        byKind.set(i.kindLabel, g);
+      }
+      const lines = [...byKind.entries()].map(([label, g]) => ({ label, amount: g.amount, contracts: g.contracts.size })).sort((a, b) => b.amount - a.amount);
+      return { nature, label: FLOW_LABELS[direction][nature], amount: sum(list), lines };
+    })
+    .filter((g) => g.amount > 0);
+  return { direction, total: sum(mine), groups };
 }
 
 /** 기간 안의 돈이 오가는 일정 (결제·보증금 지급·반환) — 캘린더와 같은 목록 */
@@ -120,6 +173,8 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth, today?: 
       .map(([category, amount]) => ({ category, amount }))
       .sort((a, b) => b.amount - a.amount),
     byKind: [...byKind.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount),
+    outflow: flowSummary(items, 'expense'),
+    inflow: flowSummary(incomeItems, 'income'),
     items,
     incomeItems,
     hasEstimated: items.some((i) => i.estimated),

@@ -5,7 +5,8 @@ import { useMemo } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { LogoHorizontal } from "@/components/brand/Logo";
-import { Amount, ContractLine, DDay } from "@/components/pacto";
+import { ContractLine, DDay } from "@/components/pacto";
+import { FlowBreakdown } from "@/components/pacto/FlowBreakdown";
 import { AppText } from "@/components/ui/AppText";
 import { Button } from "@/components/ui/Button";
 import {
@@ -19,8 +20,10 @@ import { formatDateKo, yearMonthOf } from "@/domain/dates";
 import { kindDisplay } from "@/domain/contractKinds";
 import { formatKRW, formatWonCompact } from "@/domain/money";
 import { attentionItems } from "@/domain/nextAction";
+import { likelyDuplicateGroups } from "@/domain/duplicates";
 import { monthSpending } from "@/domain/spending";
 import { useContracts, useToday } from "@/features/contracts/queries";
+import { DuplicateNotice } from "@/features/contracts/DuplicateNotice";
 import { RoleConfirmCard } from "@/features/contracts/RoleConfirmCard";
 import { colors, hitSlop, radius, spacing } from "@/theme";
 
@@ -54,6 +57,7 @@ export default function HomeScreen() {
     return {
       ym,
       spending,
+      duplicates: likelyDuplicateGroups(records),
       attention,
       ends,
       summary: statusSummary(records, today),
@@ -175,18 +179,10 @@ export default function HomeScreen() {
             통신비 등 변동 금액은 예상치예요
           </AppText>
         ) : null}
-        {view.spending.depositOut > 0 ? (
-          <View style={styles.breakdown} testID="home-outflow-split">
-            <View style={styles.breakdownRow}>
-              <AppText variant="body2Strong">일반 지출</AppText>
-              <Amount value={view.spending.ordinaryExpense} variant="body2" />
-            </View>
-            <View style={styles.breakdownRow} testID="home-deposit-out">
-              <AppText variant="body2Strong">보증금 지급</AppText>
-              <Amount value={view.spending.depositOut} variant="body2" />
-            </View>
-          </View>
-        ) : null}
+        {/* 총 출금 > 일반 지출·보증금 지급 > 계약 종류별 (하위는 상위에 포함 — monthSpending.outflow 그대로) */}
+        <FlowBreakdown summary={view.spending.outflow} testID="home-outflow-split" />
+        {/* 중복 등록 의심 — 합계에서 빼지 않고 확인만 요청 */}
+        <DuplicateNotice groups={view.duplicates} records={records!} />
         {view.spending.autoExpense + view.spending.autoIncome > 0 ? (
           // 과거 분석이 자동으로 정한 방향 — 합계에는 그대로 두고(갑자기 사라지지 않게) 확인을 권한다
           <View style={{ marginTop: 6 }} testID="home-auto">
@@ -217,19 +213,6 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {view.spending.byKind.length > 0 ? (
-          <View style={styles.breakdown}>
-            {view.spending.byKind.map((c) => (
-              <View key={c.label} style={styles.breakdownRow}>
-                <AppText variant="body2" color="textSecondary">
-                  {c.label}
-                </AppText>
-                <Amount value={c.amount} variant="body2" />
-              </View>
-            ))}
-          </View>
-        ) : null}
-
         {/* 이번 달 계약 수입 — 지출과 같은 monthSpending(실제 입금 예정월 기준) */}
         {view.spending.incomeTotal > 0 ? (
           <View style={styles.income} testID="home-income">
@@ -244,11 +227,10 @@ export default function HomeScreen() {
             >
               +{formatKRW(view.spending.incomeTotal)}
             </AppText>
-            <AppText variant="caption" color="textTertiary" testID="home-income-split">
-              {view.spending.depositIn > 0
-                ? `일반 수입 ${formatWonCompact(view.spending.ordinaryIncome)} · 보증금 ${formatWonCompact(view.spending.depositIn)}`
-                : '급여·대금 등 · 출금과 별도'}
+            <AppText variant="caption" color="textTertiary">
+              출금과 별도예요
             </AppText>
+            <FlowBreakdown summary={view.spending.inflow} testID="home-income-split" />
           </View>
         ) : null}
       </View>
