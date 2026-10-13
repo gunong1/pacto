@@ -70,7 +70,9 @@ export function verifyStorage(manifestRows, dir, { checkFormat = true } = {}) {
     if (!fs.existsSync(file)) { fail('파일 없음'); continue; }
     const buf = fs.readFileSync(file);
     s.bytes += buf.length;
-    if (String(buf.length) !== r[isz]) { fail(`크기 다름 (목록 ${r[isz]}, 파일 ${buf.length})`); continue; }
+    // 목록 크기가 1.028576e+06 같은 지수 표기로 올 수 있어 숫자로 비교한다 (정수로 정확히 떨어질 때만 인정)
+    const listed = Number(r[isz]);
+    if (!Number.isSafeInteger(listed) || listed !== buf.length) { fail(`크기 다름 (목록 ${r[isz]}, 파일 ${buf.length})`); continue; }
     const etag = (r[iet] ?? '').toLowerCase();
     if (/^[0-9a-f]{32}$/.test(etag)) {
       if (crypto.createHash('md5').update(buf).digest('hex') !== etag) { fail('md5가 eTag와 다름'); continue; }

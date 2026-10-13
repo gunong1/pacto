@@ -5,7 +5,7 @@
 -- eTag: 한 번에 올린 파일이면 보통 내용의 md5와 같다. 여러 조각으로 올린 파일은 "md5-조각수" 형식이라 크기만 비교한다.
 select o.bucket_id,
   o.name,
-  (o.metadata->>'size')::bigint as size,
+  (o.metadata->>'size') as size,  -- 문자열로 내보낸다 (Management API가 큰 숫자를 1.02e+06처럼 지수 표기로 바꾸지 않게)
   trim(both '"' from o.metadata->>'eTag') as etag
 from storage.objects o
 order by o.bucket_id, o.name collate "C";
