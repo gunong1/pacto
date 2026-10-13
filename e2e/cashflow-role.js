@@ -55,6 +55,7 @@ const PDF = require('./cleanPdf')();
   await page.click(tid('contract-name-skip'));
   await page.waitForTimeout(800);
   check('F2', '건너뛰면 안내가 사라짐 (다시 묻지 않음)', (await page.locator(tid('contract-name-prompt')).count()) === 0);
+  await page.click(tid('role-more'));
   await page.click(tid('role-option-unknown'));
   await page.waitForTimeout(300);
   await page.click(tid('submit-contract'));

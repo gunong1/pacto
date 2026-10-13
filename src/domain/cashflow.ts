@@ -14,10 +14,10 @@
  *      없으면 계약 종료일(갱신 반영)에 "반환 확인" 일정만 (합계에 넣지 않음, 확정 반환일로 보지 않음)
  *    - 상태: 반환 예정 · 일부 반환 · 반환 완료 · 반환 지연(계약서의 반환일이 지났는데 남은 금액) — 종료일 기준은 "반환 확인 필요"
  */
-import { kindMoneyFlows, mapRole, normalizePartyRoles, ROLE_EQUIVALENTS, type MoneyFlowDef } from '../../supabase/functions/_shared/contractRegistry';
+import { kindMoneyFlows, mapRole, partyRoleDef, partyRolesOf, normalizePartyRoles, ROLE_EQUIVALENTS, type MoneyFlowDef } from '../../supabase/functions/_shared/contractRegistry';
 
 import { partyKindOf, type ContractParty } from './parties';
-import { matchUserParty } from './partyMatch';
+import { isMoneySideRole, matchUserParty } from './partyMatch';
 import { currentTerm } from './status';
 import type { Contract, ContractFund, ContractPayment, ContractRecord, Direction, DirectionBasis, FundKind, ISODate } from './types';
 
@@ -313,6 +313,39 @@ export function fundCashEntries(record: ContractRecord, range: { start: ISODate;
     }
   }
   return out;
+}
+
+/** "이 계약에서 누구세요?" 선택지 하나 — partyIndex: 계약서 당사자 순서 (null = 계약서에 이름이 없는 주요 역할) */
+export interface RoleChoice {
+  key: string;
+  role: string;
+  partyIndex: number | null;
+}
+
+/**
+ * 역할 선택지 (모든 계약 종류 공통 — 등록 확인·직접 입력·계약 수정이 함께 쓴다)
+ * - primary: 돈을 내거나 받는 주요 당사자 — 계약 종류의 돈 흐름(KIND_MONEY_FLOWS) + 계약서가 결제의 지급자·수령자로 밝힌 역할
+ *   (돈 흐름이 정해지지 않은 종류(갑·을 등)는 그 종류의 주요 역할 + 역할을 모르는 당사자)
+ * - secondary: 그 밖의 당사자 (중개업자·보증인·대리인·대표자 등) — 당사자 정보로는 그대로 남고, 선택지에서는 "다른 경우"로
+ * - 주요 역할인데 계약서에 이름이 없으면 그 역할만 primary에 (예: 근로계약서에 회사만 적힌 경우 "근로자")
+ * 이미 고른 역할이 secondary여도 바꾸지 않는다 (화면이 그 선택을 그대로 보여 준다)
+ */
+export function roleChoices(
+  kind: string,
+  parties: readonly Pick<ContractParty, 'role'>[],
+  payments: readonly Pick<ContractPayment, 'payerRole' | 'payeeRole'>[] = [],
+): { primary: RoleChoice[]; secondary: RoleChoice[] } {
+  const flows = kindMoneyFlows(kind);
+  const hasFlows = !!flows.ordinary || !!flows.deposit;
+  const named = new Set(payments.flatMap((p) => [p.payerRole, p.payeeRole]).filter((r): r is string => !!r));
+  const isPrimary = (role: string) => named.has(role) || (hasFlows ? isMoneySideRole(kind, role) : role === 'party' || partyRoleDef(kind, role).main);
+  const primary: RoleChoice[] = [];
+  const secondary: RoleChoice[] = [];
+  parties.forEach((p, i) => (isPrimary(p.role) ? primary : secondary).push({ key: `p${i}`, role: p.role, partyIndex: i }));
+  for (const r of partyRolesOf(kind)) {
+    if (r.main && isPrimary(r.code) && !parties.some((p) => p.role === r.code)) primary.push({ key: r.code, role: r.code, partyIndex: null });
+  }
+  return { primary, secondary };
 }
 
 /**
