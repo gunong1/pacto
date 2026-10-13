@@ -87,7 +87,7 @@ export function verifyStorage(manifestRows, dir, { checkFormat = true } = {}) {
 
 function main(argv) {
   const [manifest, dir] = argv;
-  if (!manifest || !dir) { console.error('사용법: verify-storage.mjs <storage-manifest.csv> <내려받은 폴더> [--show-paths]'); return 2; }
+  if (!manifest || !dir) { console.error('사용법: verify-storage.mjs <storage-manifest.csv> <내려받은 폴더> [--show-failures (id 가림)] [--show-paths]'); return 2; }
   const rows = parseCsv(readText(manifest)).filter((r) => !/^Connecting/.test(r[0]));
   const { result, failures, extra } = verifyStorage(rows, dir);
   if (result.size === 0) { console.log('FAIL  manifest에 파일이 없음 (목록 조회가 실패했을 수 있음 — 빈 Storage라면 이 메시지가 정상)'); }
@@ -99,6 +99,9 @@ function main(argv) {
   for (const f of failures) why.set(f.why.replace(/ \(.*\)$/, ''), (why.get(f.why.replace(/ \(.*\)$/, '')) ?? 0) + 1);
   for (const [w, n] of why) console.log(`     실패 사유: ${w} ${n}개`);
   if (argv.includes('--show-paths')) for (const f of failures) console.log(`     ${f.bucket}/${f.name}: ${f.why}`);
+  // 채팅에 보내도 되게: 경로의 id(uuid)는 앞 4글자만 남기고 가린다
+  const mask = (p) => p.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (u) => `${u.slice(0, 4)}…`);
+  if (argv.includes('--show-failures')) for (const f of failures) console.log(`     ${mask(`${f.bucket}/${f.name}`)}: ${f.why}`);
   const ok = failures.length === 0 && result.size > 0;
   console.log(ok ? '\n결과: PASS — 목록의 모든 파일이 있고 크기와 내용(md5 확인 가능한 파일)이 운영 목록과 같습니다.' : '\n결과: FAIL — 이 Storage 백업으로는 진행하지 마세요.');
   return ok ? 0 : 1;
