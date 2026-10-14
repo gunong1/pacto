@@ -1,5 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { EVENT_LEGEND } from '@/components/pacto';
@@ -7,7 +8,8 @@ import { MonthGrid } from '@/components/pacto/MonthGrid';
 import { MonthPickerSheet } from '@/components/pacto/MonthPickerSheet';
 import { AppText } from '@/components/ui/AppText';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
-import { dayMarkers, groupCalendarItems } from '@/domain/calendarGroups';
+import { ChipGroup } from '@/components/ui/controls';
+import { dayMarkers, groupCalendarItems, itemsForView, type CalendarViewMode } from '@/domain/calendarGroups';
 import { formatDateKo, isValidISODate, monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from '@/domain/dates';
 import { formatKRW } from '@/domain/money';
 import { scheduleForRange } from '@/domain/schedule';
@@ -27,6 +29,17 @@ export default function CalendarScreen() {
   const [picker, setPicker] = useState(false);
   /** 연도·월 빠른 이동 / 오늘 */
   const [selected, setSelected] = useState<ISODate | null>(today);
+  // 보기: 핵심 일정(참고 일정 숨김) / 전체 보기 — 이 기기에 기억 (원본 일정은 어느 쪽이든 그대로)
+  const [mode, setMode] = useState<CalendarViewMode>('core');
+  useEffect(() => {
+    AsyncStorage.getItem(VIEW_KEY)
+      .then((v) => (v === 'all' || v === 'core') && setMode(v))
+      .catch(() => undefined);
+  }, []);
+  const changeMode = (m: CalendarViewMode) => {
+    setMode(m);
+    AsyncStorage.setItem(VIEW_KEY, m).catch(() => undefined);
+  };
   const goTo = (next: YearMonth) => {
     setYm(next);
     // 이번 달로 돌아오면 오늘을 선택 (처음 들어왔을 때와 같게)
@@ -44,12 +57,14 @@ export default function CalendarScreen() {
 
   // 일정 원본(결제·시작·주요 날짜 …)은 그대로 계산하고, 화면에서만 같은 계약·같은 날짜를 카드 하나로 묶는다.
   // 월 지출 합계는 이 묶음과 별개로 결제 규칙에서 직접 계산한다 (spending.ts)
-  const { groups, markers, spending } = useMemo(() => {
+  // 핵심 일정 보기는 참고 일정만 숨긴다 (필수·관리 일정·내 일정은 그대로) — 금액 합계는 보기와 무관
+  const { groups, markers, spending, hidden } = useMemo(() => {
     const list = records ?? [];
-    const groups = groupCalendarItems(scheduleForRange(list, monthRange(ym), today), today);
+    const { shown, hidden } = itemsForView(scheduleForRange(list, monthRange(ym), today), mode);
+    const groups = groupCalendarItems(shown, today);
     const spending = monthSpending(list, ym, today);
-    return { groups, markers: dayMarkers(groups), spending };
-  }, [records, ym, today]);
+    return { groups, markers: dayMarkers(groups), spending, hidden };
+  }, [records, ym, today, mode]);
 
   const dayGroups = selected ? groups.filter((g) => g.date === selected) : [];
   const isThisMonth = ym.year === yearMonthOf(today).year && ym.month === yearMonthOf(today).month;
@@ -97,6 +112,23 @@ export default function CalendarScreen() {
         </View>
       </View>
 
+      <View style={styles.mode} testID="calendar-view-mode">
+        <ChipGroup
+          options={[
+            { value: 'core', label: '핵심 일정' },
+            { value: 'all', label: '전체 보기' },
+          ]}
+          value={mode}
+          onChange={(v) => changeMode(v as CalendarViewMode)}
+          testIDPrefix="calendar-mode"
+        />
+        {mode === 'core' && hidden > 0 ? (
+          <AppText variant="small" color="textTertiary" testID="calendar-hidden">
+            참고 일정 {hidden}개는 숨겼어요 (전체 보기·계약 상세에서 확인)
+          </AppText>
+        ) : null}
+      </View>
+
       <SectionGap />
 
       {selected ? (
@@ -125,7 +157,10 @@ export default function CalendarScreen() {
   );
 }
 
+const VIEW_KEY = 'pacto.calendar.view';
+
 const styles = StyleSheet.create({
+  mode: { paddingHorizontal: spacing.gutter, gap: 4 },
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.md },
   calendar: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.lg },
   legend: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', columnGap: spacing.lg, rowGap: 4, marginTop: spacing.sm },

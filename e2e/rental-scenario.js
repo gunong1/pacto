@@ -96,11 +96,15 @@ const assert = (cond, msg) => {
   assert(!(await page.locator(tid('day-2026-10-05')).getAttribute('aria-label')).includes('일정'), '체결일에 이벤트가 생김');
   await page.click(tid('day-2026-10-12'));
   const day12 = await page.locator(tid('calendar-day-list')).innerText();
-  assert(day12.includes('이용 시작') && day12.includes('월 렌탈료') && day12.includes('29,900원') && day12.includes('초기 설치비') && day12.includes('20,000원'), '10/12 리스트: ' + day12);
+  // 같은 계약·같은 날 → 카드 1장 "시작·결제일" · 관련 일정 3개를 펼치면 원본(이용 시작·렌탈료·설치비)
+  assert(day12.includes('시작·결제일') && day12.includes('관련 일정 3개') && day12.includes('월 렌탈료') && day12.includes('29,900원') && day12.includes('초기 설치비') && day12.includes('20,000원'), '10/12 리스트: ' + day12);
+  await page.locator(`${tid('calendar-day-list')} [data-testid$="-toggle"]`).first().click();
+  const opened = await page.locator(tid('calendar-day-list')).innerText();
+  assert(opened.includes('이용 시작') && opened.includes('29,900') && opened.includes('20,000'), '관련 일정 펼치기: ' + opened);
   const total = await page.locator(tid('calendar-month-total')).innerText();
   assert(total.includes('₩49,900'), '10월 지출이 49,900원이 아님: ' + total);
   await shot('02-calendar-oct12');
-  log('10/12: 이용 시작 + 월 렌탈료 29,900원 + 초기 설치비 20,000원 (점 2색, 목록 3줄), 10월 지출 ₩49,900');
+  log('10/12: 카드 1장 "시작·결제일" (펼치면 이용 시작) + 월 렌탈료 29,900원 + 초기 설치비 20,000원 (점 2색, 목록 3줄), 10월 지출 ₩49,900');
 
   await page.click(tid('calendar-next'));
   await page.click(tid('day-2026-11-12'));

@@ -32,10 +32,10 @@ const CONTRACTS = [
     dates: [{ kind: 'move_in', label: '입주일', date: '261101' }],
     core: ['보증금', '2억원', '계약금', '잔금', '입주일', '임대차 기간', '계약 체결일'],
     checks: [
-      { date: '2026-11-01', has: ['임대차 시작 · 입주', '잔금', '180,000,000원', '방향 확인 필요'], not: ['입주일'], total: '₩0', totalHas: '확인 필요 금액 제외' },
+      { date: '2026-11-01', has: ['입주·잔금일', '잔금', '180,000,000원', '방향 확인 필요'], not: ['입주일'], total: '₩0', totalHas: '확인 필요 금액 제외' },
       { date: '2026-09-01', has: ['계약금'], not: ['계약 체결'], total: '₩0' },
       { date: '2028-09-01', has: ['갱신 여부 확인'] },
-      { date: '2028-10-31', has: ['계약 만기'] },
+      { date: '2028-10-31', has: ['만기·보증금 반환 확인', '관련 일정 2개'] },
     ],
   },
   {
@@ -269,8 +269,11 @@ const CONTRACTS = [
       await page.waitForSelector(tid('calendar-day-list'), { timeout: 15000 });
       await page.waitForTimeout(300);
       const list = await page.locator(tid('calendar-day-list')).innerText();
+      // 같은 날 일정은 카드 1장으로 묶임 → "관련 일정 N개"를 펼쳐 원본 일정 이름까지 확인 (not 검사는 접힌 상태 기준)
+      for (const t of await page.locator(`${tid('calendar-day-list')} [data-testid$="-toggle"]`).all()) await t.click();
+      const opened = await page.locator(tid('calendar-day-list')).innerText();
       if (c.none) assert(list.includes('이 날은 계약 일정이 없어요'), `${k.name} ${c.date}: 일정이 없어야 함\n${list}`);
-      for (const s of c.has ?? []) assert(list.includes(s), `${k.name} ${c.date}: "${s}" 없음\n${list}`);
+      for (const s of c.has ?? []) assert(opened.includes(s), `${k.name} ${c.date}: "${s}" 없음\n${opened}`);
       for (const s of c.not ?? []) assert(!list.includes(s), `${k.name} ${c.date}: "${s}"가 있으면 안 됨\n${list}`);
       if (c.total) {
         const total = await page.locator(tid('calendar-month-total')).innerText();
