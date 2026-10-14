@@ -9,13 +9,14 @@
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
+import { AmountField } from '@/components/ui/AmountField';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { Badge, TextField } from '@/components/ui/controls';
+import { Badge } from '@/components/ui/controls';
 import { DateField } from '@/components/ui/DateField';
 import { Section } from '@/components/ui/layout';
 import { formatDateKo, normalizeDateInput } from '@/domain/dates';
-import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
+import { formatWon, parseAmount } from '@/domain/money';
 import { COMPONENT_STATUS_LABEL, PAY_TYPE_LABEL, PAYROLL_RULE_LABEL, prorationPlan, salaryBreakdown, variableAmount, type ProratedPay } from '@/domain/payroll';
 import type { ContractPayment, ContractRecord, PaymentComponent } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
@@ -153,7 +154,7 @@ function ExtraRow({ c, index, tid, actions }: { c: PaymentComponent; index: numb
       {status === 'confirmed' ? null : open ? (
         <View style={{ gap: spacing.xs, marginTop: spacing.sm }}>
           <DateField label="실제 지급일" value={dateText} onChangeText={setDateText} testID={`${t}-date`} />
-          <TextField label="실제 지급 금액 (세전)" value={amountText} onChangeText={(x) => setAmountText(formatAmountInput(parseAmount(x)))} keyboardType="number-pad" suffix="원" testID={`${t}-amount`} />
+          <AmountField label="실제 지급 금액 (세전)" value={amountText} onChangeText={setAmountText} suffix="원" testID={`${t}-amount`} />
           <Button label="지급 확정 (수입에 반영)" size="sm" disabled={!date || !amount} onPress={() => date && amount && actions.confirm(index, { date, amount })} testID={`${t}-save`} />
         </View>
       ) : (

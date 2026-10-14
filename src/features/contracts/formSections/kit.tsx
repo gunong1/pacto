@@ -7,11 +7,11 @@ import { Controller, type Control, type FieldPath, type UseFormGetValues, type U
 import { View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
+import { AmountField } from '@/components/ui/AmountField';
 import { Badge, TextField, type TextFieldProps } from '@/components/ui/controls';
 import { DateField } from '@/components/ui/DateField';
 import type { SourceType } from '@/domain/contractTypes';
 import { evidenceView, type EvidenceMap } from '@/domain/evidence';
-import { formatAmountInput, parseAmount } from '@/domain/money';
 import { maskSensitiveTextForDisplay } from '@/domain/sensitive';
 import { EvidenceButton } from '@/features/evidence/EvidenceUI';
 
@@ -88,15 +88,14 @@ export function FormText({
     <Controller
       control={control}
       name={name}
-      render={({ field: f, fieldState }) => (
-        <TextField
-          {...props}
-          value={String(f.value ?? '')}
-          onBlur={f.onBlur}
-          onChangeText={(t) => f.onChange(amount ? formatAmountInput(parseAmount(t)) : t)}
-          error={fieldState.error?.message}
-        />
-      )}
+      render={({ field: f, fieldState }) =>
+        amount ? (
+          // 금액: 공통 금액 입력 (입력 즉시 천 단위 쉼표 · 커서 유지) — 값은 "1,250,300" 문자열, 저장 시 parseAmount
+          <AmountField {...props} value={String(f.value ?? '')} onBlur={f.onBlur} onChangeText={f.onChange} error={fieldState.error?.message} />
+        ) : (
+          <TextField {...props} value={String(f.value ?? '')} onBlur={f.onBlur} onChangeText={f.onChange} error={fieldState.error?.message} />
+        )
+      }
     />
   );
 }

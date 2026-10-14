@@ -34,3 +34,29 @@ export function parseAmount(input: string): number | null {
 export function formatAmountInput(amount: number | null): string {
   return amount == null ? '' : withThousands(amount);
 }
+
+/** 금액 입력 최대 자릿수 — 정수 원을 정확히 다룰 수 있는 범위 (Number.MAX_SAFE_INTEGER 16자리 미만) */
+export const AMOUNT_INPUT_MAX_DIGITS = 15;
+
+/**
+ * 입력 중인 금액 문자열 → 천 단위 쉼표 표시 + 커서 위치 (공통 금액 입력 AmountField).
+ * - 숫자만 남긴다 (붙여넣은 "₩1,250,300원"·공백·문자도 숫자만) · 앞자리 0 제거 ("007" → "7", "0"은 그대로) · 최대 15자리
+ * - cursor: 원래 문자열에서 커서 앞에 있던 숫자 개수를 그대로 유지하는 위치 (쉼표가 생기거나 없어져도 같은 숫자 뒤)
+ * - 값(parseAmount)은 쉼표 없는 정수 — 저장·계산은 그 값으로
+ */
+export function formatAmountTyping(raw: string, cursor: number = raw.length): { text: string; cursor: number } {
+  const digitsBefore = raw.slice(0, Math.max(0, Math.min(cursor, raw.length))).replace(/\D/g, '').length;
+  let digits = raw.replace(/\D/g, '');
+  const lead = digits.length - digits.replace(/^0+(?=\d)/, '').length;
+  digits = digits.slice(lead).slice(0, AMOUNT_INPUT_MAX_DIGITS);
+  if (digits.length === 0) return { text: '', cursor: 0 };
+  const text = withThousands(Number(digits));
+  const want = Math.min(Math.max(0, digitsBefore - lead), digits.length);
+  let seen = 0;
+  let pos = 0;
+  while (pos < text.length && seen < want) {
+    if (/\d/.test(text[pos])) seen += 1;
+    pos += 1;
+  }
+  return { text, cursor: pos };
+}

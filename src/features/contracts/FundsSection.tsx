@@ -9,11 +9,13 @@ import { Pressable, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
-import { Badge, TextField } from '@/components/ui/controls';
+import { AmountField } from '@/components/ui/AmountField';
+import { Badge } from '@/components/ui/controls';
+import { DateField } from '@/components/ui/DateField';
 import { Divider, KeyValueRow, Section, SectionGap } from '@/components/ui/layout';
 import { FUND_STATUS_LABEL, fundViews, type FundView } from '@/domain/cashflow';
 import { formatDateKo, isValidISODate, normalizeDateInput } from '@/domain/dates';
-import { formatWon, parseAmount } from '@/domain/money';
+import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
 import type { ContractRecord, ISODate } from '@/domain/types';
 import { spacing } from '@/theme';
 
@@ -50,6 +52,8 @@ function FundBlock({ view: v, today, onAdd, onRemove, busy }: { view: FundView; 
   const parsedDate = normalizeDateInput(date) ?? date;
   const parsedAmount = parseAmount(amount);
   const valid = parsedAmount != null && parsedAmount > 0 && isValidISODate(parsedDate);
+  // 날짜를 다 입력했는데(6자리 이상) 없는 날짜면 알려 준다 — 기록 버튼은 막혀 있음
+  const dateError = date.replace(/\D/g, '').length >= 6 && !isValidISODate(parsedDate) ? '올바른 날짜가 아니에요 (예: 261130 → 2026-11-30)' : undefined;
   const tone = v.status === 'returned' ? 'primary' : v.status === 'delayed' ? 'caution' : v.needsCheck ? 'check' : 'neutral';
   return (
     <View style={{ paddingVertical: spacing.sm }}>
@@ -84,8 +88,16 @@ function FundBlock({ view: v, today, onAdd, onRemove, busy }: { view: FundView; 
       {v.status !== 'returned' ? (
         open ? (
           <View style={{ marginTop: spacing.sm }} testID="refund-form">
-            <TextField label="반환 금액" value={amount} onChangeText={setAmount} keyboardType="number-pad" suffix="원" placeholder={String(v.remaining)} testID="refund-amount" />
-            <TextField label="반환일" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" testID="refund-date" />
+            <AmountField label="반환 금액" value={amount} onChangeText={setAmount} suffix="원" placeholder={formatAmountInput(v.remaining)} testID="refund-amount" />
+            {/* 반환일은 실제로 돌려받은(돌려준) 날 — 계약서 반환 예정일·계약 종료일은 참고일일 뿐 자동으로 넣지 않는다 */}
+            <DateField
+              label="반환일 (실제로 돌려받은·돌려준 날)"
+              value={date}
+              onChangeText={setDate}
+              error={dateError}
+              hint={`숫자만 입력해도 돼요 (261130 → 2026-11-30)${v.checkDate ? ` · 참고: ${v.checkBasis === 'explicit' ? '계약서 반환 예정일' : '계약 종료일'} ${formatDateKo(v.checkDate)}` : ''}`}
+              testID="refund-date"
+            />
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <View style={{ flex: 1 }}>
                 <Button label="기록" size="sm" disabled={!valid} loading={busy} onPress={() => {

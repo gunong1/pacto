@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Controller, type UseFieldArrayReturn } from 'react-hook-form';
 import { Pressable, View } from 'react-native';
 
+import { AmountField } from '@/components/ui/AmountField';
 import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { Badge, ChipGroup, SwitchRow, TextField } from '@/components/ui/controls';
@@ -15,7 +16,7 @@ import { BUSINESS_DAY_RULE_LABEL } from '@/domain/businessDays';
 import { defaultDirection, DIRECTION_LABEL, DIRECTIONS, OBLIGATION_LABEL, paymentKindLabel, type Direction, type PaymentKind } from '@/domain/contractTypes';
 import { formatDateKo } from '@/domain/dates';
 import { FREQUENCY_LABEL } from '@/domain/labels';
-import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
+import { formatWon, parseAmount } from '@/domain/money';
 import { planSummary, type PaymentPlan } from '@/domain/paymentPlan';
 import { salaryBreakdown } from '@/domain/payroll';
 import { PAYMENT_FREQUENCIES, type ComponentPayType, type PaymentComponent } from '@/domain/types';
@@ -370,7 +371,7 @@ export function ComponentsEditor({ components, total, onChange, testID }: { comp
               <TextField label="항목 이름" value={label} onChangeText={setLabel} placeholder="예: 기본급" testID={`${testID}-new-label`} />
             </View>
             <View style={styles.col}>
-              <TextField label="금액" value={amountText} onChangeText={(t) => setAmountText(formatAmountInput(parseAmount(t)))} keyboardType="number-pad" suffix="원" placeholder="0" testID={`${testID}-new-amount`} />
+              <AmountField label="금액" value={amountText} onChangeText={setAmountText} suffix="원" placeholder="0" testID={`${testID}-new-amount`} />
             </View>
           </View>
           {error ? (
