@@ -14,6 +14,7 @@
  */
 import type { CONTRACT_TYPE_CODES, DATE_KIND_CODES } from '../contractRegistry.ts';
 import type { ExtractedDate, ExtractedPayment } from './types.ts';
+import { quoteContradictsDate } from './evidenceCheck.ts';
 import { confidenceOf, isObj, oneOf, quoteOf, sourceOf, text, validDate } from './values.ts';
 import { DATE_MEANINGS, type DateMeaning, type DateSource } from './vocabulary.ts';
 
@@ -94,14 +95,21 @@ export function cleanDates(raw: unknown): ExtractedDate[] {
     .filter(isObj)
     .filter((d) => validDate(d.date))
     .slice(0, 40)
-    .map((d) => ({
-      date: (d.date as string).trim(),
-      meaning: oneOf(DATE_MEANINGS, d.meaning) ?? 'other',
-      label: text(d.label, 40) ?? '날짜',
-      confidence: confidenceOf(d.confidence),
-      sourceType: sourceOf(d.source_type),
-      ...quoteOf(d),
-    }));
+    .map((d): ExtractedDate => {
+      const date = (d.date as string).trim();
+      const q = quoteOf(d);
+      // 근거 문장의 날짜와 다르면 (예: 문장은 "10월 15일부터", 값은 10-25) 값은 그대로 두고 확인 필요로
+      const mismatch = (q.evidence ?? []).some((e) => quoteContradictsDate(date, e.quote));
+      return {
+        date,
+        meaning: oneOf(DATE_MEANINGS, d.meaning) ?? 'other',
+        label: text(d.label, 40) ?? '날짜',
+        confidence: mismatch ? 'low' : confidenceOf(d.confidence),
+        sourceType: sourceOf(d.source_type),
+        ...q,
+        ...(mismatch ? { check: 'evidence_mismatch' as const } : {}),
+      };
+    });
 }
 
 export function assignDateUses(dates: ExtractedDate[], type: ContractType, payments: readonly ExtractedPayment[]): void {
@@ -116,7 +124,14 @@ export function assignDateUses(dates: ExtractedDate[], type: ContractType, payme
   const contractDate = pick(['contract_signed']);
   if (contractDate) contractDate.use = 'contract_date';
   const start = pick(START_PRIORITY[type] ?? DEFAULT_START);
-  if (start) start.use = 'start';
+  if (start) {
+    start.use = 'start';
+    // 같은 의미(시작)인데 날짜가 다른 값이 또 있으면 어느 쪽인지 서버가 고르지 않는다 → 확인 필요
+    if (dates.some((x) => x !== start && x.meaning === start.meaning && x.date !== start.date)) {
+      start.confidence = 'low';
+      start.check ??= 'conflict';
+    }
+  }
   const end = pick(END_PRIORITY[type] ?? DEFAULT_END);
   if (end) end.use = 'end';
 

@@ -17,7 +17,7 @@ import { DateField } from '@/components/ui/DateField';
 import { Section } from '@/components/ui/layout';
 import { formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { formatWon, parseAmount } from '@/domain/money';
-import { COMPONENT_STATUS_LABEL, PAY_TYPE_LABEL, PAYROLL_RULE_LABEL, prorationPlan, salaryBreakdown, variableAmount, type ProratedPay } from '@/domain/payroll';
+import { COMPONENT_STATUS_LABEL, PAY_TYPE_LABEL, PAYROLL_RULE_LABEL, prorationPlan, proratedText, salaryBreakdown, variableAmount, type ProratedPay } from '@/domain/payroll';
 import type { ContractPayment, ContractRecord, PaymentComponent } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
 
@@ -173,6 +173,7 @@ function ExtraRow({ c, index, tid, actions }: { c: PaymentComponent; index: numb
 
 function Prorated({ p, tid }: { p: ProratedPay; tid: string }) {
   const [open, setOpen] = useState(true);
+  const text = proratedText(p);
   return (
     <View style={{ marginBottom: spacing.sm }} testID={tid}>
       <Pressable onPress={() => setOpen(!open)} accessibilityRole="button" style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -187,9 +188,12 @@ function Prorated({ p, tid }: { p: ProratedPay; tid: string }) {
       {open ? (
         <View style={{ marginTop: 4, paddingLeft: spacing.md, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 2 }}>
           <Row label="급여 산정기간" value={`${formatDateKo(p.period.from)} ~ ${formatDateKo(p.period.to)}`} />
-          <Row label="적용 일수 (달력 일수 기준)" value={`${p.days}일 / ${p.periodDays}일`} />
+          <Row label="근무 기간" value={text.title.split(' · ')[1]} />
+          <AppText variant="caption" color="textSecondary">
+            {text.detail}
+          </AppText>
           {p.lines.map((l) => (
-            <Row key={l.label} label={`${l.label} ${formatWon(l.monthly)} ${l.method === 'full' ? '전액' : `× ${p.days}/${p.periodDays}`}`} value={formatWon(l.amount)} />
+            <Row key={l.label} label={`${l.label} ${formatWon(l.monthly)} ${l.method === 'full' ? '전액' : `중 ${p.days}일분`}`} value={formatWon(l.amount)} />
           ))}
         </View>
       ) : null}

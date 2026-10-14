@@ -105,7 +105,8 @@ const shortPay = (label: string) => label.replace(/^(보증금|전세금|임대�
 export function groupTitle(list: readonly ScheduleItem[]): string {
   if (list.length === 1) {
     const only = list[0];
-    return isCashflow(only) && only.actionType !== 'deposit_return' ? `${only.title} ${only.direction === 'income' ? '입금' : '지급'}` : only.title;
+    // 일할 계산 급여는 제목이 이미 "첫 급여 · …근무분" — 입금/지급을 붙이지 않음
+    return isCashflow(only) && only.actionType !== 'deposit_return' && !only.detail ? `${only.title} ${only.direction === 'income' ? '입금' : '지급'}` : only.title;
   }
   const words: { w: string; kind: 'end' | 'action' | 'start' | 'pay' | 'refund' }[] = [];
   const add = (w: string, kind: (typeof words)[number]['kind']) => {
@@ -118,7 +119,7 @@ export function groupTitle(list: readonly ScheduleItem[]): string {
   if (startLike) add(startLike.dateKind === 'handover' && startLike.category === 'real_estate' ? '입주' : START_WORD[startLike.dateKind!]!, 'start');
   else if (list.some((i) => i.type === 'contract_start')) add('시작', 'start');
   // 결제가 여럿이면 하나씩 늘어놓지 않고 "결제"로 (각 금액은 카드 세부 내역·관련 일정에)
-  const pays = [...new Set(list.filter((i) => isCashflow(i) && i.actionType !== 'deposit_return').map((i) => shortPay(i.title)))];
+  const pays = [...new Set(list.filter((i) => isCashflow(i) && i.actionType !== 'deposit_return').map((i) => (i.detail ? i.title.split(' · ')[0] : shortPay(i.title))))];
   if (pays.length === 1) add(pays[0], 'pay');
   else if (pays.length > 1) add('결제', 'pay');
   if (list.some((i) => i.actionType === 'deposit_return')) add(list.some((i) => i.actionType === 'deposit_return' && isCashflow(i)) ? '보증금 반환 예정' : '보증금 반환 확인', 'refund');
@@ -134,6 +135,8 @@ export interface CashflowLine {
   label: string;
   amount: number;
   estimated: boolean;
+  /** 계산 내역 (일할 계산 급여) — 한 건이면 세부 줄에 이 문구 */
+  detail?: string | null;
 }
 
 export interface CashflowSummary {
@@ -283,13 +286,13 @@ export function summarizeCashflows(list: readonly ScheduleItem[], timing: Cashfl
         : direction === 'income'
           ? `+${won} ${whenLabel(allDeposit ? '보증금 입금' : items.every((i) => INCOME_PAY_KINDS.has(i.paymentKind!)) ? '급여' : '입금', timing)}`
           : `${won} · 방향 확인 필요 (합계 제외)`;
-    return [{ direction, total, estimated, headline, items: items.map((i) => ({ label: i.title, amount: i.amount!, estimated: i.estimated })) }];
+    return [{ direction, total, estimated, headline, items: items.map((i) => ({ label: i.title, amount: i.amount!, estimated: i.estimated, detail: i.detail ?? null })) }];
   });
 }
 
 /** 세부 내역 한 줄: "월 렌탈료 29,900원 · 설치비 20,000원" (많으면 앞 max개 + "외 n건") */
 export function cashflowBreakdown(c: CashflowSummary, max = 3): string | null {
-  if (c.items.length <= 1) return c.items[0]?.label ?? null;
+  if (c.items.length <= 1) return c.items[0]?.detail ?? c.items[0]?.label ?? null;
   const shown = c.items.slice(0, max).map((i) => `${i.label} ${formatWon(i.amount)}`);
   return c.items.length > max ? `${shown.join(' · ')} 외 ${c.items.length - max}건` : shown.join(' · ');
 }

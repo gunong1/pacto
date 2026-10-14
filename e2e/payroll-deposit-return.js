@@ -88,7 +88,7 @@ const pay = (o) => ({ id: null, month_of_year: null, ends_on: null, installment_
   check('A2', '불일치 경고 없음 (조건부 성과급 때문에 합계 420만이어도)', (await page.locator(tid(`${sal}-check`)).count()) === 0);
   check('A3', '추가 지급 가능: 성과급 최대 1,000,000 · 조건부 · 미확정 · 지급 조건', card.includes('추가 지급 가능 수당') && card.includes('최대 1,000,000원') && card.includes('미확정') && card.includes('분기 목표 달성 시'), card);
   check('A4', '"조건부 수당을 모두 받으면 (예시)" 4,200,000 — 확정 월급 아님', card.includes('(예시)') && card.includes('4,200,000원') && card.includes('확정 월급이 아니라'), card);
-  check('A5', '첫 급여 일할: 722,581 · 7일/31일 · 2026. 11. 10. 지급 예정 · 세전', card.includes('첫 급여 (일할 계산)') && card.includes('722,581원') && card.includes('7일 / 31일') && card.includes('2026. 11. 10.') && card.includes('세전'), card);
+  check('A5', '첫 급여 일할: 722,581 · 10월 총 31일 중 7일분 · 2026. 11. 10. 지급 예정 · 세전', card.includes('첫 급여 (일할 계산)') && card.includes('722,581원') && card.includes('10월 총 31일 중 7일분') && card.includes('2026. 11. 10.') && card.includes('세전'), card);
   await shot('01-salary');
 
   // B 성과급 지급 확정

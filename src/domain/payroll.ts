@@ -265,6 +265,21 @@ export function prorationPlan(record: Pick<ContractRecord, 'contract' | 'dates'>
   return { status: 'ready', first, last, firstPayDate, lastPayDate, notes };
 }
 
+/**
+ * 일할 계산 표시 문구 (분수 "7/31" 대신 날짜로) — 실제 근무 기간·산정기간에서 만든다.
+ * title "첫 급여 · 10월 15일~31일 근무분" / detail "10월 총 31일 중 17일분 일할 계산 · 세전"
+ * (산정기간이 달력 한 달이 아니면 "급여 산정기간 31일 중 …")
+ */
+export function proratedText(p: Pick<ProratedPay, 'kind' | 'period' | 'worked' | 'days' | 'periodDays'>): { title: string; detail: string } {
+  const md = (d: ISODate) => ({ m: Number(d.slice(5, 7)), d: Number(d.slice(8, 10)) });
+  const a = md(p.worked.from);
+  const b = md(p.worked.to);
+  const range = a.m !== b.m ? `${a.m}월 ${a.d}일~${b.m}월 ${b.d}일` : a.d === b.d ? `${a.m}월 ${a.d}일` : `${a.m}월 ${a.d}일~${b.d}일`;
+  const wholeMonth = p.period.from.slice(8, 10) === '01' && p.period.from.slice(0, 7) === p.period.to.slice(0, 7) && Number(p.period.to.slice(8, 10)) === p.periodDays;
+  const base = wholeMonth ? `${md(p.period.from).m}월 총 ${p.periodDays}일` : `급여 산정기간 ${p.periodDays}일`;
+  return { title: `${p.kind === 'first' ? '첫 급여' : '마지막 급여'} · ${range} 근무분`, detail: `${base} 중 ${p.days}일분 일할 계산 · 세전` };
+}
+
 /** 이 회차(계약상 지급일)의 금액이 일할 계산 대상이면 그 계산 */
 export function proratedFor(plan: ProrationPlan, nominalDate: ISODate): ProratedPay | null {
   if (plan.status !== 'ready') return null;

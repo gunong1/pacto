@@ -6,7 +6,7 @@ import { contractTermSource, getNotificationPriority, termNeedsReview, type Acti
 import { addDays, dateInMonth, parseISODate } from './dates';
 import { noticeActionType, noticeLabelOf } from './noticeKind';
 import { amountOn, amountPeriods, periodBoundaries } from './paymentRules';
-import { prorationPlan, proratedFor } from './payroll';
+import { prorationPlan, proratedFor, proratedText } from './payroll';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
 import type {
   Contract,
@@ -50,6 +50,8 @@ export interface PaymentOccurrence {
   installment: { no: number; total: number } | null;
   /** 금액이 변동될 수 있음 (통신비 등). */
   estimated: boolean;
+  /** 첫·마지막 급여 일할 계산 문구 (payroll.proratedText) */
+  prorated?: { title: string; detail: string } | null;
 }
 
 function monthIndex(year: number, month: number): number {
@@ -129,9 +131,9 @@ export function expandPayment(
     .map((o) => {
       const prorated = proratedFor(plan, o.nominalDate);
       const { amount, note } = amountOn(periods, payment, o.nominalDate, prorated?.total);
-      const proNote = prorated ? `${prorated.kind === 'first' ? '첫 급여' : '마지막 급여'} 일할 ${prorated.days}/${prorated.periodDays}일` : null;
-      const amountNote = [proNote, note, o.nominalDate === firstUnsure ? FIRST_PAYMENT_CHECK : null].filter(Boolean).join(' · ') || null;
-      return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote };
+      const text = prorated ? proratedText(prorated) : null;
+      const amountNote = [text?.title, note, o.nominalDate === firstUnsure ? FIRST_PAYMENT_CHECK : null].filter(Boolean).join(' · ') || null;
+      return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote, prorated: text };
     })
     .filter((o) => o.date >= range.start && o.date <= range.end);
 }
@@ -226,6 +228,8 @@ export interface ScheduleItem {
   date: ISODate;
   type: ScheduleItemType;
   title: string;
+  /** 계산 내역 한 줄 (일할 계산 급여: "10월 총 31일 중 17일분 일할 계산 · 세전") */
+  detail?: string | null;
   /** 결제 항목의 의미 (결제가 아니면 null) */
   paymentKind: PaymentKind | null;
   /** 결제 항목의 돈 방향 (결제가 아니면 null) — neutral = 방향 확인 필요 (합계에 넣지 않음) */
@@ -338,7 +342,11 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
         key: `pay:${p.id}:${o.date}`,
         date: o.date,
         type: 'payment',
-        title: `${o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label}${o.amountNote ? ` (${o.amountNote})` : ''}`,
+        // 일할 계산 회차는 "첫 급여 · 10월 15일~31일 근무분" (분수 표기 없이) — 계산 내역은 detail
+        title: o.prorated
+          ? [o.prorated.title, o.amountNote?.replace(o.prorated.title, '').replace(/^ · /, '')].filter(Boolean).join(' · ')
+          : `${o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label}${o.amountNote ? ` (${o.amountNote})` : ''}`,
+        detail: o.prorated?.detail ?? null,
         paymentKind: p.kind,
         direction: p.direction,
         directionStatus: directionStatusOf(p, contract),

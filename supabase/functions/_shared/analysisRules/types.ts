@@ -38,6 +38,11 @@ export interface ExtractedDate {
    */
   use?: 'contract_date' | 'start' | 'end' | 'notice' | 'key' | 'payment' | 'drop';
   keyKind?: string;
+  /**
+   * 서버 근거 대조 결과 (evidenceCheck.ts) — 값은 고치지 않고 신뢰도를 낮춰 사용자 확인을 받는다
+   * evidence_mismatch 근거 문장의 날짜와 다름 / conflict 같은 의미의 날짜가 서로 다르게 여러 개
+   */
+  check?: 'evidence_mismatch' | 'conflict';
 }
 
 /** 실제로 오가지 않는 금액 — 구성 항목은 상위 결제에 붙이고, 합계·참고 금액은 따로 보여준다 */

@@ -11,6 +11,7 @@ import { obligationOf, weakOptional } from './paymentObligation.ts';
 import { dayFromOwnDate, guardIncomePayday, lumpSum, resolvePaymentDate } from './paymentDates.ts';
 import { aggregateTotals, attachComponents, foldComponents, namedParentComponents, preDiscountSiblings, roleOf, type PendingComponent, type TotalAmount } from './paymentRoles.ts';
 import type { AppExtractionResult, ExtractedDate, ExtractedPayment } from './types.ts';
+import { quoteContradictsAmount } from './evidenceCheck.ts';
 import { confidenceOf, isObj, MAX_AMOUNT, oneOf, quoteOf, sourceOf, text, toInt, validDate } from './values.ts';
 import { FREQUENCIES } from './vocabulary.ts';
 
@@ -75,7 +76,8 @@ export function buildPayments(raw: unknown, dates: readonly ExtractedDate[]): Bu
       // 할인 전(정상가) 금액: 실제 결제액이 아니므로 확정하지 않고 사용자 확인을 받는다 (자동으로 빼서 계산하지 않음)
       amountCheck: role.beforeDiscount ? 'discount_unconfirmed' : null,
       businessDayRule: oneTime ? 'none' : (oneOf(BUSINESS_DAY_RULES, p.business_day_rule) ?? 'none'),
-      confidence: confidenceOf(p.confidence),
+      // 근거 문장의 금액과 다르면 값은 그대로 두고 확인 필요로 (evidenceCheck.ts)
+      confidence: (evidence ?? []).some((e) => quoteContradictsAmount(amount, e.quote)) ? 'low' : confidenceOf(p.confidence),
       sourceType: sourceOf(p.source_type),
       ...(evidence ? { evidence } : {}),
       // 계약서가 지급자·수령자를 밝힌 경우만 (근거 문장이 있을 때 — 없으면 계약 종류의 기본 흐름)

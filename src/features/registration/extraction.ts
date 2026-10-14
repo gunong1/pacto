@@ -142,6 +142,9 @@ export function toReviewModel(input: ExtractionResult, documentIds: readonly str
     uncertain(field, d.confidence);
     quote(field, d.evidence);
     source(field, d.sourceType);
+    // 서버 근거 대조: 근거 문장의 날짜와 다르거나, 같은 의미의 날짜가 여러 개 — 값은 그대로, 사용자가 원문과 비교
+    if (d.check === 'evidence_mismatch') notes[field] = '계약서 근거 문장의 날짜와 달라요. 원문을 보고 맞는 날짜인지 확인해주세요.';
+    else if (d.check === 'conflict') notes[field] = '계약서에 같은 뜻의 날짜가 서로 다르게 있어요. 원문을 보고 맞는 날짜를 골라주세요.';
   };
   assignDate('contractDate', dated.find((d) => d.use === 'contract_date'));
   assignDate('startDate', dated.find((d) => d.use === 'start'));
