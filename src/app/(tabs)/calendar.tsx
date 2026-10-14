@@ -155,9 +155,10 @@ export default function CalendarScreen() {
 const VIEW_KEY = 'pacto.calendar.view';
 
 const styles = StyleSheet.create({
-  mode: { paddingHorizontal: spacing.gutter, gap: 4 },
+  // 범례 ↔ 보기 버튼 20 (calendar paddingBottom) · 버튼 ↔ 캘린더 영역 끝(구분띠) 24 — 고정 높이 없이 여백만 (글자 확대 시 내용 따라 늘어남)
+  mode: { paddingHorizontal: spacing.gutter, paddingBottom: spacing.xxl, gap: 4 },
   header: { paddingHorizontal: spacing.gutter, paddingTop: spacing.md },
-  calendar: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.lg },
+  calendar: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xl },
   legend: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', columnGap: spacing.lg, rowGap: 4, marginTop: spacing.sm },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   dot: { width: 7, height: 7, borderRadius: 4 },
