@@ -102,7 +102,7 @@ const pay = (o) => ({ id: null, month_of_year: null, ends_on: null, installment_
   // D 월 합계는 보기와 무관
   await page.goto(`${BASE}/calendar?date=2026-12-01&t=${Date.now()}`, { waitUntil: 'networkidle' });
   await page.waitForSelector(tid('calendar-month-total'));
-  check('D1', '12월 총 출금 예정 ₩180,000,000 (보증금 포함 표시)', (await text('calendar-month-total')).includes('₩180,000,000'), await text('calendar-month-total'));
+  check('D1', '12월 총 출금 예정 ₩180,000,000 (보증금 포함 표시)', (await page.locator(tid('calendar-month-total')).getAttribute('aria-label')).includes('₩180,000,000'), await page.locator(tid('calendar-month-total')).getAttribute('aria-label'));
 
   check('Z', '페이지 오류 없음', errors.length === 0, errors.join(' | '));
   await browser.close();

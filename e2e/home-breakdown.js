@@ -78,7 +78,7 @@ const PDF = require('./cleanPdf')();
   await shot('01-one');
   await page.goto(`${BASE}/calendar?date=2026-10-20&t=${Date.now()}`, { waitUntil: 'networkidle' });
   await page.waitForSelector(tid('calendar-month-total'));
-  check('A6', '캘린더 10월 총 출금 ₩20,950,000 (홈과 같음)', (await text('calendar-month-total')).includes('₩20,950,000'));
+  check('A6', '캘린더 10월 총 출금 ₩20,950,000 (홈과 같음)', (await page.locator(tid('calendar-month-total')).getAttribute('aria-label')).includes('₩20,950,000'));
 
   // B
   await register();

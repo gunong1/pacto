@@ -101,7 +101,7 @@ const assert = (cond, msg) => {
   await page.locator(`${tid('calendar-day-list')} [data-testid$="-toggle"]`).first().click();
   const opened = await page.locator(tid('calendar-day-list')).innerText();
   assert(opened.includes('이용 시작') && opened.includes('29,900') && opened.includes('20,000'), '관련 일정 펼치기: ' + opened);
-  const total = await page.locator(tid('calendar-month-total')).innerText();
+  const total = await page.locator(tid('calendar-month-total')).getAttribute('aria-label');
   assert(total.includes('₩49,900'), '10월 지출이 49,900원이 아님: ' + total);
   await shot('02-calendar-oct12');
   log('10/12: 카드 1장 "시작·결제일" (펼치면 이용 시작) + 월 렌탈료 29,900원 + 초기 설치비 20,000원 (점 2색, 목록 3줄), 10월 지출 ₩49,900');
@@ -152,7 +152,7 @@ const assert = (cond, msg) => {
   const l12 = (await page.locator(tid('day-2026-10-12')).getAttribute('aria-label')) || '';
   const l15 = (await page.locator(tid('day-2026-10-15')).getAttribute('aria-label')) || '';
   assert(!l12.includes('일정') && l15.includes('일정 2종'), `수정 반영 실패 12=${l12} 15=${l15}`);
-  const total2 = await page.locator(tid('calendar-month-total')).innerText();
+  const total2 = await page.locator(tid('calendar-month-total')).getAttribute('aria-label');
   assert(total2.includes('₩20,000'), '시작일 변경 후 10월 지출: ' + total2);
   log('시작일 10/15로 수정 → 새로고침 없이 반영 (10/12 비움, 10/15 이용 시작 + 설치비, 첫 렌탈료 11/12 → 10월 ₩20,000)');
 

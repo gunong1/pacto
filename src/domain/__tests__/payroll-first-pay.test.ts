@@ -125,7 +125,7 @@ describe('수정·화면 일치·영업일', () => {
 
   test('12. 다른 계약 금전 계산 회귀: 렌탈 월 결제는 일할·문구 변경 없음 (전체 회귀는 golden·통합 테스트)', () => {
     const rental: ContractDraft = {
-      ...EMPTY_DRAFT, title: '렌탈', category: 'rental', contractType: 'rental', contractKind: 'rental', startDate: '2026-10-12',
+      ...EMPTY_DRAFT, title: '렌탈', category: 'rental', contractType: 'recurring', contractKind: 'rental', startDate: '2026-10-12',
       payments: [salary({ kind: 'recurring_fee', direction: 'expense', label: '월 렌탈료', amount: 29_900, dayOfMonth: 12, startsOn: '2026-10-12' })],
     };
     const rr = draftToRecord(rental, 'rent', TODAY);

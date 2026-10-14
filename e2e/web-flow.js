@@ -140,7 +140,7 @@ const log = (...a) => console.log('✔', ...a);
   log('9 캘린더 10/12에 렌탈료 결제 표시');
 
   // 10. 월 지출(캘린더 합계) 반영
-  const monthTotal = await page.locator(tid('calendar-month-total')).innerText();
+  const monthTotal = await page.locator(tid('calendar-month-total')).getAttribute('aria-label');
   if (n(monthTotal) !== n(after)) throw new Error(`캘린더 월 합계 불일치 ${monthTotal} vs ${after}`);
   log('10 월 지출 반영:', monthTotal.replace(/\n/g, ' '));
 

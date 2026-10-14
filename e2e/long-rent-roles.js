@@ -88,7 +88,7 @@ const PDF = require('./cleanPdf')();
   // D
   await page.goto(`${BASE}/calendar?date=2026-11-20&t=${Date.now()}`, { waitUntil: 'networkidle' });
   await page.waitForSelector(tid('calendar-month-total'));
-  const nov = await text('calendar-month-total');
+  const nov = await page.locator(tid('calendar-month-total')).getAttribute('aria-label');
   check('D', '캘린더 11월 총 출금 ₩649,000 (탁송비 선택 비용 제외)', nov.includes('총 출금 예정 ₩649,000'), nov);
 
   // E

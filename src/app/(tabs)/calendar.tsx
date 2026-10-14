@@ -11,11 +11,11 @@ import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { ChipGroup } from '@/components/ui/controls';
 import { dayMarkers, groupCalendarItems, itemsForView, type CalendarViewMode } from '@/domain/calendarGroups';
 import { formatDateKo, isValidISODate, monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from '@/domain/dates';
-import { formatKRW } from '@/domain/money';
 import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
 import type { ISODate } from '@/domain/types';
 import { CalendarGroupCard } from '@/features/calendar/CalendarGroupCard';
+import { MonthCashflowCards } from '@/features/calendar/MonthCashflowCards';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { spacing } from '@/theme';
 
@@ -90,13 +90,8 @@ export default function CalendarScreen() {
           onPressTitle={() => setPicker(true)}
           onToday={isThisMonth ? undefined : () => goTo(yearMonthOf(today))}
           subtitle={
-            // 월 금액은 홈(이번 달 계약 재무 요약)이 주인공 — 캘린더는 작은 한 줄만. 홈과 같은 monthSpending 기준
-            <AppText variant="caption" color="textSecondary" tabular align="center" testID="calendar-month-total">
-              총 출금 예정 {formatKRW(spending.total)}
-              {spending.depositOut > 0 ? ` (보증금 ${formatKRW(spending.depositOut)} 포함)` : ''}
-              {spending.incomeTotal > 0 ? ` · 입금 +${formatKRW(spending.incomeTotal)}` : ''}
-              {spending.undeterminedTotal > 0 ? ' · 확인 필요 금액 제외' : ''}
-            </AppText>
+            // 월 금액은 홈(이번 달 계약 재무 요약)과 같은 monthSpending 기준 — 출금·입금 카드 2장
+            <MonthCashflowCards spending={spending} testID="calendar-month-total" />
           }
         />
         <MonthPickerSheet visible={picker} value={ym} current={yearMonthOf(today)} onSelect={goTo} onClose={() => setPicker(false)} />

@@ -101,7 +101,7 @@ const pay = (o) => ({ id: null, month_of_year: null, ends_on: null, installment_
   check('B1', '성과급 상태 "지급 확정" · 확정 버튼 사라짐', after.includes('지급 확정') && (await page.locator(tid(`${sal}-extra-2-open`)).count()) === 0, after);
   await page.goto(`${BASE}/calendar?date=2026-12-31&t=${Date.now()}`, { waitUntil: 'networkidle' });
   await page.waitForSelector(tid('calendar-month-total'));
-  const dec = await text('calendar-month-total');
+  const dec = await page.locator(tid('calendar-month-total')).getAttribute('aria-label');
   check('B2', '12월 입금 예정 4,000,000 (급여 3,200,000 + 확정 성과급 800,000)', dec.includes('4,000,000'), dec);
 
   // C 보증금 반환 정리
@@ -116,7 +116,7 @@ const pay = (o) => ({ id: null, month_of_year: null, ends_on: null, installment_
   check('C2', '정리 후 카드 사라짐', (await page.locator('[data-testid^="deposit-return-fix-"]').count()) === 0);
   await page.goto(`${BASE}/calendar?date=2028-11-30&t=${Date.now()}`, { waitUntil: 'networkidle' });
   await page.waitForSelector(tid('calendar-month-total'));
-  const nov = await text('calendar-month-total');
+  const nov = await page.locator(tid('calendar-month-total')).getAttribute('aria-label');
   check('C3', '2028년 11월 총 출금 ₩0 (반환 예정 2억이 지출로 잡히지 않음)', nov.includes('총 출금 예정 ₩0'), nov);
 
   check('Z', '페이지 오류 없음', errors.length === 0, errors.join(' | '));

@@ -25,6 +25,37 @@ export function formatWonCompact(amount: number): string {
   return formatWon(amount);
 }
 
+/**
+ * 읽기 쉬운 짧은 금액 (원 단위까지 정확히 유지): 43,500,000 → '4,350만원' · 722,581 → '72만 2,581원' · 230,000,000 → '2억 3,000만원'
+ * 1만 원 미만은 그대로 '9,900원'. 반올림하지 않으므로 금액이 바뀌지 않는다.
+ */
+export function formatWonShort(amount: number): string {
+  const sign = amount < 0 ? '-' : '';
+  const n = Math.abs(Math.round(amount));
+  if (n < 10_000) return `${sign}${withThousands(n)}원`;
+  const eok = Math.floor(n / 100_000_000);
+  const man = Math.floor((n % 100_000_000) / 10_000);
+  const rest = n % 10_000;
+  const parts = [eok > 0 ? `${withThousands(eok)}억` : null, man > 0 ? `${withThousands(man)}만` : null, rest > 0 ? withThousands(rest) : null].filter(Boolean);
+  return `${sign}${parts.join(' ')}원`;
+}
+
+/**
+ * 카드 너비에 맞는 금액 표기 — 전체('43,500,000원')가 들어가면 전체, 아니면 짧은 표기('4,350만원').
+ * 글자 너비는 숫자 글꼴 평균(글자 크기 × 0.6)으로 어림한다 (fontScale: 기기 글자 크기 배율).
+ */
+export function wonForWidth(amount: number, width: number, fontSize: number, fontScale = 1): string {
+  const full = formatWon(amount);
+  if (width <= 0) return full;
+  return textFits(full, width, fontSize, fontScale) ? full : formatWonShort(amount);
+}
+
+/** 글자 폭 어림 (숫자·한글 평균 = 글자 크기 × 0.6, 한글은 글자 크기만큼) — 카드 배치 결정용 */
+export function textFits(text: string, width: number, fontSize: number, fontScale = 1): boolean {
+  const units = [...text].reduce((s, ch) => s + (/[가-힣]/.test(ch) ? 1 : 0.6), 0);
+  return units * fontSize * fontScale <= width;
+}
+
 /** 입력 문자열에서 숫자만 추출 ('1,250,300원' → 1250300). 비어 있으면 null. */
 export function parseAmount(input: string): number | null {
   const digits = input.replace(/[^\d]/g, '');

@@ -42,7 +42,7 @@ const W = 390;
   const monthTotal = async () => {
     await page.goto(`${BASE}/calendar?date=2026-10-20&t=${Date.now()}`, { waitUntil: 'networkidle' });
     await page.waitForSelector(tid('calendar-month-total'));
-    return text('calendar-month-total');
+    return page.locator(tid('calendar-month-total')).getAttribute('aria-label');
   };
 
   await page.goto(BASE + '/', { waitUntil: 'networkidle' });

@@ -276,7 +276,7 @@ const CONTRACTS = [
       for (const s of c.has ?? []) assert(opened.includes(s), `${k.name} ${c.date}: "${s}" 없음\n${opened}`);
       for (const s of c.not ?? []) assert(!list.includes(s), `${k.name} ${c.date}: "${s}"가 있으면 안 됨\n${list}`);
       if (c.total) {
-        const total = await page.locator(tid('calendar-month-total')).innerText();
+        const total = await page.locator(tid('calendar-month-total')).getAttribute('aria-label');
         assert(total.includes(c.total), `${k.name} ${c.date.slice(0, 7)} 월 지출 ${c.total} 아님: ${total.replace(/\n/g, ' ')}`);
         if (c.totalHas) assert(total.includes(c.totalHas), `${k.name} ${c.date.slice(0, 7)} 안내 없음: ${total.replace(/\n/g, ' ')}`);
       }

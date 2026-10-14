@@ -78,7 +78,7 @@ const PDF = require('./cleanPdf')();
     await page.goto(`${BASE}/calendar?date=${ym}-15&t=${Date.now()}`, { waitUntil: 'networkidle' });
     await page.waitForSelector(tid('calendar-month-total'), { timeout: 15000 });
     await page.waitForTimeout(300);
-    return (await text(tid('calendar-month-total'))).replace(/\n/g, ' ');
+    return (await page.locator(tid('calendar-month-total')).getAttribute('aria-label')).replace(/\n/g, ' ');
   };
   const day = async (d) => {
     await page.goto(`${BASE}/calendar?date=${d}&t=${Date.now()}`, { waitUntil: 'networkidle' });
