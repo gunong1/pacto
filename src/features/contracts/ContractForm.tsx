@@ -32,6 +32,7 @@ import {
 } from './form';
 import { DatesList } from './formSections/DatesSection';
 import { DetailsSection } from './formSections/DetailsSection';
+import { LoanFormPlan } from './LoanPlanCard';
 import { formKit, FormLabel } from './formSections/kit';
 import { PartiesSection } from './formSections/PartiesSection';
 import { partyKindOf } from '@/domain/parties';
@@ -364,6 +365,12 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
             </Section>
             {partiesBlock}
             <DetailsSection kit={kit} type={type} />
+            {type === 'loan' ? (
+              <>
+                <SectionGap />
+                <LoanFormPlan values={values} today={today} />
+              </>
+            ) : null}
             <SectionGap />
             <Section title="추가 금액" caption="위 금액 말고 따로 오가는 돈이 있으면 (설치비·보증금 등). 위 금액을 이루는 항목(기본급·수당 등)은 넣지 않아요." testID="section-payments">
               {paymentsBlock}
@@ -415,9 +422,24 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
       </Section>
 
       <DetailsSection kit={kit} type={type} />
+      {/* 대출: 원금·금리·계산 기준으로 만든 상환 계획 (회차별 금액 카드 대신) */}
+      {type === 'loan' ? (
+        <>
+          <SectionGap />
+          <LoanFormPlan values={values} today={today} />
+        </>
+      ) : null}
 
       <SectionGap />
-      <Section title="금액" caption="계약에서 실제로 나가거나 들어오는 돈을 관리해요. 확정된 금액만 캘린더·지출·수입에 들어가요. 합계 금액을 이루는 항목(기본급·수당 등)은 따로 넣지 않고 그 금액의 구성항목으로 보여줘요." testID="section-payments">
+      <Section
+        title={type === 'loan' ? '이자·상환 항목' : '금액'}
+        caption={
+          type === 'loan'
+            ? '이자는 매월 납부하는 규칙 1개로, 만기 원금 상환은 1회로 넣어요. 회차마다 다른 이자는 위 상환 계획이 계산해요. 대출 실행 때 받은 원금은 넣지 않아요.'
+            : '계약에서 실제로 나가거나 들어오는 돈을 관리해요. 확정된 금액만 캘린더·지출·수입에 들어가요. 합계 금액을 이루는 항목(기본급·수당 등)은 따로 넣지 않고 그 금액의 구성항목으로 보여줘요.'
+        }
+        testID="section-payments"
+      >
         {paymentsBlock}
       </Section>
 

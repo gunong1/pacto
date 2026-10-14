@@ -15,6 +15,7 @@ import { cleanClassification, legacyClassifications } from './analysisRules/clas
 import { assignSemanticKeys, conditionRisks, deadlineChecks, dropPlainFacts, mergeSameMeaning, splitRoles } from './analysisRules/checkScope.ts';
 import { attachSuggestions, cleanChecks, conditionalCostsToChecks, waivedCheck } from './analysisRules/checks.ts';
 import { assignDateUses, cleanDates } from './analysisRules/dates.ts';
+import { normalizeLoan } from './analysisRules/loan.ts';
 import { buildDetails, cleanFields } from './analysisRules/fields.ts';
 import { cleanParties } from './analysisRules/parties.ts';
 import { noticeSuggestions, resolveNoticeDays, resolveNoticeKind } from './analysisRules/notices.ts';
@@ -75,6 +76,8 @@ export function toAppResult(raw: unknown, provider: string): AppExtractionResult
   installmentParents(payments, totals, fields.depositAmount?.value);
   // 7) 유형별 속성
   const details = buildDetails(output.details, payments);
+  // 7-0) 대출: 실행금은 결제가 아님 · 회차별 이자는 이자 규칙 1건 · 같은 원금 상환 중복 제거 (loan.ts)
+  if (profile === 'loan') normalizeLoan(payments, references, details, dates);
   // 7-1) 계약 당사자 — 계약서에 이름이 있는 쪽만. 계약서 용어(임대인)는 계약 종류의 자리(렌탈회사)로 연결 (사용자 쪽은 추측하지 않음)
   const { parties, roleMap } = cleanParties(output.parties, classification.kind, details, profile);
   // 계약서가 밝힌 지급자·수령자도 같은 자리로 (임차인이 낸다 → 고객이 낸다). 다른 사람이 내는 예외(보증인 등)는 그대로

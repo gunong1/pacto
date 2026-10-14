@@ -42,7 +42,7 @@ describe('Step 9 — 서버 계약서 분석 (analyze-contract)', () => {
 
     // 작업 기록: 사용자는 조회만 가능, 상태 succeeded
     const { data: job } = await a.client.from('analysis_jobs').select('status, provider, prompt_version').eq('id', result.jobId!).single();
-    expect(job).toEqual({ status: 'succeeded', provider: 'mock', prompt_version: 'extract-v19' }); // 지시문 v18 (나눠 내는 몫의 상위 금액 part_of)
+    expect(job).toEqual({ status: 'succeeded', provider: 'mock', prompt_version: 'extract-v20' }); // 지시문 v18 (나눠 내는 몫의 상위 금액 part_of)
     // 사용자는 작업을 직접 만들 수 없음 (서버 전용)
     const forged = await a.client.from('analysis_jobs').insert({ status: 'succeeded', provider: 'mock', result: {} });
     expect(forged.error).not.toBeNull();

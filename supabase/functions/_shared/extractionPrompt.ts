@@ -35,7 +35,7 @@ import { BANNED_PHRASES, CONFIDENCE, DATE_MEANINGS, DATE_SOURCES, FIELDS, FREQUE
 /* v13: 계약 종류를 계약의 본질로 하나만 판단 (classification: kind·subtype·domains·confidence·alternatives·근거·secondary_elements).
  *      분야(category)·관리 구조(contract_type)를 따로 고르지 않음 — 결제 방식은 분류 근거가 아님 · 자동차는 종류가 아니라 대상(domains)
  *      계약 체크는 할 일·주의할 위험만 (user_action), 사실은 fields·details·payments에만 */
-export const PROMPT_VERSION = 'extract-v19';
+export const PROMPT_VERSION = 'extract-v20';
 
 /** 모델이 답할 수 있는 의무 수준 — 참고 금액은 role=reference, "발생 가능"은 conditional로 (DB는 이전 값도 읽음) */
 const MODEL_OBLIGATIONS = PAYMENT_OBLIGATIONS.filter((o) => o === 'confirmed' || o === 'optional' || o === 'conditional');
@@ -313,6 +313,12 @@ export function extractionInstructions(today: string): string {
     '- 금액의 role: 실제로 오가는 돈만 recurring_cashflow / one_time_cashflow / deposit. 다른 금액을 이루는 하위 항목은 component(part_of에 상위 금액 이름),',
     '  예) "월 임금 3,600,000원은 기본급 3,280,000원과 고정연장근로수당 320,000원으로 구성" → 월 임금 recurring_cashflow 1건 + 기본급·고정연장근로수당 component 2건 (별도 수입 아님).',
     '  차량가·총 대출한도처럼 오가는 돈이 아닌 금액은 reference.',
+    '- 대출(금융) 계약: 대출 원금(실행금·대출금액)은 details의 principal로 넣고 결제로 만들지 않습니다 (실행일에 받는 돈은 reference).',
+    '  만기에 원금을 갚는 돈은 kind=loan_repayment, one_time_cashflow 1건 (만기일). 이자는 회차마다 금액이 달라도 kind=interest 결제를 회차별로 나누지 말고,',
+    '  금리(interest_rate)·금리 방식(rate_type)·상환 방식(repayment_method)·이자 계산 방식(interest_day_count: 실제 일수÷365 → actual_365)·',
+    '  이자 계산 기간(interest_period: 매월 1일~말일 → calendar_month, 납부일~다음 납부일 전날 → pay_cycle)·원 단위 처리(interest_rounding)를 details에 적고,',
+    '  매월 납부하는 이자는 recurring_cashflow 1건(day_of_month=납부일, date=첫 납부일, end_date=만기일)으로 만듭니다. 계약서에 적힌 회차별 이자 금액(예시·상환일정표)은 같은 의무를 반복한 것이라 결제를 더 만들지 않습니다.',
+    '  연체이자·중도상환수수료처럼 조건이 있어야 생기는 돈은 결제가 아니라 checks.',
   '- 나눠 내는 몫(계약금·중도금·잔금·착수금): 그 몫이 어느 금액을 나눈 것인지 계약서에서 보이면 part_of에 그 금액의 label을 넣습니다.',
   '  표에서 "보증금" 줄 아래에 계약금·잔금 줄이 묶여 있으면 part_of=보증금 (줄에 "보증금"이라는 말이 없어도 표의 묶음으로 판단). 문장으로 "매매대금 중 계약금"이면 part_of=매매대금.',
   '  관계가 보이지 않으면 null (금액의 합이 같다는 이유만으로 정하지 않습니다).',

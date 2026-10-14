@@ -94,6 +94,19 @@ export const DETAIL_FIELD_DEFS: readonly {
     type: 'loan', key: 'repaymentMethod', db: 'repayment_method', label: '상환방식', input: 'enum',
     options: [{ value: 'equal_payment', label: '원리금균등' }, { value: 'equal_principal', label: '원금균등' }, { value: 'bullet', label: '만기일시' }, { value: 'other', label: '기타' }],
   },
+  // 이자 계산 기준 (src/domain/loanPlan.ts) — 계약서에 있거나 사용자가 확인한 값만 계산에 쓴다
+  {
+    type: 'loan', key: 'interestDayCount', db: 'interest_day_count', label: '이자 계산 방식', input: 'enum',
+    options: [{ value: 'actual_365', label: '실제 일수 ÷ 365' }, { value: 'actual_360', label: '실제 일수 ÷ 360' }, { value: 'monthly_12', label: '연 이자율 ÷ 12 (매월 같은 이자)' }],
+  },
+  {
+    type: 'loan', key: 'interestPeriod', db: 'interest_period', label: '이자 계산 기간', input: 'enum',
+    options: [{ value: 'calendar_month', label: '매월 1일~말일 (다음 달 납부일에 냄)' }, { value: 'pay_cycle', label: '납부일~다음 납부일 전날' }],
+  },
+  {
+    type: 'loan', key: 'interestRounding', db: 'interest_rounding', label: '이자 원 단위 처리', input: 'enum',
+    options: [{ value: 'floor_1', label: '원 미만 버림' }, { value: 'round_1', label: '원 미만 반올림' }, { value: 'floor_10', label: '10원 미만 버림' }],
+  },
   { type: 'loan', key: 'prepaymentFeeTerms', db: 'prepayment_fee_terms', label: '중도상환수수료', input: 'text', role: 'condition', semanticKey: 'prepayment' },
   { type: 'loan', key: 'overdueTerms', db: 'overdue_terms', label: '연체 관련 조건', input: 'text', role: 'condition', semanticKey: 'overdue' },
   // 보험

@@ -1,5 +1,6 @@
 import { EMPTY_CLASSIFICATION, legacyOf } from '@/domain/contractKinds';
 import { paymentKindLabel } from '@/domain/contractTypes';
+import { interestRuleFrom } from '@/domain/loanPlan';
 import { amountAt } from '@/domain/paymentAmount';
 import { natureOf, normalizeRecord } from '@/domain/cashflow';
 import type { Contract, ContractDate, ContractFund, ContractPayment, ContractRecord, ISODate } from '@/domain/types';
@@ -378,5 +379,43 @@ export function fixDepositReturn(record: ContractRecord, paymentId: string, date
   draft.funds = target
     ? funds.map((f) => (f === target ? { ...f, returnDueOn: dateIsStated ? returnDueOn : f.returnDueOn } : f))
     : [...funds, { key: 'deposit-return-fix', kind: 'deposit', label: '보증금', totalAmount: null, returnDueOn, depositorRole: null, holderRole: null }];
+  return draft;
+}
+
+/**
+ * 대출: 결제로 저장된 대출 실행금 정리 (사용자가 확인했을 때만) — 그 결제만 지우고 대출 원금 정보로 (원금이 비어 있을 때만 채움).
+ * 금액은 참고 금액으로 남긴다. 다른 결제 id·연결은 그대로.
+ */
+export function fixLoanDisbursement(record: ContractRecord, paymentId: string): ContractDraft {
+  const draft = recordToDraft(record);
+  const idx = record.payments.findIndex((p) => p.id === paymentId);
+  if (idx < 0) throw new Error('결제 항목을 찾을 수 없어요.');
+  const p = record.payments[idx];
+  draft.payments = draft.payments.filter((_, i) => i !== idx);
+  const details = { ...(draft.details as Record<string, unknown>) };
+  if (details.principal == null) details.principal = p.amount;
+  draft.details = details as ContractDraft['details'];
+  draft.referenceAmounts = [...draft.referenceAmounts, { label: p.label, amount: p.amount, role: 'reference' }];
+  return draft;
+}
+
+/**
+ * 대출: 회차별로 저장된 이자 결제 여러 개 → 이자 납부 규칙 1건 (사용자가 확인했을 때만).
+ * 원래 회차 금액은 참고 금액으로 남겨 계산과 대조한다. 첫 이자 결제의 id를 그대로 쓰고 나머지 이자 결제만 지운다.
+ */
+export function mergeLoanInterest(record: ContractRecord, paymentIds: readonly string[]): ContractDraft {
+  const rows = record.payments.filter((p) => paymentIds.includes(p.id));
+  if (rows.length === 0) throw new Error('이자 항목을 찾을 수 없어요.');
+  const rule = interestRuleFrom(rows, record.contract.endDate ?? null);
+  const keep = [...rows].sort((a, b) => a.startsOn.localeCompare(b.startsOn))[0];
+  const draft = recordToDraft(record);
+  draft.payments = draft.payments
+    .filter((p) => !(p.id && paymentIds.includes(p.id) && p.id !== keep.id))
+    .map((p) =>
+      p.id === keep.id
+        ? { ...p, kind: 'interest', label: '대출 이자', frequency: 'monthly', dayOfMonth: rule.dayOfMonth, startsOn: rule.startsOn, endsOn: rule.endsOn, amount: rule.amount, isVariable: true, installmentCount: null }
+        : p,
+    );
+  draft.referenceAmounts = [...draft.referenceAmounts, ...rows.map((p) => ({ label: p.label, amount: p.amount, role: 'reference' as const }))];
   return draft;
 }

@@ -15,6 +15,8 @@ export interface SpendingItem {
   direction: Direction;
   /** 일반 / 보증금·예치금 · null = 알 수 없음 */
   nature: FlowNature | null;
+  /** 대출 원금 상환 (일반 지출과 구분) */
+  principal?: boolean;
   /** 과거 분석이 자동으로 정한 방향 (역할 확인 전) — 합계에는 넣고 "자동 판단"으로 따로 알린다 */
   auto?: boolean;
   estimated: boolean;
@@ -45,6 +47,8 @@ export interface MonthSpending {
   ordinaryExpense: number;
   /** 보증금·예치금 지급 (또는 임대인의 반환) */
   depositOut: number;
+  /** 대출 원금 상환 (총 출금에 포함 · 일반 지출과 구분) */
+  principalOut: number;
   /** 총 입금 예정 */
   incomeTotal: number;
   ordinaryIncome: number;
@@ -79,7 +83,7 @@ export interface FlowLine {
 }
 /** 상위 항목: 돈의 성격별 (일반 / 보증금·예치금) — 서로 섞지 않는다 */
 export interface FlowGroup {
-  nature: FlowNature;
+  nature: FlowNature | 'principal';
   label: string;
   amount: number;
   lines: FlowLine[];
@@ -94,17 +98,19 @@ export interface FlowSummary {
   total: number;
   groups: FlowGroup[];
 }
-export const FLOW_LABELS: Record<FlowSummary['direction'], { total: string; ordinary: string; deposit: string }> = {
-  expense: { total: '총 출금 예정', ordinary: '일반 지출', deposit: '보증금 지급' },
-  income: { total: '총 입금 예정', ordinary: '일반 수입', deposit: '보증금 받음·반환' },
+export const FLOW_LABELS: Record<FlowSummary['direction'], { total: string; ordinary: string; deposit: string; principal: string }> = {
+  expense: { total: '총 출금 예정', ordinary: '일반 지출', deposit: '보증금 지급', principal: '대출 원금 상환' },
+  income: { total: '총 입금 예정', ordinary: '일반 수입', deposit: '보증금 받음·반환', principal: '대출 원금' },
 };
+/** 같은 성격끼리만 (일반 / 보증금 / 대출 원금 상환) — 하나의 금액은 한 묶음에만 */
+const natureOfItem = (i: SpendingItem): FlowGroup['nature'] => (i.principal ? 'principal' : i.nature === 'deposit' ? 'deposit' : 'ordinary');
 
 export function flowSummary(items: readonly SpendingItem[], direction: FlowSummary['direction']): FlowSummary {
   const mine = items.filter((i) => i.direction === direction);
-  const groups = (['ordinary', 'deposit'] as const)
+  const groups = (['ordinary', 'deposit', 'principal'] as const)
     .map((nature): FlowGroup => {
       // 성격을 모르는 금액(예전 데이터)은 지금처럼 일반으로 (monthSpending의 ordinaryExpense와 같은 기준)
-      const list = mine.filter((i) => (nature === 'deposit' ? i.nature === 'deposit' : i.nature !== 'deposit'));
+      const list = mine.filter((i) => natureOfItem(i) === nature);
       const byKind = new Map<string, { amount: number; contracts: Set<string> }>();
       for (const i of list) {
         const g = byKind.get(i.kindLabel) ?? { amount: 0, contracts: new Set<string>() };
@@ -133,6 +139,7 @@ export function cashItems(records: ContractRecord[], start: ISODate, end: ISODat
         label: i.title,
         direction: i.direction!,
         nature: i.moneyNature ?? null,
+        principal: i.principal === true,
         auto: i.directionStatus === 'auto',
         estimated: i.estimated,
         contractId: contract.id,
@@ -152,7 +159,7 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth, today?: 
   const items = all.filter((i) => i.direction === 'expense');
   const incomeItems = all.filter((i) => i.direction === 'income');
   const undetermined = all.filter((i) => i.direction === 'neutral');
-  const ordinary = items.filter((i) => i.nature !== 'deposit');
+  const ordinary = items.filter((i) => natureOfItem(i) === 'ordinary');
   const byCat = new Map<ContractCategory, number>();
   for (const i of ordinary) byCat.set(i.category, (byCat.get(i.category) ?? 0) + i.amount);
   const byKind = new Map<string, number>();
@@ -161,7 +168,8 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth, today?: 
     yearMonth: ym,
     total: sum(items),
     ordinaryExpense: sum(ordinary),
-    depositOut: sum(items.filter((i) => i.nature === 'deposit')),
+    depositOut: sum(items.filter((i) => natureOfItem(i) === 'deposit')),
+    principalOut: sum(items.filter((i) => i.principal)),
     incomeTotal: sum(incomeItems),
     ordinaryIncome: sum(incomeItems.filter((i) => i.nature !== 'deposit')),
     depositIn: sum(incomeItems.filter((i) => i.nature === 'deposit')),

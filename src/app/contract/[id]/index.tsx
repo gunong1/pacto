@@ -40,6 +40,9 @@ import { overallProtectionCopy, partialAnalysis } from '@/features/documents/pro
 import { useAttachOriginal, useContract, useContractActions, useRemoveContract, useToday } from '@/features/contracts/queries';
 import { FundsSection } from '@/features/contracts/FundsSection';
 import { DepositReturnFixCard } from '@/features/contracts/DepositReturnFixCard';
+import { LoanFixCard } from '@/features/contracts/LoanFixCard';
+import { LoanPlanCard } from '@/features/contracts/LoanPlanCard';
+import { isLoanContract } from '@/domain/loanPlan';
 import { SalaryCard } from '@/features/contracts/SalaryCard';
 import { isSalaryPayment } from '@/domain/payroll';
 import { isPayoutLike, misfiledDepositReturns } from '@/domain/cashflow';
@@ -388,6 +391,20 @@ export default function ContractDetailScreen() {
         {misfiledDepositReturns(record).map((p) => (
           <DepositReturnFixCard key={`dr-${p.id}`} payment={p} busy={actions.fixDepositReturn.isPending} onFix={(dated) => actions.fixDepositReturn.mutate([p.id, dated])} />
         ))}
+
+        {/* 대출: 예전 분석의 실행금·회차별 이자 정리 (사용자가 확인해야) + 상환 계획 (loanPlan.ts) */}
+        <LoanFixCard
+          record={record}
+          busy={actions.fixLoanDisbursement.isPending || actions.mergeLoanInterest.isPending}
+          onFixDisbursement={(id) => actions.fixLoanDisbursement.mutate([id])}
+          onMergeInterest={(ids) => actions.mergeLoanInterest.mutate([ids])}
+        />
+        {isLoanContract(record.contract) ? (
+          <>
+            <SectionGap />
+            <LoanPlanCard record={record} />
+          </>
+        ) : null}
 
         <FundsSection record={record} today={today} confirm={confirm} />
 

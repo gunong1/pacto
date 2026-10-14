@@ -6,6 +6,7 @@ import { contractTermSource, getNotificationPriority, termNeedsReview, type Acti
 import { addDays, dateInMonth, parseISODate } from './dates';
 import { noticeActionType, noticeLabelOf } from './noticeKind';
 import { amountOn, amountPeriods, periodBoundaries } from './paymentRules';
+import { installmentText, isLoanContract, loanLegacyIssues, loanPlan } from './loanPlan';
 import { prorationPlan, proratedFor, proratedText } from './payroll';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
 import type {
@@ -120,6 +121,36 @@ export function expandPayment(
   if (!isConfirmedPayment(payment)) return [];
   const rule = payment.businessDayRule ?? 'none';
   const margin = rule === 'none' ? 0 : 10;
+  // 대출 이자 납부 규칙: 계획(loanPlan)이 회차별 이자 기간·금액·납부일을 정한다 (매월 이자가 달라도 결제는 1건)
+  let loanUnsure = false;
+  if (payment.kind === 'interest' && payment.frequency !== 'one_time' && isLoanContract(contract)) {
+    const loan = loanPlan({ contract, payments: [payment] });
+    // 계산 조건이 부족하면 저장된 금액을 "예상"으로만 (확정 금액을 만들지 않음)
+    loanUnsure = loan.status !== 'ready';
+    if (loan.status === 'ready') {
+      const cutoff = paymentCutoff(contract);
+      return loan.interest
+        .filter((x) => cutoff == null || x.payDate <= cutoff)
+        .map((x): PaymentOccurrence => {
+          const text = installmentText(x, loan.terms);
+          return {
+            date: adjustToBusinessDay(x.payDate, rule),
+            nominalDate: x.payDate,
+            amount: x.amount,
+            amountNote: text.title,
+            paymentId: payment.id,
+            contractId: contract.id,
+            kind: payment.kind,
+            direction: payment.direction,
+            label: payment.label,
+            installment: null,
+            estimated: loan.estimated,
+            prorated: { title: text.title, detail: `${text.detail}${loan.estimated ? ' · 예상' : ''}` },
+          };
+        })
+        .filter((o) => o.date >= range.start && o.date <= range.end);
+    }
+  }
   // 급여 규정이 확인된 급여: 첫 지급일 전 회차 없음 · 마지막 지급일 뒤 회차 없음 · 첫·마지막 급여는 일할 계산 금액 (payroll.ts)
   const plan = prorationPlan({ contract, dates }, payment);
   const nominal = expandNominal(payment, contract, { start: addDays(range.start, -margin), end: addDays(range.end, margin) }, plan.status === 'ready' ? plan.lastPayDate : null);
@@ -132,8 +163,8 @@ export function expandPayment(
       const prorated = proratedFor(plan, o.nominalDate);
       const { amount, note } = amountOn(periods, payment, o.nominalDate, prorated?.total);
       const text = prorated ? proratedText(prorated) : null;
-      const amountNote = [text?.title, note, o.nominalDate === firstUnsure ? FIRST_PAYMENT_CHECK : null].filter(Boolean).join(' · ') || null;
-      return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote, prorated: text };
+      const amountNote = [text?.title, note, o.nominalDate === firstUnsure ? FIRST_PAYMENT_CHECK : null, loanUnsure ? LOAN_INTEREST_CHECK : null].filter(Boolean).join(' · ') || null;
+      return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote, prorated: text, estimated: o.estimated || loanUnsure };
     })
     .filter((o) => o.date >= range.start && o.date <= range.end);
 }
@@ -143,6 +174,9 @@ export function expandPayment(
  * 다른 날짜에서 추측하지 않는다: 시작일의 날짜(근로 시작일 ≠ 급여 지급일)도, 다른 결제의 결제일도 쓰지 않는다.
  * 반복 일정을 만들지 않고 "결제일(지급일) 확인 필요"로 보여준다.
  */
+/** 대출 이자 — 계산 조건(금리 방식·계산 방식·상환 방식 등)이 부족해 저장된 금액을 예상으로만 보여줄 때 */
+export const LOAN_INTEREST_CHECK = '이자 계산 조건 확인 필요';
+
 export function isPaymentDayUnknown(payment: Pick<ContractPayment, 'frequency' | 'dayOfMonth'>): boolean {
   return payment.frequency !== 'one_time' && payment.dayOfMonth == null;
 }
@@ -230,6 +264,8 @@ export interface ScheduleItem {
   title: string;
   /** 계산 내역 한 줄 (일할 계산 급여: "10월 총 31일 중 17일분 일할 계산 · 세전") */
   detail?: string | null;
+  /** 대출 원금 상환 — 총 출금에는 들어가지만 일반 지출과 구분 */
+  principal?: boolean;
   /** 결제 항목의 의미 (결제가 아니면 null) */
   paymentKind: PaymentKind | null;
   /** 결제 항목의 돈 방향 (결제가 아니면 null) — neutral = 방향 확인 필요 (합계에 넣지 않음) */
@@ -335,7 +371,10 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
   const items: ScheduleItemDraft[] = [];
   const inRange = (d: ISODate | null | undefined): d is ISODate => !!d && d >= range.start && d <= range.end;
 
+  // 대출 실행금(예전 분석으로 결제로 저장된 것)은 입출금 일정·합계에 넣지 않는다 — 저장값은 그대로, 정리는 사용자가 (loanLegacyIssues)
+  const disbursed = new Set(loanLegacyIssues(record).disbursements.map((p) => p.id));
   for (const p of record.payments) {
+    if (disbursed.has(p.id)) continue;
     for (const o of expandPayment(p, contract, range, record.dates)) {
       items.push({
         ...base,
@@ -347,6 +386,8 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
           ? [o.prorated.title, o.amountNote?.replace(o.prorated.title, '').replace(/^ · /, '')].filter(Boolean).join(' · ')
           : `${o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label}${o.amountNote ? ` (${o.amountNote})` : ''}`,
         detail: o.prorated?.detail ?? null,
+        // 대출 원금 상환 (일회성) — 실제 현금 유출이지만 일반 지출과 따로 집계 (spending.ts)
+        principal: p.kind === 'loan_repayment' && p.frequency === 'one_time' ? true : undefined,
         paymentKind: p.kind,
         direction: p.direction,
         directionStatus: directionStatusOf(p, contract),

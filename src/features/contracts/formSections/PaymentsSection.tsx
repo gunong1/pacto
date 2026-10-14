@@ -115,7 +115,10 @@ export function PaymentsList({
         return (
           <View key={p.key} style={styles.card} testID={`payment-${i}`}>
             <View style={styles.cardHeader}>
-              <AppText variant="body2Strong">금액 {i + 1}</AppText>
+              {/* 번호 대신 의미 있는 이름 (이름이 비어 있으면 결제 종류 · 그래도 없으면 순번) */}
+              <AppText variant="body2Strong" numberOfLines={1} style={{ flexShrink: 1 }}>
+                {pv.label?.trim() || (pv.kind ? paymentKindLabel(pv.kind) : `금액 ${i + 1}`)}
+              </AppText>
               {pv.obligation !== 'confirmed' ? (
                 <Badge label={`${OBLIGATION_LABEL[pv.obligation]} · 캘린더·지출 제외`} tone="check" />
               ) : pv.direction === 'neutral' ? (
