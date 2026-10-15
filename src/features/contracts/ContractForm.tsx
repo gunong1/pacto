@@ -33,6 +33,8 @@ import {
 import { DatesList } from './formSections/DatesSection';
 import { DetailsSection } from './formSections/DetailsSection';
 import { LoanFormPlan } from './LoanPlanCard';
+import { PayBasisFields } from './formSections/PayBasisFields';
+import { PAY_BASIS_KEYS } from '@/domain/payBasis';
 import { formKit, FormLabel } from './formSections/kit';
 import { PartiesSection } from './formSections/PartiesSection';
 import { partyKindOf } from '@/domain/parties';
@@ -230,7 +232,10 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
     (errors) => {
       const keys = Object.keys(errors);
       // 빠른 입력: 접힌 상세 정보에 오류가 있으면 펼쳐서 보여준다
-      if (quick && keys.some((k) => !QUICK_VISIBLE.has(k))) setMore(true);
+      // (근로의 급여 방식 칸은 위 금액 영역에 있어 펼치지 않는다)
+      const detailErrs = Object.keys((errors as { details?: object }).details ?? {});
+      const hidden = keys.filter((k) => !QUICK_VISIBLE.has(k) && !(k === 'details' && detailErrs.length > 0 && detailErrs.every((d) => PAY_BASIS_KEYS.has(d))));
+      if (quick && hidden.length > 0) setMore(true);
       // 전체 입력: 숨겨 둔 갱신·통보 기한에 오류가 있으면 그 칸을 펼친다
       if (!quick && keys.some((k) => RENEWAL_KEYS.has(k))) {
         setRenewalForced(true);
@@ -271,8 +276,9 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
         </Section>
 
         <SectionGap />
-        <Section title="금액" caption="비워두면 결제 없이 저장돼요" testID="quick-payment">
-          {field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
+        <Section title={type === 'employment' ? '급여' : '금액'} caption={type === 'employment' ? '비워두면 급여 없이 저장돼요' : '비워두면 결제 없이 저장돼요'} testID="quick-payment">
+          {/* 근로: 급여 방식(월급·시급·일급·연봉)에 따라 입력 칸이 바뀌고 급여 금액(월급·예상 월 수입)을 채운다 */}
+          {type === 'employment' ? <PayBasisFields kit={kit} mode="quick" /> : field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
           {q?.amount?.trim() ? (
             <ComponentsEditor components={q.components ?? []} total={parseAmount(q.amount)} onChange={(next) => setValue('quick.components', next)} testID="quick-components" />
           ) : null}
@@ -421,7 +427,7 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
         {date('contractDate', '계약 체결일 (선택)', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
       </Section>
 
-      <DetailsSection kit={kit} type={type} />
+      <DetailsSection kit={kit} type={type} extra={type === 'employment' ? <PayBasisFields kit={kit} mode="full" /> : null} />
       {/* 대출: 원금·금리·계산 기준으로 만든 상환 계획 (회차별 금액 카드 대신) */}
       {type === 'loan' ? (
         <>

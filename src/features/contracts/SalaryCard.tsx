@@ -5,6 +5,7 @@
  * - 조건부 항목을 모두 받으면 얼마인지는 "예시"로만 (확정 월급 아님)
  * - 첫·마지막 급여 일할 계산 내역 (규정이 확인된 경우) / 확인할 규정 안내
  * - 세전 금액 — 공제액을 몰라 실수령액은 계산하지 않음
+ * - 급여 방식(src/domain/payBasis.ts): 시급·일급제는 "예상 월 수입 (세전 기본급 추정)" + 계산식, 연봉제는 월 지급액 + 연봉
  */
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -17,6 +18,7 @@ import { DateField } from '@/components/ui/DateField';
 import { Section } from '@/components/ui/layout';
 import { formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { formatWon, parseAmount } from '@/domain/money';
+import { isVariablePayBasis, monthlyPayEstimate, PAY_BASIS_LABEL, PAY_ESTIMATE_EXCLUDES, payBasisOf, payEstimateEdited } from '@/domain/payBasis';
 import { COMPONENT_STATUS_LABEL, PAY_TYPE_LABEL, PAYROLL_RULE_LABEL, prorationPlan, proratedText, salaryBreakdown, variableAmount, type ProratedPay } from '@/domain/payroll';
 import type { ContractPayment, ContractRecord, PaymentComponent } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
@@ -37,14 +39,36 @@ export function SalaryCard({ record, payment, actions }: { record: ContractRecor
   const plan = prorationPlan(record, payment);
   const tid = `salary-${payment.id}`;
   const all = payment.components ?? [];
+  const details = record.contract.details;
+  const basis = payBasisOf(details);
+  const estimate = monthlyPayEstimate(details);
+  const variable = isVariablePayBasis(basis);
   return (
     <Section title="급여" caption="세전 금액이에요. 공제액을 알 수 없어 실수령액은 계산하지 않아요." testID={tid}>
+      {basis ? (
+        <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+          <Badge label={PAY_BASIS_LABEL[basis]} tone="neutral" />
+        </View>
+      ) : null}
       <AppText variant="caption" color="textTertiary">
-        세전 고정 월 급여
+        {variable ? '예상 월 수입 (세전 기본급 추정)' : basis === 'annual' ? '세전 월 지급액' : '세전 고정 월 급여'}
       </AppText>
       <AppText variant="title2" tabular testID={`${tid}-fixed`}>
         {formatWon(payment.amount)}
       </AppText>
+      {estimate?.formula ? (
+        <View style={{ marginTop: 2, gap: 2 }} testID={`${tid}-basis`}>
+          <AppText variant="caption" color="textSecondary">
+            {estimate.formula}
+            {estimate.amount != null && payEstimateEdited(details, payment.amount) ? ` = ${formatWon(estimate.amount)} (계산값) · 직접 고친 금액으로 관리해요` : ''}
+          </AppText>
+          {variable ? (
+            <AppText variant="small" color="textTertiary">
+              실제 수령액과 달라요 — 근무일수에 따라 달라지고, {PAY_ESTIMATE_EXCLUDES}.
+            </AppText>
+          ) : null}
+        </View>
+      ) : null}
       {b.fixed.length > 0 ? (
         <View style={{ marginTop: spacing.xs, paddingLeft: spacing.md, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 2 }} testID={`${tid}-parts`}>
           {b.fixed.map((c) => (

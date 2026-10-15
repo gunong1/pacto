@@ -87,6 +87,10 @@ export interface DetailFieldSpec {
   semanticKey?: string;
   /** 예전 버전의 당사자 칸 (이 역할의 이름) — 화면은 당사자 행으로만 보여준다 (src/domain/parties.ts) */
   party?: string;
+  /** false = AI 분석에서 묻지 않는 사용자 입력 칸 */
+  ai?: false;
+  /** decimal 칸의 최대값 */
+  max?: number;
 }
 
 /** 기본 정보(사실)와 상세 조건(조건 문장)으로 나눈다 — 등록 확인·수정·상세 화면 공통 */
@@ -110,6 +114,8 @@ function detailValueSchema(spec: DetailFieldSpec) {
       return z.number().int().min(0).nullable();
     case 'percent':
       return z.number().min(0).max(100).nullable();
+    case 'decimal':
+      return z.number().min(0).max(spec.max ?? 100).nullable();
     case 'text':
       return z.string().max(500).nullable();
     case 'boolean':

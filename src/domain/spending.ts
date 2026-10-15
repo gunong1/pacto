@@ -51,6 +51,8 @@ export interface MonthSpending {
   principalOut: number;
   /** 총 입금 예정 */
   incomeTotal: number;
+  /** 입금 중 예상 금액 (시급·일급제 예상 월 수입 등 변동 금액 — 세전 추정, 실제 수령액 아님) */
+  incomeEstimated: number;
   ordinaryIncome: number;
   /** 보증금 받음 · 보증금 반환 받음 */
   depositIn: number;
@@ -171,6 +173,7 @@ export function monthSpending(records: ContractRecord[], ym: YearMonth, today?: 
     depositOut: sum(items.filter((i) => natureOfItem(i) === 'deposit')),
     principalOut: sum(items.filter((i) => i.principal)),
     incomeTotal: sum(incomeItems),
+    incomeEstimated: sum(incomeItems.filter((i) => i.estimated)),
     ordinaryIncome: sum(incomeItems.filter((i) => i.nature !== 'deposit')),
     depositIn: sum(incomeItems.filter((i) => i.nature === 'deposit')),
     undeterminedTotal: sum(undetermined),

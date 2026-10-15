@@ -38,7 +38,8 @@ export const CONTRACT_TYPE_DEFS = [
   { code: 'other', label: '기타', examples: '위에 해당하지 않는 계약', guide: '위에 해당하지 않음' },
 ] as const;
 
-export type DetailInput = 'amount' | 'integer' | 'percent' | 'text' | 'enum' | 'boolean';
+/** decimal: 소수 허용 숫자 (근무시간 7.5 등) — DB 형식 number (0~100), 칸별 최대값은 max */
+export type DetailInput = 'amount' | 'integer' | 'percent' | 'decimal' | 'text' | 'enum' | 'boolean';
 
 /**
  * 유형별 상세 속성 (contracts.contract_details JSONB). key = 앱(camelCase), db = 저장 키(snake_case, 정식 컬럼 승격 시 이름)
@@ -48,6 +49,8 @@ export type DetailInput = 'amount' | 'integer' | 'percent' | 'text' | 'enum' | '
  * semanticKey — 같은 의미의 계약 체크(SEMANTIC_KEY_DEFS)와 연결. 같은 문장을 두 곳에 반복하지 않도록 체크는 할 일·이유로 쓴다 (checkScope S5)
  * party — 예전 버전의 당사자 칸 (이 역할의 이름). 이제 당사자는 contracts.parties가 기준 — 화면은 이 칸을 당사자 행으로만 보여주고
  *   (parties가 비어 있는 예전 계약의 읽기 호환), AI에는 묻지 않는다. 저장된 값은 지우지 않는다
+ * ai: false — AI 분석에서 묻지 않는 칸 (사용자가 직접 입력·수정하는 값. 분석 지시문·결과에 넣지 않음)
+ * max — decimal 칸의 최대값 (하루 근무시간 24 · 월 근무일수 31)
  */
 export type DetailRole = 'fact' | 'condition';
 export const DETAIL_FIELD_DEFS: readonly {
@@ -61,6 +64,8 @@ export const DETAIL_FIELD_DEFS: readonly {
   role?: DetailRole;
   semanticKey?: string;
   party?: string;
+  ai?: false;
+  max?: number;
 }[] = [
   // 월 납입형
   { type: 'recurring', key: 'commitmentMonths', db: 'commitment_months', label: '최소 이용기간', input: 'integer', suffix: '개월' },
@@ -125,6 +130,16 @@ export const DETAIL_FIELD_DEFS: readonly {
     options: [{ value: 'permanent', label: '정규직' }, { value: 'fixed_term', label: '계약직' }, { value: 'part_time', label: '단시간·아르바이트' }, { value: 'other', label: '기타' }],
   },
   { type: 'employment', key: 'jobTitle', db: 'job_title', label: '직무', input: 'text' },
+  // 급여 방식 (src/domain/payBasis.ts) — 고용 형태와 별개. 시급·일급은 단가 그대로 보관하고, 예상 월 수입(세전 기본급 추정)은 급여 결제 금액으로 따로 둔다
+  // 비어 있으면 예전 계약 = 월급 금액이 급여 결제 (그대로 호환). 사용자가 직접 입력하는 값이라 AI에는 묻지 않는다
+  {
+    type: 'employment', key: 'payBasis', db: 'pay_basis', label: '급여 방식', input: 'enum', ai: false,
+    options: [{ value: 'monthly', label: '월급제' }, { value: 'hourly', label: '시급제' }, { value: 'daily', label: '일급제' }, { value: 'annual', label: '연봉제' }],
+  },
+  { type: 'employment', key: 'hourlyWage', db: 'hourly_wage', label: '시급', input: 'amount', suffix: '원', ai: false },
+  { type: 'employment', key: 'dailyWorkHours', db: 'daily_work_hours', label: '하루 근무시간', input: 'decimal', suffix: '시간', max: 24, ai: false },
+  { type: 'employment', key: 'dailyWage', db: 'daily_wage', label: '일급', input: 'amount', suffix: '원', ai: false },
+  { type: 'employment', key: 'monthlyWorkDays', db: 'monthly_work_days', label: '월 예상 근무일수', input: 'decimal', suffix: '일', max: 31, ai: false },
   { type: 'employment', key: 'annualSalary', db: 'annual_salary', label: '연봉', input: 'amount', suffix: '원' },
   { type: 'employment', key: 'probationMonths', db: 'probation_months', label: '수습기간', input: 'integer', suffix: '개월' },
   { type: 'employment', key: 'probationPayRate', db: 'probation_pay_rate', label: '수습기간 임금 비율', input: 'percent', suffix: '%' },

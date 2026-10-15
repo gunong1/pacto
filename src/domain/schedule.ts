@@ -7,6 +7,7 @@ import { addDays, dateInMonth, parseISODate } from './dates';
 import { noticeActionType, noticeLabelOf } from './noticeKind';
 import { amountOn, amountPeriods, periodBoundaries } from './paymentRules';
 import { installmentText, isLoanContract, loanLegacyIssues, loanPlan } from './loanPlan';
+import { isVariablePayBasis, PAY_BASIS_LABEL, payBasisOf } from './payBasis';
 import { prorationPlan, proratedFor, proratedText } from './payroll';
 import { currentTerm, paymentCutoff, terminationNoticeDeadline } from './status';
 import type {
@@ -365,6 +366,12 @@ const TYPE_ORDER: Record<ScheduleItemType, number> = {
  * - 계약 체결일은 기록용이라 일정에 넣지 않는다
  * 모두 저장하지 않고 계산 → 계약을 수정하면 자동으로 다시 만들어진다.
  */
+/** 시급·일급제 급여 — "시급제 · 세전 기본급 추정" (실제 수령액이 아님, src/domain/payBasis.ts) */
+function payBasisDetail(p: ContractPayment, contract: ContractRecord['contract']): string | null {
+  const basis = payBasisOf(contract.details);
+  return p.kind === 'salary' && p.frequency === 'monthly' && isVariablePayBasis(basis) ? `${PAY_BASIS_LABEL[basis!]} · 세전 기본급 추정 (실제 수령액과 달라요)` : null;
+}
+
 export function contractSchedule(record: ContractRecord, range: DateRange, today: ISODate): ScheduleItem[] {
   const { contract } = record;
   const base = { contractId: contract.id, contractTitle: contract.title, category: contract.category };
@@ -385,7 +392,7 @@ export function contractSchedule(record: ContractRecord, range: DateRange, today
         title: o.prorated
           ? [o.prorated.title, o.amountNote?.replace(o.prorated.title, '').replace(/^ · /, '')].filter(Boolean).join(' · ')
           : `${o.installment ? `${p.label} ${o.installment.no}/${o.installment.total}회` : p.label}${o.amountNote ? ` (${o.amountNote})` : ''}`,
-        detail: o.prorated?.detail ?? null,
+        detail: o.prorated?.detail ?? payBasisDetail(p, contract),
         // 대출 원금 상환 (일회성) — 실제 현금 유출이지만 일반 지출과 따로 집계 (spending.ts)
         principal: p.kind === 'loan_repayment' && p.frequency === 'one_time' ? true : undefined,
         paymentKind: p.kind,

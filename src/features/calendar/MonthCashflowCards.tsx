@@ -14,13 +14,13 @@ import { formatKRW, formatWonShort, textFits, wonForWidth } from '@/domain/money
 import type { MonthSpending } from '@/domain/spending';
 import { colors, radius, spacing, typography } from '@/theme';
 
-type Totals = Pick<MonthSpending, 'total' | 'depositOut' | 'incomeTotal' | 'undeterminedTotal'> & Partial<Pick<MonthSpending, 'principalOut'>>;
+type Totals = Pick<MonthSpending, 'total' | 'depositOut' | 'incomeTotal' | 'undeterminedTotal'> & Partial<Pick<MonthSpending, 'principalOut' | 'incomeEstimated'>>;
 
 /** 전체 금액 문장 (예전 한 줄 요약과 같은 내용) — 화면 낭독기용 */
 export function cashflowSummaryLabel(s: Totals): string {
   return [
     `총 출금 예정 ${formatKRW(s.total)}${s.depositOut > 0 ? ` (보증금 ${formatKRW(s.depositOut)} 포함)` : ''}${(s.principalOut ?? 0) > 0 ? ` (대출 원금 상환 ${formatKRW(s.principalOut!)} 포함)` : ''}`,
-    s.incomeTotal > 0 ? `입금 +${formatKRW(s.incomeTotal)}` : '입금 예정 없음',
+    s.incomeTotal > 0 ? `입금 +${formatKRW(s.incomeTotal)}${(s.incomeEstimated ?? 0) > 0 ? ` (세전 예상 ${formatKRW(s.incomeEstimated!)} 포함)` : ''}` : '입금 예정 없음',
     s.undeterminedTotal > 0 ? '확인 필요 금액 제외' : null,
   ]
     .filter(Boolean)
@@ -39,7 +39,7 @@ export function MonthCashflowCards({ spending, testID }: { spending: Totals; tes
     <View testID={testID} accessible accessibilityLabel={cashflowSummaryLabel(spending)} style={styles.wrap}>
       <View style={[styles.row, stacked && styles.stacked]} onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}>
         <Card half={!stacked} kind="out" title="출금 예정" amount={spending.total} sub={[spending.depositOut > 0 ? `보증금 ${formatWonShort(spending.depositOut)} 포함` : null, (spending.principalOut ?? 0) > 0 ? `원금 상환 ${formatWonShort(spending.principalOut!)} 포함` : null].filter((x): x is string => !!x)} fontScale={fontScale} testID={testID ? `${testID}-out` : undefined} />
-        <Card half={!stacked} kind="in" title="입금 예정" amount={spending.incomeTotal} sub={[]} fontScale={fontScale} testID={testID ? `${testID}-in` : undefined} />
+        <Card half={!stacked} kind="in" title="입금 예정" amount={spending.incomeTotal} sub={(spending.incomeEstimated ?? 0) > 0 ? [`세전 예상 ${formatWonShort(spending.incomeEstimated!)} 포함`] : []} fontScale={fontScale} testID={testID ? `${testID}-in` : undefined} />
       </View>
       {spending.undeterminedTotal > 0 ? (
         <AppText variant="small" color="textTertiary" align="center" style={{ marginTop: spacing.xs }}>

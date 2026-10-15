@@ -10,6 +10,7 @@
  * 금액은 결제(contract_payments) 하나 — 구성항목은 그 금액의 세부 내역이라 따로 수입으로 더하지 않는다.
  */
 import { addDays, addMonths, dateInMonth, diffDays, parseISODate, toISODate } from './dates';
+import { isVariablePayBasis, payBasisOf } from './payBasis';
 import { amountAt } from './paymentAmount';
 import type { ComponentPayType, Contract, ContractPayment, ContractRecord, ISODate, PaymentComponent } from './types';
 
@@ -222,6 +223,8 @@ export const isSalaryPayment = (p: Pick<ContractPayment, 'kind' | 'frequency'>):
 export function prorationPlan(record: Pick<ContractRecord, 'contract' | 'dates'>, payment: ContractPayment): ProrationPlan {
   if (!isSalaryPayment(payment)) return { status: 'not_applicable' };
   const { contract } = record;
+  // 시급제·일급제: 급여 금액이 근무일수로 계산한 예상액이라 월급 일할 계산을 하지 않는다 (src/domain/payBasis.ts)
+  if (isVariablePayBasis(payBasisOf(contract.details))) return { status: 'not_applicable' };
   const hire = record.dates.find((d) => d.kind === 'hire')?.date ?? contract.startDate;
   if (!hire) return { status: 'needs_rules', missing: [], reason: '입사일(근로 시작일)이 없어요' };
   const { rules, unconfirmed } = payrollRules(contract);

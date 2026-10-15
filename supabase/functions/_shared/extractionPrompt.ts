@@ -206,10 +206,11 @@ function partyGuide(): string {
 
 /** 유형별 속성 키 안내 (프롬프트용) */
 function detailGuide(): string {
-  // 당사자 칸(party)은 parties로 묻는다 (같은 이름을 두 곳에 넣지 않게)
-  return CONTRACT_TYPE_DEFS.filter((t) => DETAIL_FIELD_DEFS.some((d) => d.type === t.code && !d.party))
+  // 당사자 칸(party)은 parties로 묻는다 (같은 이름을 두 곳에 넣지 않게) · 사용자 입력 칸(ai: false)은 묻지 않는다
+  const asked = (d: (typeof DETAIL_FIELD_DEFS)[number]) => !d.party && d.ai !== false;
+  return CONTRACT_TYPE_DEFS.filter((t) => DETAIL_FIELD_DEFS.some((d) => d.type === t.code && asked(d)))
     .map((t) => {
-      const keys = DETAIL_FIELD_DEFS.filter((d) => d.type === t.code && !d.party).map((d) => {
+      const keys = DETAIL_FIELD_DEFS.filter((d) => d.type === t.code && asked(d)).map((d) => {
         const value = d.options ? `text_value: ${d.options.map((o) => o.value).join('|')}` : d.input === 'boolean' ? 'boolean_value' : d.input === 'text' ? 'text_value' : 'number_value';
         return `${d.db}(${d.label}, ${value})`;
       });

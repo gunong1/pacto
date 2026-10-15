@@ -12,6 +12,7 @@ import { Pressable, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { ChipGroup } from '@/components/ui/controls';
 import { Section, SectionGap } from '@/components/ui/layout';
+import { PAY_BASIS_KEYS } from '@/domain/payBasis';
 import { contractTypeLabel, detailFields, splitDetailFields, type ContractType, type DetailFieldSpec, type SourceType } from '@/domain/contractTypes';
 import { hitSlop, spacing } from '@/theme';
 
@@ -19,8 +20,11 @@ import type { ContractFormValues } from '../form';
 import { FormLabel, FormText, type FieldName, type FormKit } from './kit';
 import { styles } from './styles';
 
-export function DetailsSection({ kit, type }: { kit: FormKit; type: ContractType }) {
-  const { facts, conditions } = splitDetailFields(type);
+export function DetailsSection({ kit, type, extra }: { kit: FormKit; type: ContractType; extra?: React.ReactNode }) {
+  const split = splitDetailFields(type);
+  const conditions = split.conditions;
+  // 근로의 급여 방식 칸은 급여 방식 영역(PayBasisFields)에서 — 여기서 빼고 값은 지우지 않는다
+  const facts = type === 'employment' ? split.facts.filter((f) => !PAY_BASIS_KEYS.has(f.key)) : split.facts;
   const filled = (key: string) => {
     const v = (kit.values.details as Record<string, unknown> | undefined)?.[key];
     return v != null && String(v).trim() !== '';
@@ -47,6 +51,7 @@ export function DetailsSection({ kit, type }: { kit: FormKit; type: ContractType
       <SectionGap />
       <Section title={`${contractTypeLabel(type)} 정보`} testID="section-details">
         {type === 'lease' ? kit.amount('depositAmount', '보증금') : null}
+        {extra}
         {facts.map(input)}
         {shown.length > 0 ? (
           <>
@@ -105,7 +110,7 @@ function DetailInput({ control, spec, flagged, hint, source, accessory }: { cont
       labelAccessory={accessory}
       amount={spec.input === 'amount'}
       multiline={spec.input === 'text'}
-      keyboardType={spec.input === 'percent' ? 'decimal-pad' : spec.input === 'text' ? 'default' : 'number-pad'}
+      keyboardType={spec.input === 'percent' || spec.input === 'decimal' ? 'decimal-pad' : spec.input === 'text' ? 'default' : 'number-pad'}
       suffix={spec.suffix}
       testID={`detail-${spec.key}`}
     />

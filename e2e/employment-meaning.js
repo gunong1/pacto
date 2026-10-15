@@ -54,8 +54,10 @@ const PDF = require('./cleanPdf')();
   const payCount = await page.locator('[data-testid^="payment-"][data-testid$="-remove"]').count();
   const comps = await text(tid('payment-0-components')).catch(() => '');
   check(1, '월 임금 1건만 수입 (기본급·고정연장근로수당은 구성 항목)', payCount === 1 && comps.includes('기본급') && comps.includes('고정연장근로수당'), `결제 ${payCount}건 / ${comps.replace(/\n/g, ' ')}`);
-  const salary = await page.locator(`input${tid('detail-annualSalary')}`).inputValue().catch(() => 'n/a');
-  check(3, '연봉 임의 생성 안 함', salary === '', `연봉 칸: "${salary}"`);
+  // 연봉 칸은 급여 방식 영역(연봉제 또는 값이 있을 때만 보임) — 칸이 없거나 비어 있으면 임의로 만들지 않은 것
+  const salaryInput = page.locator(`input${tid('pay-annualSalary')}`);
+  const salary = (await salaryInput.count()) ? await salaryInput.inputValue() : '';
+  check(3, '연봉 임의 생성 안 함', salary === '' && (await page.locator(tid('pay-basis')).count()) === 1, `연봉 칸: "${salary}"`);
   // 선택된 칩은 글자색이 흰색(textInverse)
   const chipColor = async (id) => page.locator(`${tid(id)} >> div[dir="auto"]`).first().evaluate((el) => getComputedStyle(el).color);
   const [prevColor, noneColor] = [await chipColor('payment-0-businessDay-previous'), await chipColor('payment-0-businessDay-none')];

@@ -230,6 +230,11 @@ export default function HomeScreen() {
             <AppText variant="caption" color="textTertiary">
               출금과 별도예요
             </AppText>
+            {view.spending.incomeEstimated > 0 ? (
+              <AppText variant="caption" color="textTertiary" testID="home-income-estimated">
+                시급·일급 등 예상 수입 {formatKRW(view.spending.incomeEstimated)} 포함 — 세전 기본급 추정이라 실제 수령액과 달라요
+              </AppText>
+            ) : null}
             <FlowBreakdown summary={view.spending.inflow} testID="home-income-split" />
           </View>
         ) : null}

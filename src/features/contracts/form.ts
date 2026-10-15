@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { PaymentComponent } from '@/domain/types';
 
 import { NOTICE_KINDS } from '@/domain/noticeKind';
+import { applyPayBasis } from '@/domain/payBasis';
 import { legacyDetailParties, partiesFromInputs, partiesToInputs, partyDistinctOf, partyKindOf, partyTermsOf, type ContractParty } from '@/domain/parties';
 import type { ContractDraft, DateDraft, FundDraft, PaymentDraft } from '@/data/repository';
 import { DIRECTION_BASES, MONEY_NATURES, normalizePartyRoles, PARTY_RELATIONS } from '../../../supabase/functions/_shared/contractRegistry';
@@ -196,7 +197,7 @@ export const contractFormSchema = z
       const raw = v.details[spec.key];
       if (raw === undefined || raw === '') continue;
       if (detailFromInput(spec, raw) === undefined) {
-        ctx.addIssue({ code: 'custom', path: ['details', spec.key], message: spec.input === 'percent' ? '0~100 사이 숫자로 입력해주세요 (예: 4.9)' : '숫자로 입력해주세요' });
+        ctx.addIssue({ code: 'custom', path: ['details', spec.key], message: spec.input === 'percent' ? '0~100 사이 숫자로 입력해주세요 (예: 4.9)' : spec.input === 'decimal' ? `0~${spec.max ?? 100} 사이 숫자로 입력해주세요 (예: 7.5)` : '숫자로 입력해주세요' });
       }
     }
   });
@@ -227,6 +228,11 @@ export function detailFromInput(spec: DetailFieldSpec, raw: string | boolean): s
       const t = String(raw).trim().replace('%', '');
       const n = Number(t);
       return /^\d+(\.\d+)?$/.test(t) && n <= 100 ? n : undefined;
+    }
+    case 'decimal': {
+      const t = String(raw).trim();
+      const n = Number(t);
+      return /^\d+(\.\d+)?$/.test(t) && n <= (spec.max ?? 100) ? n : undefined;
     }
     case 'text':
       return String(raw).trim() || null;
@@ -531,6 +537,8 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
   const kind = v.contractKind || null;
   // 저장 전 같은 규칙으로 정리: 계약서 용어 → 계약 종류의 자리, 표기만 다른 같은 이름은 칸에 있던 이름으로 하나 (다른 이름은 그대로 — 화면에서 고름)
   const parties = normalizePartyRoles(kind ?? partyKindOf({ contractKind: null, contractType: v.contractType }), partiesFromInputs(v.parties, v.partyTerms, v.partyDistinct)).parties;
+  const details = syncLegacyPartyDetails(profile, detailsFromForm(profile, v.details), parties);
+  const payments = [...(quick ? [quick] : []), ...v.payments.map(paymentFromForm)];
   return {
     contractKind: kind,
     contractSubtype: kind && v.contractSubtype && isSubtypeOf(kind, v.contractSubtype) ? v.contractSubtype : null,
@@ -546,11 +554,9 @@ export function formToDraft(v: ParsedContractForm, today: string = todayInSeoul(
     contractDate: nullable(v.contractDate),
     startDate: nullable(v.startDate),
     endDate: nullable(v.endDate),
-    details: syncLegacyPartyDetails(profile, detailsFromForm(profile, v.details), parties),
-    payments: [
-      ...(quick ? [quick] : []),
-      ...v.payments.map(paymentFromForm),
-    ],
+    details,
+    // 근로: 급여 방식대로 급여 결제의 변동 여부 (시급·일급 = 예상 금액) — src/domain/payBasis.ts
+    payments: profile === 'employment' ? applyPayBasis(payments, details) : payments,
     dates: v.dates.map((x): DateDraft => ({ kind: x.kind, label: x.label.trim(), date: x.date })),
     totalAmount: parseAmount(v.totalAmount),
     depositAmount: parseAmount(v.depositAmount),

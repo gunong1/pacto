@@ -46,7 +46,8 @@ export function cleanFields(fieldsIn: Record<string, unknown>): Record<string, E
 /** 상세 속성 값 정제 — 해당 키의 형식(레지스트리)에 맞지 않으면 버린다. 유형별 허용 여부는 앱이 확인 */
 function cleanDetail(key: string, o: Record<string, unknown>): string | number | boolean | null {
   const def = DETAIL_FIELD_DEFS.find((d) => d.db === key);
-  if (!def) return null;
+  // 사용자 입력 칸(급여 방식 등)은 AI 결과로 받지 않는다
+  if (!def || def.ai === false) return null;
   switch (def.input) {
     case 'enum': {
       const v = o.text_value;
