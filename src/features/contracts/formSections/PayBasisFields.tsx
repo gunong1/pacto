@@ -15,13 +15,30 @@ import { Button } from '@/components/ui/Button';
 import { Badge, ChipGroup } from '@/components/ui/controls';
 import { cleanDetails, detailFields } from '@/domain/contractTypes';
 import { formatAmountInput, formatWon, parseAmount } from '@/domain/money';
-import { monthlyPayEstimate, PAY_BASES, PAY_BASIS_FIELDS, PAY_BASIS_KEYS, PAY_BASIS_LABEL, PAY_ESTIMATE_EXCLUDES, payAmountLabel, payBasisOf, type PayBasis } from '@/domain/payBasis';
+import {
+  monthlyPayEstimate,
+  PAY_BASES,
+  PAY_BASIS_FIELDS,
+  PAY_BASIS_KEYS,
+  PAY_BASIS_LABEL,
+  PAY_ESTIMATE_EXCLUDES,
+  PAY_ESTIMATE_EXCLUDES_WITH_HOLIDAY,
+  payAmountLabel,
+  payBasisOf,
+  usesLegacyMonthlyDays,
+  WEEKLY_HOLIDAY_LABEL,
+  WEEKLY_HOLIDAY_PAY,
+  weeklyPay,
+  type PayBasis,
+} from '@/domain/payBasis';
 import { colors, radius, spacing } from '@/theme';
 
 import { detailFromInput } from '../form';
+import { WeeklyPayRows } from '../WeeklyPayRows';
 import { FormLabel, type FieldName, type FormKit } from './kit';
 
 const OPTIONS = PAY_BASES.map((b) => ({ value: b, label: PAY_BASIS_LABEL[b] }));
+const HOLIDAY_OPTIONS = WEEKLY_HOLIDAY_PAY.map((v) => ({ value: v, label: WEEKLY_HOLIDAY_LABEL[v] }));
 
 /** 폼 입력값(문자열) → 상세 값 (계산용 — 형식이 틀린 칸은 빈 값) */
 function formDetails(raw: Record<string, string | boolean> | undefined) {
@@ -44,7 +61,10 @@ export function PayBasisFields({ kit, mode }: { kit: FormKit; mode: 'quick' | 'f
   // 방식에 맞는 칸. 등록 확인(AI 결과)·예전 계약은 값이 있는 칸도 함께 (기존 값이 숨지 않게) —
   // 직접 입력에서 방식을 바꾸면 다른 방식의 값은 지우지 않고 칸만 숨긴다
   const showFilled = mode === 'full' || !stored;
-  const keys = [...new Set([...PAY_BASIS_FIELDS[basis], ...(showFilled ? [...PAY_BASIS_KEYS].filter((k) => k !== 'payBasis' && details[k] != null) : [])])];
+  // 예전 시급제 계약(주 근무일수 없이 월 예상 근무일수)은 그 칸도 보여 준다 · 주휴수당은 아래 선택 칩으로
+  const legacyDays = basis === 'hourly' && usesLegacyMonthlyDays(details) ? ['monthlyWorkDays'] : [];
+  const keys = [...new Set([...PAY_BASIS_FIELDS[basis], ...legacyDays, ...(showFilled ? [...PAY_BASIS_KEYS].filter((k) => k !== 'payBasis' && k !== 'weeklyHolidayPay' && details[k] != null) : [])])];
+  const weekly = weeklyPay(details);
   const specs = detailFields('employment').filter((f) => keys.includes(f.key));
 
   // quick: 계산값이 바뀌면 급여 금액을 따라 바꾼다 — 비어 있거나 직전 계산값 그대로일 때만 (사용자가 고친 금액은 유지)
@@ -87,11 +107,28 @@ export function PayBasisFields({ kit, mode }: { kit: FormKit; mode: 'quick' | 'f
             amount: spec.input === 'amount',
             keyboardType: spec.input === 'decimal' ? 'decimal-pad' : 'number-pad',
             suffix: spec.suffix,
-            placeholder: spec.key === 'dailyWorkHours' ? '예: 8' : spec.key === 'monthlyWorkDays' ? '예: 22' : '0',
+            placeholder: spec.key === 'dailyWorkHours' ? '예: 8' : spec.key === 'weeklyWorkDays' ? '예: 5' : spec.key === 'monthlyWorkDays' ? '예: 22' : '0',
             testID: `pay-${spec.key}`,
+            ...(spec.key === 'monthlyWorkDays' && basis === 'hourly' ? { hint: '주 근무일수를 넣으면 주 단위(주휴수당 포함 여부 반영)로 계산해요.' } : {}),
           })}
         </Fragment>
       ))}
+
+      {/* 시급제: 주휴수당 포함 여부 — "포함"은 사용자가 지급 대상이라고 확인한 것 (법적 요건 판정 아님) */}
+      {basis === 'hourly' ? (
+        <View style={{ marginBottom: spacing.lg }} testID="pay-weeklyHolidayPay">
+          <FormLabel label="주휴수당" />
+          <ChipGroup
+            options={HOLIDAY_OPTIONS}
+            value={(values.details as Record<string, string>)?.weeklyHolidayPay || null}
+            onChange={(v) => setValue('details.weeklyHolidayPay', (values.details as Record<string, string>)?.weeklyHolidayPay === v ? '' : v, { shouldDirty: true })}
+            testIDPrefix="pay-holiday"
+          />
+          <AppText variant="caption" color="textTertiary" style={{ marginTop: 6 }}>
+            지급 대상이라고 확인했을 때 "포함"을 골라요. 주 15시간 이상일 때만 계산하고, 법적 지급 요건 충족 여부는 판정하지 않아요.
+          </AppText>
+        </View>
+      ) : null}
 
       {mode === 'quick'
         ? kit.field('quick.amount', payAmountLabel(stored), {
@@ -119,9 +156,11 @@ export function PayBasisFields({ kit, mode }: { kit: FormKit; mode: 'quick' | 'f
               <AppText variant="caption" color="textSecondary" testID="pay-estimate-formula">
                 {estimate!.formula}
               </AppText>
-              <Badge label="세전 기본급 추정" tone="check" />
+              {weekly ? <WeeklyPayRows w={weekly} testID="pay-weekly" /> : null}
+              <Badge label={weekly?.holiday.status === 'added' ? '세전 추정 · 기본급 + 주휴수당' : '세전 기본급 추정'} tone="check" />
               <AppText variant="small" color="textTertiary">
-                실제 수령액이 아니에요. {PAY_ESTIMATE_EXCLUDES}.
+                {weekly ? '월평균 추정치예요 — 달마다 주 수가 달라 실제 지급액과 달라요. ' : '실제 수령액이 아니에요. '}
+                {weekly ? PAY_ESTIMATE_EXCLUDES : PAY_ESTIMATE_EXCLUDES_WITH_HOLIDAY}.
               </AppText>
               {edited ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 4 }} testID="pay-estimate-edited">

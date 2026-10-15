@@ -47,7 +47,7 @@ describe('예상 월 수입 계산 (세전 기본급 추정)', () => {
   });
 
   test('입력이 모자라면 금액을 만들지 않고 필요한 칸을 알려준다', () => {
-    expect(monthlyPayEstimate({ payBasis: 'hourly', hourlyWage: 10_030 })).toEqual({ basis: 'hourly', amount: null, formula: null, missing: ['하루 근무시간', '월 예상 근무일수'] });
+    expect(monthlyPayEstimate({ payBasis: 'hourly', hourlyWage: 10_030 })).toEqual({ basis: 'hourly', amount: null, formula: null, missing: ['하루 소정근로시간', '주 근무일수'] });
     expect(monthlyPayEstimate({ payBasis: 'daily', dailyWage: 0, monthlyWorkDays: 20 })?.missing).toEqual(['일급']);
   });
 

@@ -18,10 +18,12 @@ import { DateField } from '@/components/ui/DateField';
 import { Section } from '@/components/ui/layout';
 import { formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { formatWon, parseAmount } from '@/domain/money';
-import { isVariablePayBasis, monthlyPayEstimate, PAY_BASIS_LABEL, PAY_ESTIMATE_EXCLUDES, payBasisOf, payEstimateEdited } from '@/domain/payBasis';
+import { isVariablePayBasis, monthlyPayEstimate, PAY_BASIS_LABEL, PAY_ESTIMATE_EXCLUDES, PAY_ESTIMATE_EXCLUDES_WITH_HOLIDAY, payBasisOf, payEstimateEdited, weeklyPay } from '@/domain/payBasis';
 import { COMPONENT_STATUS_LABEL, PAY_TYPE_LABEL, PAYROLL_RULE_LABEL, prorationPlan, proratedText, salaryBreakdown, variableAmount, type ProratedPay } from '@/domain/payroll';
 import type { ContractPayment, ContractRecord, PaymentComponent } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
+
+import { WeeklyPayRows } from './WeeklyPayRows';
 
 type Actions = {
   confirm: (index: number, input: { date: string; amount: number }) => void;
@@ -43,6 +45,7 @@ export function SalaryCard({ record, payment, actions }: { record: ContractRecor
   const basis = payBasisOf(details);
   const estimate = monthlyPayEstimate(details);
   const variable = isVariablePayBasis(basis);
+  const weekly = weeklyPay(details);
   return (
     <Section title="급여" caption="세전 금액이에요. 공제액을 알 수 없어 실수령액은 계산하지 않아요." testID={tid}>
       {basis ? (
@@ -51,7 +54,7 @@ export function SalaryCard({ record, payment, actions }: { record: ContractRecor
         </View>
       ) : null}
       <AppText variant="caption" color="textTertiary">
-        {variable ? '예상 월 수입 (세전 기본급 추정)' : basis === 'annual' ? '세전 월 지급액' : '세전 고정 월 급여'}
+        {weekly ? '예상 월 수입 (세전 · 월평균 추정)' : variable ? '예상 월 수입 (세전 기본급 추정)' : basis === 'annual' ? '세전 월 지급액' : '세전 고정 월 급여'}
       </AppText>
       <AppText variant="title2" tabular testID={`${tid}-fixed`}>
         {formatWon(payment.amount)}
@@ -62,9 +65,14 @@ export function SalaryCard({ record, payment, actions }: { record: ContractRecor
             {estimate.formula}
             {estimate.amount != null && payEstimateEdited(details, payment.amount) ? ` = ${formatWon(estimate.amount)} (계산값) · 직접 고친 금액으로 관리해요` : ''}
           </AppText>
+          {weekly ? (
+            <View style={{ marginTop: spacing.xs, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.bgSubtle }}>
+              <WeeklyPayRows w={weekly} testID={`${tid}-weekly`} />
+            </View>
+          ) : null}
           {variable ? (
             <AppText variant="small" color="textTertiary">
-              실제 수령액과 달라요 — 근무일수에 따라 달라지고, {PAY_ESTIMATE_EXCLUDES}.
+              실제 지급액과 달라요 — {weekly ? '월평균 주수(4.345주)로 나눈 추정치라 달마다 다르고' : '근무일수에 따라 달라지고'}, {weekly ? PAY_ESTIMATE_EXCLUDES : PAY_ESTIMATE_EXCLUDES_WITH_HOLIDAY}.
             </AppText>
           ) : null}
         </View>

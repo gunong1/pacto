@@ -137,7 +137,13 @@ export const DETAIL_FIELD_DEFS: readonly {
     options: [{ value: 'monthly', label: '월급제' }, { value: 'hourly', label: '시급제' }, { value: 'daily', label: '일급제' }, { value: 'annual', label: '연봉제' }],
   },
   { type: 'employment', key: 'hourlyWage', db: 'hourly_wage', label: '시급', input: 'amount', suffix: '원', ai: false },
-  { type: 'employment', key: 'dailyWorkHours', db: 'daily_work_hours', label: '하루 근무시간', input: 'decimal', suffix: '시간', max: 24, ai: false },
+  { type: 'employment', key: 'dailyWorkHours', db: 'daily_work_hours', label: '하루 소정근로시간', input: 'decimal', suffix: '시간', max: 24, ai: false },
+  // 시급제 주휴수당 예상 (src/domain/payBasis.ts weeklyPay) — 주 근무일수 · 주휴수당 포함 여부(사용자가 지급 대상이라고 확인 = included)
+  { type: 'employment', key: 'weeklyWorkDays', db: 'weekly_work_days', label: '주 근무일수', input: 'decimal', suffix: '일', max: 7, ai: false },
+  {
+    type: 'employment', key: 'weeklyHolidayPay', db: 'weekly_holiday_pay', label: '주휴수당', input: 'enum', ai: false,
+    options: [{ value: 'included', label: '포함' }, { value: 'excluded', label: '제외' }, { value: 'in_wage', label: '시급에 이미 포함' }],
+  },
   { type: 'employment', key: 'dailyWage', db: 'daily_wage', label: '일급', input: 'amount', suffix: '원', ai: false },
   { type: 'employment', key: 'monthlyWorkDays', db: 'monthly_work_days', label: '월 예상 근무일수', input: 'decimal', suffix: '일', max: 31, ai: false },
   { type: 'employment', key: 'annualSalary', db: 'annual_salary', label: '연봉', input: 'amount', suffix: '원' },
