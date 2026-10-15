@@ -48,6 +48,8 @@ export interface Glyph {
   ox: number;
   oy: number;
   size: number;
+  /** 글자 기준선 방향(도, -180~180). 0 = 일반 가로쓰기. 대각선 워터마크·세로쓰기 글자를 가로 줄과 섞지 않으려고 쓴다 */
+  angle: number;
 }
 
 export interface FontInfo {
@@ -402,6 +404,7 @@ export function extractPage(doc: PDFDocument, pageIndex: number, streams: Map<st
           x0: Math.min(p0.x, p1.x), y0: Math.min(p0.y, p1.y), x1: Math.max(p0.x, p1.x), y1: Math.max(p0.y, p1.y),
           streamKey: entry.key, opIndex, part, index: idx, invisible: mode === 3 || mode === 7,
           ox: o.x, oy: o.y, size: Math.hypot(trm[2], trm[3]),
+          angle: (Math.atan2(trm[1], trm[0]) * 180) / Math.PI,
         });
         tm = mul([1, 0, 0, 1, (w0 * fs + tc + (font!.wordSpace(c, len) ? tw : 0)) * th, 0], tm);
       });

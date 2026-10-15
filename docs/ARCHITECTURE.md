@@ -1058,12 +1058,18 @@ pacto/
 - **실제 제거(redaction)**: 콘텐츠 스트림의 글자 표시 연산자(Tj/TJ/'/")에서 해당 글자 코드를 지우고 같은 너비만큼 TJ 이동으로 대체 → 나머지 배치는 그대로.
   보호본은 새 문서에 페이지만 복사해 만든다(교체 전 스트림·메타데이터·북마크·첨부·주석·입력 양식·대체 텍스트가 남지 않음).
 - **위치 신뢰성 확인(처리 전)**: 원본을 pdf.js(별도 구현)로도 읽어, pdf.js 텍스트 조각의 시작·끝 글자가 같은 위치에 우리 추출 글자로도 있는지 본다(95% 미만이면 `failed`/`text_mismatch`).
-  pdf.js 원본 텍스트에서만 보이는 Level 1 정보가 있어도 `text_mismatch` (잘못된 "감지되지 않음" 방지).
+  pdf.js 원본 텍스트에서 기본으로 가리는 값(Level 1 전부 + 신뢰도 low가 아닌 Level 2 — `shouldMaskSensitive`)이 우리 추출보다 **많이** 보이면 `text_mismatch` (잘못된 "감지되지 않음" 방지).
+  페이지별·값별 **개수**로 비교한다 — 같은 번호가 표의 여러 칸에 반복될 때 한 칸만 놓쳐도 찾는다 (2026-10: 예전에는 Level 1 값 종류만 비교해, 전화번호를 놓치면 원문이 남은 채 protected가 될 수 있었다).
+- **줄 조립**(`buildLines`): 글자 기준선 방향(`Glyph.angle`)이 같은 글자끼리만 줄로 묶는다. 대각선 워터마크·세로쓰기 글자를 가로 줄과 섞지 않는다
+  (2026-10 보험계약서: 32° "TEST DOCUMENT" 워터마크 글자가 표 줄에 끼어 `010-0000-S4826T`처럼 값이 깨져 탐지 실패 → verification_failed). 가로 글자(|기울기| ≤ 2°)는 예전 규칙·순서 그대로라 영역 키가 바뀌지 않는다.
+- **이미 가려진 값**(`countPreMasked`): 원본의 `900101-1******` 같은 값은 탐지하지 않고(복원·추정 안 함) 페이지별 개수만 `protection_pages[].preMasked`로 남긴다. 앱은 "이미 가려진 정보 확인"으로 표시.
 - **독립 검증(보호본)** — 하나라도 걸리면 `failed`/`verification_failed` (보호본 저장 안 함):
   ① 위치 기반: 지워야 했던 글자(원문 문자)가 보호본의 **같은 자리**에서 다시 읽히는가 — 우리 추출기(글자 단위)와 pdf.js(조각 내 비율 추정)로 각각, 글자 상자 가장자리 20% 여유.
   다른 위치에 같은 숫자 조각(예: 다른 카드의 끝 4자리 `1111`)이 보이는 것은 누출이 아니다 (예전 부분 문자열 검사의 오탐 원인).
   ② 값 전체: 가린 값 전체가 같은 쪽 어느 줄에 남았는가 (숫자형은 공백·하이픈·점을 빼고 비교 — `4111-1111-…` = `4111 1111 …`).
-  ③ 놓친 Level 1 정보가 보이는가. 검증에 쓰는 원문은 처리 중 메모리에서만 쓰고 DB·로그에 남기지 않는다(로그는 개수·종류·단계만).
+  ③ 놓친 가림 대상 값(Level 1 + 신뢰도 low가 아닌 Level 2)이 보이는가. 검증에 쓰는 원문은 처리 중 메모리에서만 쓰고 DB·로그에 남기지 않는다(로그는 개수·종류·단계만).
+  **페이지별 결과**: 실패 원인이 있는 페이지만 `failed`(+ `stage`: detect·verify 등), 나머지 페이지는 실제 결과(검증 통과면 protected·no_sensitive_data, 앞 단계에서 멈췄으면 `skipped`). 문서 전체는 여전히 failed라 AI 분석은 하지 않는다.
+  (2026-10 이전: 한 페이지 검증 실패 시 모든 텍스트 페이지를 failed로 표시 → 1~4쪽 모두 "보호 처리 실패"로 보였다.)
 - **지원 글꼴**: Type0 Identity-H, **미리 정의된 한글 CMap 가로쓰기**(UniKS-UCS2/UTF16/UTF8/UTF32-H, KSC-EUC-H, KSCpc-EUC-H, KSCms-UHC(-HW)-H, KSC-Johab-H — ToUnicode가 없으면 Adobe-Korea1 CID→유니코드 표),
   Type1/TrueType(Widths, 없으면 표준 14 글꼴 글자 너비표 — Helvetica·Times·Courier와 Arial 등 별칭), **Type3**(회전·기울임 없는 FontMatrix + ToUnicode 필수, Chrome 인쇄 PDF).
   세로쓰기(-V)·한글 외 CMap·내장 CMap 스트림·ToUnicode 없는 Type3 → `failed`/`unsupported_font` (스캔본으로 분류하지 않음). 한글 CMap 데이터는 pdfjs-dist 6.1.200 `cmaps/`(Adobe, BSD-3)를 `_shared/vendor/korean-cmaps.js`로 내장하고 pdf.js 검증에도 같은 데이터를 쓴다.

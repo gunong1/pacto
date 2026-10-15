@@ -152,8 +152,10 @@ Deno.serve(async (req) => {
         ms: Date.now() - started,
         ...(result?.diagnostics ?? {}),
         ...(imageDiag ?? {}),
-        // 페이지별 종류·상태 (예: "2:scan:protected") — 원문 없음
-        ...(result?.pages?.length ? { pages: result.pages.map((p) => `${p.page}:${p.kind}:${p.status}`).join(',') } : {}),
+        // 페이지별 종류·상태·사유·실패 단계 (예: "1:text:failed(verification_failed@verify)", "2:text:no_sensitive_data") — 원문 없음
+        ...(result?.pages?.length
+          ? { pages: result.pages.map((p) => `${p.page}:${p.kind}:${p.status}${p.detail ? `(${p.detail}${p.stage ? `@${p.stage}` : ''})` : ''}${p.preMasked ? `+premasked${p.preMasked}` : ''}`).join(',') }
+          : {}),
         ...extra,
       })}`,
     );
@@ -290,7 +292,7 @@ Deno.serve(async (req) => {
       protection_pages: result.pages.length
         ? result.pages.map((p) => {
             const quality = p.quality ?? (p.detail === 'auto_unreadable' ? (doc.protection_pages as { page: number; quality?: unknown }[] | null | undefined)?.find((x) => x.page === p.page)?.quality : undefined);
-            return { page: p.page, kind: p.kind, status: p.status, detail: p.detail, ...(quality ? { quality } : {}) };
+            return { page: p.page, kind: p.kind, status: p.status, detail: p.detail, ...(p.stage ? { stage: p.stage } : {}), ...(p.preMasked ? { preMasked: p.preMasked } : {}), ...(quality ? { quality } : {}) };
           })
         : null,
       protected_at: new Date().toISOString(),

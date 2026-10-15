@@ -30,11 +30,11 @@ import {
   type UploadedDocument,
 } from "@/data/documents";
 import { SupabaseAIProvider } from "@/data/supabase/SupabaseAIProvider";
-import type { DocumentProtection } from "@/domain/types";
+import type { DocumentProtection, ProtectionPage } from "@/domain/types";
 import { viewOriginal } from "@/features/documents/openDocument";
 import {
   EXCLUDE_PAGE_COPY,
-  PAGE_STATUS_LABEL,
+  pageStatusLabel,
   isExcludedPhoto,
   isProblemPage,
   problemPageMessage,
@@ -1133,6 +1133,8 @@ interface GateItem {
   page: number;
   label: string;
   status: string;
+  detail?: string | null;
+  preMasked?: number;
 }
 
 /** 문서별 보호 결과 → 줄 목록: PDF는 페이지마다, 사진은 장마다. 페이지 결과가 없는 PDF는 문서 한 줄 */
@@ -1171,6 +1173,8 @@ function gateItems(docs: GateDoc[]): GateItem[] {
       page: x.page,
       label: `${prefix}${x.page}쪽`,
       status: x.status,
+      detail: x.detail,
+      preMasked: x.preMasked,
     }));
   });
 }
@@ -1251,9 +1255,11 @@ function ProtectionPagesGate({
                     variant="caption"
                     color={problem ? "check" : "textSecondary"}
                   >
-                    {PAGE_STATUS_LABEL[
-                      x.status as keyof typeof PAGE_STATUS_LABEL
-                    ] ?? PAGE_STATUS_LABEL.failed}
+                    {pageStatusLabel({
+                      status: x.status as ProtectionPage["status"],
+                      detail: x.detail,
+                      preMasked: x.preMasked,
+                    })}
                   </AppText>
                   {problem && x.page > 0 ? (
                     <View style={[styles.choiceRow, { marginTop: spacing.xs }]}>

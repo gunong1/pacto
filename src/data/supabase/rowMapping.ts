@@ -142,7 +142,15 @@ function toProtectionPages(v: unknown): ProtectionPage[] {
   return v.flatMap((x) => {
     const o = x as Record<string, unknown>;
     return typeof o?.page === 'number' && PAGE_KINDS.has(o.kind as string) && PAGE_STATUSES.has(o.status as string)
-      ? [{ page: o.page, kind: o.kind as ProtectionPage['kind'], status: o.status as ProtectionPage['status'], detail: typeof o.detail === 'string' ? o.detail : null }]
+      ? [
+          {
+            page: o.page,
+            kind: o.kind as ProtectionPage['kind'],
+            status: o.status as ProtectionPage['status'],
+            detail: typeof o.detail === 'string' ? o.detail : null,
+            ...(typeof o.preMasked === 'number' && o.preMasked > 0 ? { preMasked: o.preMasked } : {}),
+          },
+        ]
       : [];
   });
 }

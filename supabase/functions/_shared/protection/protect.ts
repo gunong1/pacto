@@ -12,7 +12,7 @@ import { normalizeRotate, pageBoxToUpright, uprightBoxToPage } from './scanGeome
 import { assembleProtectedPdf, classifyPage, rawImageBytes } from './scanPdf.ts';
 import type { ScanJob, ScanPageOutcome } from './scanWorker.ts';
 import { keptPages, subsetPdf } from './pageSelection.ts';
-import { defaultRegionState, detectSensitive, MASK_LEVEL, type DetectionConfidence, type SensitiveType } from './sensitive.ts';
+import { countPreMasked, defaultRegionState, detectSensitive, MASK_LEVEL, shouldMaskSensitive, type DetectionConfidence, type SensitiveType } from './sensitive.ts';
 
 export type ProtectionStatus = 'protected' | 'no_sensitive_data' | 'unreadable' | 'needs_review' | 'unsupported_scan' | 'failed';
 export type RegionState = 'masked' | 'unmasked' | 'candidate';
@@ -59,6 +59,10 @@ export interface PageOutcome {
   kind: 'text' | 'scan' | 'unsupported' | 'excluded';
   status: PageStatus;
   detail: string | null;
+  /** 실패한 페이지의 실패 단계 (진단용 — 원문 없음) */
+  stage?: ProtectStage;
+  /** 원본에서 이미 가려져 있던 값(예: 900101-1******) 개수 — 복원·추정하지 않고 개수만 센다 */
+  preMasked?: number;
   /** 스캔 페이지 글자 인식 품질 (진단용 숫자만 — 원문 없음) */
   quality?: OcrQuality;
 }
@@ -192,8 +196,38 @@ interface Line {
 }
 
 /** 글자를 줄로 묶는다 (기준선이 비슷한 글자끼리, 왼쪽부터). 떨어진 글자 사이에는 공백을 넣는다 */
+/** 가로쓰기로 보는 기준선 기울기(도) — 이 안의 글자는 예전과 같은 방식으로 줄을 만든다 */
+const HORIZONTAL_TOLERANCE_DEG = 2;
+/** 같은 방향으로 묶는 기울기 차이(도) */
+const DIRECTION_TOLERANCE_DEG = 2;
+
+/**
+ * 글자를 줄로 묶는다 — 기준선 방향이 같은 글자끼리만.
+ * 대각선 워터마크("TEST DOCUMENT" 등)·세로쓰기 글자가 가로 줄 사이에 끼어들면 "010-0000-S4826T"처럼 값이 깨져
+ * 탐지를 놓친다 (2026-10 보험계약서 사례). 방향이 다른 글자는 따로 줄을 만들고, 가로 줄 뒤에 붙인다.
+ * 가로 글자(|기울기| ≤ 2°)는 예전과 같은 규칙·순서 — 영역 키(p1:phone:0 …)가 바뀌지 않는다.
+ */
 export function buildLines(page: PageText): Line[] {
-  const gs = [...page.glyphs].sort((a, b) => b.y0 - a.y0 || a.x0 - b.x0);
+  const horizontal: Glyph[] = [];
+  const rotated: { angle: number; glyphs: Glyph[] }[] = [];
+  for (const g of page.glyphs) {
+    const angle = g.angle ?? 0;
+    if (Math.abs(angle) <= HORIZONTAL_TOLERANCE_DEG) {
+      horizontal.push(g);
+      continue;
+    }
+    const group = rotated.find((r) => Math.abs(angleDiff(r.angle, angle)) <= DIRECTION_TOLERANCE_DEG);
+    if (group) group.glyphs.push(g);
+    else rotated.push({ angle, glyphs: [g] });
+  }
+  return [...horizontalLines(page, horizontal), ...rotated.flatMap((r) => rotatedLines(page, r.angle, r.glyphs))];
+}
+
+const angleDiff = (a: number, b: number) => ((a - b + 540) % 360) - 180;
+
+/** 가로쓰기 줄 (예전 buildLines 그대로) */
+function horizontalLines(page: PageText, glyphs: Glyph[]): Line[] {
+  const gs = [...glyphs].sort((a, b) => b.y0 - a.y0 || a.x0 - b.x0);
   const rows: Glyph[][] = [];
   for (const g of gs) {
     const h = Math.max(1, g.y1 - g.y0);
@@ -213,6 +247,39 @@ export function buildLines(page: PageText): Line[] {
       for (const ch of g.ch) {
         text += ch;
         map.push(g);
+      }
+    });
+    return { page: page.pageIndex + 1, text, glyphs: map };
+  });
+}
+
+/**
+ * 기울어진 글자의 줄 — 글자 원점을 그 방향의 좌표(along: 기준선 방향, across: 수직 방향)로 돌려서 묶는다.
+ * 글자 폭은 정확히 알 수 없으므로, 원점 간격이 글자 크기의 1.25배를 넘으면 띄어쓰기로 본다.
+ */
+function rotatedLines(page: PageText, angle: number, glyphs: Glyph[]): Line[] {
+  const rad = (angle * Math.PI) / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const pts = glyphs.map((g) => ({ g, along: g.ox * cos + g.oy * sin, across: -g.ox * sin + g.oy * cos, size: Math.max(1, g.size || g.y1 - g.y0) }));
+  pts.sort((a, b) => b.across - a.across || a.along - b.along);
+  const rows: (typeof pts)[] = [];
+  for (const p of pts) {
+    const row = rows.find((r) => Math.abs(r[0].across - p.across) < p.size * 0.35);
+    if (row) row.push(p);
+    else rows.push([p]);
+  }
+  return rows.map((row) => {
+    row.sort((a, b) => a.along - b.along);
+    let text = '';
+    const map: (Glyph | null)[] = [];
+    row.forEach((p, k) => {
+      if (k > 0 && p.along - row[k - 1].along > p.size * 1.25) {
+        text += ' ';
+        map.push(null);
+      }
+      for (const ch of p.g.ch) {
+        text += ch;
+        map.push(p.g);
       }
     });
     return { page: page.pageIndex + 1, text, glyphs: map };
@@ -323,6 +390,8 @@ const lineKey = (type: string, line: string) => (NUMERIC_TYPES.has(type) ? line.
 /** 테스트 전용: 실제 제거를 빼먹은 경우(상자만 덮음)를 흉내 내 검증이 잡는지 확인 */
 export interface ProtectTestHooks {
   skipRemovalFor?: (type: SensitiveType) => boolean;
+  /** 테스트 전용: 우리 추출기가 값 하나를 놓친 상황 (페이지 1부터 · 그 페이지에서 그 종류의 몇 번째인지 0부터) */
+  missDetection?: (type: SensitiveType, page: number, ordinal: number) => boolean;
 }
 
 /**
@@ -440,16 +509,36 @@ export async function protectPdf(
   const secret: { type: SensitiveType; value: string; masked: boolean; hideGlyphs: Glyph[]; page: number }[] = [];
   const toRemove: Glyph[] = [];
   const boxes = new Map<number, Box[]>();
+  /** 페이지(0부터)별 이미 가려진 값 개수 */
+  const preMasked = new Map<number, number>();
+  /**
+   * 일부 페이지만 실패했을 때 — 실패한 페이지(0부터)만 failed, 나머지 텍스트 페이지는 others 상태로.
+   * others: 'verified' = 검증을 통과한 실제 결과(보호 완료·민감정보 없음) / 'skipped' = 앞 단계에서 멈춰 처리하지 않음.
+   * 문서 전체 상태는 여전히 실패이므로 AI 분석은 진행되지 않는다 (페이지를 빼고 다시 보호해야 한다).
+   */
+  function markPagesFailed(failed: Set<number>, detail: string, stage: ProtectStage, others: 'verified' | 'skipped') {
+    const withRegions = new Set(regions.map((r) => r.page - 1));
+    classes.forEach((c, i) => {
+      if (!isText(i)) return;
+      if (failed.has(i)) Object.assign(pageOut[i], { status: 'failed', detail, stage });
+      else if (others === 'verified') Object.assign(pageOut[i], { status: withRegions.has(i) ? 'protected' : 'no_sensitive_data', detail: null });
+      else Object.assign(pageOut[i], { status: 'skipped', detail: null });
+      if (preMasked.get(i)) pageOut[i].preMasked = preMasked.get(i);
+    });
+  }
   for (const page of tp) {
     const { width, height, x: ox, y: oy } = page.box;
     const ordinal = new Map<string, number>();
     for (const line of buildLines(page)) {
       diag.lineCount++;
       diag.extractedTextLength += line.text.length;
+      const pm = countPreMasked(line.text);
+      if (pm > 0) preMasked.set(page.pageIndex, (preMasked.get(page.pageIndex) ?? 0) + pm);
       for (const d of detectSensitive(line.text)) {
         diag.detected[d.type] = (diag.detected[d.type] ?? 0) + 1;
         const n = ordinal.get(d.type) ?? 0;
         ordinal.set(d.type, n + 1);
+        if (testHooks.missDetection?.(d.type, line.page, n)) continue;
         const key = `p${line.page}:${d.type}:${n}`;
         const defaultState: RegionState = defaultRegionState(d); // 공통 가림 정책 (shouldMaskSensitive)
         const state = prevStates.get(key) ?? defaultState;
@@ -486,25 +575,50 @@ export async function protectPdf(
   diag.boxCount = [...boxes.values()].reduce((n, b) => n + b.length, 0);
 
   // 우리 추출기가 놓친 Level 1 정보가 pdf.js로 읽은 원본에 보이면 신뢰할 수 없다 (잘못된 "감지되지 않음" 방지)
-  const foundKeys = new Set(secret.map((x) => valueKey(x.type, x.value)));
-  const missedLevel1 = (pj: PjPage[], allowed: Set<string>) => {
-    const out: string[] = [];
-    for (const p of pj) {
-      for (const line of p.lines) {
-        for (const d of detectSensitive(line)) {
-          if (d.level === 1 && d.confidence !== 'low' && !allowed.has(valueKey(d.type, line.slice(d.start, d.end)))) out.push(d.type);
-        }
-      }
+  /**
+   * pdf.js로 읽은 페이지별 "기본으로 가리는 값" (값은 이 함수 안에서만).
+   * 가림 정책(shouldMaskSensitive)과 같은 기준 — Level 1 전부와 신뢰도가 낮지 않은 Level 2(전화·이메일).
+   * 예전에는 Level 1만 대조해, 우리 추출기가 전화번호를 놓치면 원문이 남은 채 protected가 될 수 있었다 (2026-10 보험계약서 조사 중 발견).
+   * 신뢰도 낮은 후보는 원래 가리지 않을 수 있으므로 대조하지 않는다.
+   */
+  const maskableOf = (pj: PjPage[]) =>
+    pj.map((p) =>
+      p.lines.flatMap((line) =>
+        detectSensitive(line)
+          .filter((d) => d.confidence !== 'low' && shouldMaskSensitive(d))
+          .map((d) => ({ type: d.type, key: valueKey(d.type, line.slice(d.start, d.end)) })),
+      ),
+    );
+  /** 보호본 검증용: 사용자가 표시하기로 한 값이 아닌, 기본으로 가리는 값이 보이면 놓친 것 */
+  const missedMaskable = (pj: PjPage[], allowed: Set<string>) =>
+    maskableOf(pj).flatMap((ds, page) => ds.filter((d) => !allowed.has(d.key)).map((d) => ({ page, type: d.type })));
+  // 원본 대조: 같은 페이지에서 pdf.js가 읽은 같은 값의 개수가 우리가 찾은 개수보다 많으면 놓친 것이 있다
+  // (같은 값이 표의 여러 칸에 반복될 때 한 칸만 놓쳐도 찾는다 — 값 종류만 비교하면 다른 칸 때문에 가려진다)
+  const missedOriginal = maskableOf(pjOriginal).flatMap((ds, page) => {
+    const found = new Map<string, number>();
+    for (const x of secret) if (x.page === page) found.set(valueKey(x.type, x.value), (found.get(valueKey(x.type, x.value)) ?? 0) + 1);
+    const seen = new Map<string, number>();
+    const out: { page: number; type: SensitiveType }[] = [];
+    for (const d of ds) {
+      const n = (seen.get(d.key) ?? 0) + 1;
+      seen.set(d.key, n);
+      if (n > (found.get(d.key) ?? 0)) out.push({ page, type: d.type });
     }
     return out;
-  };
-  diag.alignMissedCount = missedLevel1(pjOriginal, foundKeys).length;
-  if (diag.alignMissedCount > 0) return fail('text_mismatch', 'detect');
+  });
+  diag.alignMissedCount = missedOriginal.length;
+  if (missedOriginal.length > 0) {
+    markPagesFailed(new Set(missedOriginal.map((m) => m.page)), 'text_mismatch', 'detect', 'skipped');
+    return fail('text_mismatch', 'detect');
+  }
   const shown = new Set(secret.filter((x) => !x.masked).map((x) => valueKey(x.type, x.value)));
   const regionPages = new Set(regions.map((r) => r.page));
-  const markTextPages = (status: PageStatus, detail: string | null = null) =>
+  const markTextPages = (status: PageStatus, detail: string | null = null, stage?: ProtectStage) =>
     classes.forEach((c, i) => {
-      if (isText(i)) Object.assign(pageOut[i], { status: status === 'protected' && !regionPages.has(i + 1) ? 'no_sensitive_data' : status, detail });
+      if (!isText(i)) return;
+      Object.assign(pageOut[i], { status: status === 'protected' && !regionPages.has(i + 1) ? 'no_sensitive_data' : status, detail });
+      if (status === 'failed' && stage) pageOut[i].stage = stage;
+      if (preMasked.get(i)) pageOut[i].preMasked = preMasked.get(i);
     });
 
   if (scanIdx.length === 0 && regions.length === 0) {
@@ -540,7 +654,7 @@ export async function protectPdf(
     out = await buildProtectedView(doc, streams, boxes);
     diag.derivativeBytes = out.byteLength;
   } catch (e) {
-    markTextPages('failed', 'redaction_failed');
+    markTextPages('failed', 'redaction_failed', 'redact');
     return fail('redaction_failed', 'redact', e);
   }
 
@@ -554,7 +668,7 @@ export async function protectPdf(
       const outStreams = new Map<string, StreamEntry>();
       ownOut = Array.from({ length: outDoc.getPageCount() }, (_, i) => extractPage(outDoc, i, outStreams));
     } catch (e) {
-      markTextPages('failed', 'verification_failed');
+      markTextPages('failed', 'verification_failed', 'verify');
       return fail('verification_failed', 'verify', e);
     }
     diag.verifyTextLength = pjOut.reduce((n, p) => n + p.lines.join('\n').length, 0);
@@ -588,11 +702,12 @@ export async function protectPdf(
     diag.verifyLeakCount = leaked.size;
     diag.verifyLeakTypes = [...new Set([...leaked].map((i) => masked[i].type))];
     // 3) 놓친 Level 1 정보가 보호본에 보이는가 (사용자가 가리기 해제했거나 후보로 둔 값은 제외)
-    const missed = missedLevel1(pjOut, shown);
+    const missed = missedMaskable(pjOut, shown);
     diag.verifyMissedCount = missed.length;
-    diag.verifyMissedTypes = [...new Set(missed)];
+    diag.verifyMissedTypes = [...new Set(missed.map((m) => m.type))];
     if (diag.verifyLeakCount > 0 || missed.length > 0) {
-      markTextPages('failed', 'verification_failed');
+      // 원문이 다시 읽힌 페이지만 실패 — 나머지 페이지는 검증을 통과한 실제 결과를 남긴다
+      markPagesFailed(new Set([...[...leaked].map((i) => masked[i].page), ...missed.map((m) => m.page)]), 'verification_failed', 'verify', 'verified');
       return fail('verification_failed', 'verify');
     }
   }
@@ -690,7 +805,7 @@ export async function protectPdf(
   } catch (e) {
     return fail('redaction_failed', 'redact', e);
   }
-  // 최종 검증: 페이지 수·크기·회전이 원본과 같고, 스캔 페이지에서 글자가 하나도 읽히지 않으며, 텍스트 페이지에 놓친 Level 1이 없다
+  // 최종 검증: 페이지 수·크기·회전이 원본과 같고, 스캔 페이지에서 글자가 하나도 읽히지 않으며, 텍스트 페이지에 놓친 가림 대상 값이 없다
   try {
     const fdoc = await PDFDocument.load(final, { updateMetadata: false });
     if (fdoc.getPageCount() !== pageCount) return fail('verification_failed', 'verify');
@@ -702,7 +817,7 @@ export async function protectPdf(
     const pjFinal = await readWithPdfjs(final);
     const scanText = scanIdx.reduce((n, i) => n + (pjFinal[i]?.items ?? []).filter((it) => it.str.trim() !== '').length, 0);
     diag.verifyScanTextCount = scanText;
-    const missed = missedLevel1(onlyText(pjFinal), shown);
+    const missed = missedMaskable(onlyText(pjFinal), shown);
     if (scanText > 0 || missed.length > 0) {
       diag.verifyMissedCount = missed.length;
       return fail('verification_failed', 'verify');

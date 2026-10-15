@@ -404,6 +404,21 @@ export function maskSensitiveTextForDisplay(value: unknown): string {
   }
 }
 
+/**
+ * 원본에서 이미 일부가 가려진 값 (예: 900101-1******, 010-****-1234, ****-****-****-1234) 개수.
+ * 숫자와 가림 기호(* ＊ ●)가 섞인 값 모양이고, 가림 기호가 3개 이상 이어진 것만 센다.
+ * 가려진 부분을 복원·추정하지 않는다. detectSensitive는 이런 값을 탐지하지 않으므로(숫자가 모자람) 따로 센다.
+ * 결과는 페이지 상태 표시용 개수뿐 — 값은 반환하지 않는다.
+ */
+export function countPreMasked(text: string): number {
+  let n = 0;
+  for (const m of text.matchAll(/[0-9*＊●](?:[0-9*＊●]|[-‐‑–—](?=[0-9*＊●])){6,}/g)) {
+    const v = m[0];
+    if (/[*＊●]{3,}/.test(v) && (v.match(/\d/g)?.length ?? 0) >= 2) n++;
+  }
+  return n;
+}
+
 /** 로그용 요약 — 종류별 개수만 (값은 절대 포함하지 않는다) */
 export function detectionCounts(ds: Pick<Detection, 'type'>[]): string {
   const counts = new Map<string, number>();

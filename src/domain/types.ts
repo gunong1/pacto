@@ -299,6 +299,8 @@ export interface ProtectionPage {
   status: Exclude<ProtectionStatus, 'pending'> | 'skipped' | 'excluded';
   /** 사유 코드 (예: low_ocr_quality · 뺀 페이지는 auto_unreadable / user) */
   detail?: string | null;
+  /** 원본에서 이미 일부가 가려져 있던 값(예: 900101-1******) 개수 — 서버가 센 개수만, 값 없음 */
+  preMasked?: number;
 }
 
 /**

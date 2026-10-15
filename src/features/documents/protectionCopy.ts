@@ -185,10 +185,15 @@ export const PAGE_STATUS_LABEL: Record<ProtectionPage['status'], string> = {
   excluded: '분석에서 제외함',
 };
 
-/** 페이지 한 줄 이름 — 뺀 페이지는 자동(읽지 못함)·직접 구분 */
-export function pageStatusLabel(p: Pick<ProtectionPage, 'status' | 'detail'>): string {
+/**
+ * 페이지 한 줄 이름 — 뺀 페이지는 자동(읽지 못함)·직접 구분.
+ * 원본에서 이미 가려져 있던 값(900101-1****** 등)이 있는 페이지는 "이미 가려진 정보 확인"을 함께 알린다 (검증을 통과한 페이지만).
+ */
+export function pageStatusLabel(p: Pick<ProtectionPage, 'status' | 'detail' | 'preMasked'>): string {
   if (p.status === 'excluded') return p.detail === 'auto_unreadable' ? '글자를 읽지 못해 분석에서 제외함' : '직접 분석에서 제외함';
-  return PAGE_STATUS_LABEL[p.status];
+  if (p.preMasked && p.status === 'protected') return '민감정보 보호 완료 · 이미 가려진 정보 확인';
+  if (p.preMasked && p.status === 'no_sensitive_data') return '이미 가려진 정보 확인 · 추가 보호 대상 없음';
+  return PAGE_STATUS_LABEL[p.status] ?? PAGE_STATUS_LABEL.failed;
 }
 
 /** 문제가 있는 페이지 — 사용자가 미리보고, 분석에서 뺄 수 있다 (뺀 페이지는 AI 분석에 쓰지 않음) */
