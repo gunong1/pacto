@@ -9,6 +9,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Button } from '@/components/ui/Button';
 import { ChipGroup } from '@/components/ui/controls';
 import { EmptyState, Screen } from '@/components/ui/layout';
+import { formatDateKo } from '@/domain/dates';
 import { daysUntil } from '@/domain/dday';
 import { CONTRACT_KINDS, kindDisplay } from '@/domain/contractKinds';
 import { formatWon } from '@/domain/money';
@@ -18,6 +19,9 @@ import { currentTerm, deriveStatus } from '@/domain/status';
 import type { ContractStatus } from '@/domain/types';
 import { useContracts, useToday } from '@/features/contracts/queries';
 import { colors, radius, spacing, typography } from '@/theme';
+
+/** 계약 목록에서 D-day로 보여주는 만료까지 남은 날 (그보다 멀면 날짜로) */
+const EXPIRY_DDAY_DAYS = 30;
 
 type StatusFilter = 'all' | 'live' | 'ending_soon' | 'renewal_due' | 'closed';
 
@@ -48,7 +52,8 @@ export default function ContractsScreen() {
   // MY 바로가기: docs=1 → 보관 문서(원본 계약서·사진·PDF 등)가 있는 계약만, docs=0 → 해제
   const params = useLocalSearchParams<{ status?: StatusFilter; docs?: string; t?: string }>();
   const { data: records, isLoading } = useContracts();
-  const [status, setStatus] = useState<StatusFilter>(params.status ?? 'all');
+  // 기본은 진행중(종료 임박·갱신 예정 포함, 종료·해지 제외) — 홈 상태 칸에서 들어오면 그 필터 우선. 고른 필터는 탭을 떠나도 유지
+  const [status, setStatus] = useState<StatusFilter>(params.status ?? 'live');
   /** 계약 종류 필터 (종류 이름 — 분류 개편 전 계약은 예전 이름) */
   const [category, setCategory] = useState<string>('all');
   const [query, setQuery] = useState('');
@@ -72,7 +77,7 @@ export default function ContractsScreen() {
       .map((r) => {
         const s = deriveStatus(r.contract, today);
         const term = currentTerm(r.contract, today);
-        return { r, status: s, days: term ? daysUntil(term.termEnd, today) : null, next: nextPayment(r, today), monthly: contractMonthlyPayments(r, today) };
+        return { r, status: s, days: term ? daysUntil(term.termEnd, today) : null, end: term?.termEnd ?? null, next: nextPayment(r, today), monthly: contractMonthlyPayments(r, today) };
       })
       .filter((x) => matches(status, x.status))
       .filter((x) => category === 'all' || kindDisplay(x.r.contract).label === category)
@@ -142,7 +147,7 @@ export default function ContractsScreen() {
             action={records?.length ? undefined : <Button label="계약 등록하기" size="md" onPress={() => router.push('/register')} />}
           />
         ) : (
-          rows.map(({ r, status: s, days, next, monthly }) => {
+          rows.map(({ r, status: s, days, end, next, monthly }) => {
             const closed = s === 'ended' || s === 'cancelled';
             const sub = [
               partySummary(r.contract),
@@ -161,7 +166,16 @@ export default function ContractsScreen() {
                 onPress={() => router.push(`/contract/${r.contract.id}`)}
                 right={
                   <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    {days != null && !closed ? <DDay days={days} variant="body2Strong" /> : null}
+                    {/* 만료까지 30일 이내 = D-day, 31일 이상 = 만료 예정 날짜, 만료일 없음 = 표시 안 함 */}
+                    {days != null && end && !closed ? (
+                      days <= EXPIRY_DDAY_DAYS ? (
+                        <DDay days={days} variant="body2Strong" />
+                      ) : (
+                        <AppText variant="caption" color="textSecondary" tabular testID={`contract-end-${r.contract.id}`}>
+                          {formatDateKo(end)} 만료
+                        </AppText>
+                      )
+                    ) : null}
                     <StatusBadge status={s} />
                   </View>
                 }
