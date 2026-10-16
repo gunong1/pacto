@@ -134,7 +134,8 @@ describe('중도 입사 첫 급여 (확인된 규정으로만)', () => {
     expect(plan.status).toBe('ready');
     if (plan.status !== 'ready') return;
     expect(plan.first).toMatchObject({ period: { from: '2026-10-01', to: '2026-10-31' }, days: 7, periodDays: 31, payDate: '2026-11-10', total: 722_581, roundingAssumed: true });
-    expect(plan.notes.join(' ')).toContain('반올림한 예상액');
+    // 원 단위 처리는 고르지 않음 — 공통 반올림 (안내 문구 없음)
+    expect(plan.notes.join(' ')).not.toContain('원 단위');
     expect(pays(r, '2026-10-01', '2026-12-31').map((i) => [i.date, i.amount])).toEqual([
       ['2026-11-10', 722_581],
       ['2026-12-10', 3_200_000],
@@ -144,11 +145,12 @@ describe('중도 입사 첫 급여 (확인된 규정으로만)', () => {
     expect([income(r, 10).incomeTotal, income(r, 11).incomeTotal, income(r, 12).incomeTotal]).toEqual([0, 722_581, 3_200_000]);
   });
 
-  test('원 단위 처리 규정: 원 미만 버림 722,580 · 100원 미만 버림 722,500', () => {
+  test('원 단위 처리 옵션 제거: 예전에 저장된 버림 규정이 있어도 공통 반올림 722,581 (저장값은 그대로)', () => {
     expect(roundWon(3_200_000 * 7, 31, 'floor_1')).toBe(722_580);
-    expect(roundWon(3_200_000 * 7, 31, 'floor_100')).toBe(722_500);
+    expect(roundWon(3_200_000 * 7, 31, null)).toBe(722_581);
     const r = job({ details: { ...RULES, payRounding: 'floor_1' } });
-    expect(pays(r, '2026-11-01', '2026-11-30')[0].amount).toBe(722_580);
+    expect(pays(r, '2026-11-01', '2026-11-30')[0].amount).toBe(722_581);
+    expect(r.contract.details.payRounding).toBe('floor_1');
   });
 
   test('10. 항목별 규정이 다름: 기본급 일할 + 고정수당 첫 달 전액 → 632,258 + 400,000 = 1,032,258', () => {
@@ -172,7 +174,7 @@ describe('중도 입사 첫 급여 (확인된 규정으로만)', () => {
     const r = job({ details: { payPeriodStartDay: 21, payTiming: 'same_month', prorationBasis: 'calendar_days', payRounding: 'floor_1' }, payment: { dayOfMonth: 25 } });
     const plan = prorationPlan(r, r.payments[0]);
     if (plan.status !== 'ready') throw new Error(plan.status);
-    expect(plan.first).toMatchObject({ period: { from: '2026-10-21', to: '2026-11-20' }, days: 27, periodDays: 31, payDate: '2026-11-25', total: 2_787_096 });
+    expect(plan.first).toMatchObject({ period: { from: '2026-10-21', to: '2026-11-20' }, days: 27, periodDays: 31, payDate: '2026-11-25', total: 2_787_097 });
   });
 
   test('중도 퇴사: 종료일 2027-01-15 → 마지막 급여 2/10에 15/31일 · 그 뒤 지급 없음', () => {
@@ -190,18 +192,23 @@ describe('중도 입사 첫 급여 (확인된 규정으로만)', () => {
     expect(nov[0].date).not.toBe('2026-11-15'); // 2026-11-15는 일요일
   });
 
-  test('12. 급여 산정기간이 없음 → 자동 확정하지 않음 (확인 필요) · 일정은 예전처럼 월 급여 + "첫 지급일 확인 필요"', () => {
+  test('12. 급여 산정기간이 없음 → 매월 1일~말일(기본)로 계산 + 안내 · 지급 시기가 없으면 확인 필요', () => {
     const r = job({ details: { payTiming: 'next_month', prorationBasis: 'calendar_days' } });
-    expect(prorationPlan(r, r.payments[0])).toMatchObject({ status: 'needs_rules', missing: ['periodStartDay'] });
+    const plan = prorationPlan(r, r.payments[0]);
+    expect(plan).toMatchObject({ status: 'ready', notes: expect.arrayContaining(['급여 산정기간을 정하지 않아 매월 1일~말일로 계산했어요']) });
     const first = pays(r, '2026-10-01', '2026-11-30')[0];
-    expect([first.date, first.amount]).toEqual(['2026-11-10', 3_200_000]);
-    expect(first.title).toContain(FIRST_PAYMENT_CHECK);
+    expect([first.date, first.amount]).toEqual(['2026-11-10', 722_581]);
+    const noTiming = job({ details: { prorationBasis: 'calendar_days' } });
+    expect(prorationPlan(noTiming, noTiming.payments[0])).toMatchObject({ status: 'needs_rules', missing: ['timing'] });
+    const f2 = pays(noTiming, '2026-10-01', '2026-11-30')[0];
+    expect([f2.date, f2.amount]).toEqual(['2026-11-10', 3_200_000]);
+    expect(f2.title).toContain(FIRST_PAYMENT_CHECK);
   });
 
   test('AI가 추정만 한 규정(inferred)은 쓰지 않음 → 사용자가 확인(user_confirmed)하면 적용', () => {
     const src = (s: SourceType) => ({ 'details.payPeriodStartDay': s, 'details.payTiming': s, 'details.prorationBasis': s });
     const guessed = job({ details: RULES, sources: src('inferred') });
-    expect(prorationPlan(guessed, guessed.payments[0])).toMatchObject({ status: 'needs_rules', missing: ['periodStartDay', 'timing', 'basis'] });
+    expect(prorationPlan(guessed, guessed.payments[0])).toMatchObject({ status: 'needs_rules', missing: ['timing', 'basis'] });
     const confirmed = job({ details: RULES, sources: src('user_confirmed') });
     expect(prorationPlan(confirmed, confirmed.payments[0]).status).toBe('ready');
   });

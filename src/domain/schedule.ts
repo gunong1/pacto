@@ -158,13 +158,18 @@ export function expandPayment(
   const periods = amountPeriods({ contract, dates }, payment);
   // 첫 지급일이 계약서·사용자로 정해지지 않은 급여 → 첫 회차는 "확인 필요" (당월/익월 지급을 임의로 추론하지 않음)
   const firstUnsure = firstPaymentNeedsCheck(payment, contract, dates) ? firstNominalDate(payment) : null;
+  // 급여 규정이 덜 확인된 시급·일급제: 첫 회차는 계산한 첫 급여(근무일 기준) 또는 "월평균 추정" 안내 — 월평균을 첫 달 금액처럼 보이지 않게
+  const firstEstimate = plan.status === 'needs_rules' ? (plan.firstEstimate ?? null) : null;
+  const firstNote = plan.status === 'needs_rules' ? (plan.firstNote ?? null) : null;
+  const firstNominal = firstEstimate || firstNote ? firstNominalDate(payment) : null;
   return nominal
     .filter((o) => plan.status !== 'ready' || (o.nominalDate >= plan.firstPayDate && (plan.lastPayDate == null || o.nominalDate <= plan.lastPayDate)))
     .map((o) => {
-      const prorated = proratedFor(plan, o.nominalDate);
+      const isFirst = o.nominalDate === firstNominal;
+      const prorated = proratedFor(plan, o.nominalDate) ?? (isFirst ? firstEstimate : null);
       const { amount, note } = amountOn(periods, payment, o.nominalDate, prorated?.total);
       const text = prorated ? proratedText(prorated) : null;
-      const amountNote = [text?.title, note, o.nominalDate === firstUnsure ? FIRST_PAYMENT_CHECK : null, loanUnsure ? LOAN_INTEREST_CHECK : null].filter(Boolean).join(' · ') || null;
+      const amountNote = [text?.title, note, isFirst ? firstNote : null, o.nominalDate === firstUnsure || (isFirst && firstEstimate) ? FIRST_PAYMENT_CHECK : null, loanUnsure ? LOAN_INTEREST_CHECK : null].filter(Boolean).join(' · ') || null;
       return { ...o, date: adjustToBusinessDay(o.nominalDate, rule), amount, amountNote, prorated: text, estimated: o.estimated || loanUnsure };
     })
     .filter((o) => o.date >= range.start && o.date <= range.end);

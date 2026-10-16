@@ -32,7 +32,30 @@ export type PayBasis = (typeof PAY_BASES)[number];
 export const PAY_BASIS_LABEL: Record<PayBasis, string> = { monthly: '월급제', hourly: '시급제', daily: '일급제', annual: '연봉제' };
 
 /** 급여 방식 칸 — 일반 "근로 정보" 목록이 아니라 급여 방식 영역에서 보여준다 */
-export const PAY_BASIS_KEYS: ReadonlySet<string> = new Set(['payBasis', 'hourlyWage', 'dailyWorkHours', 'weeklyWorkDays', 'weeklyHolidayPay', 'dailyWage', 'monthlyWorkDays', 'annualSalary']);
+export const PAY_BASIS_KEYS: ReadonlySet<string> = new Set(['payBasis', 'hourlyWage', 'dailyWorkHours', 'weeklyWorkDays', 'workWeekdays', 'weeklyHolidayPay', 'dailyWage', 'monthlyWorkDays', 'annualSalary']);
+/** 급여 산정·지급 규정 칸 — 급여 영역(PayrollRulesFields)에서 보여준다 (원 단위 처리는 화면에서 고르지 않음 — 공통 반올림) */
+export const PAYROLL_RULE_KEYS: ReadonlySet<string> = new Set(['payPeriodStartDay', 'payTiming', 'prorationBasis', 'payRounding']);
+
+// ───────────── 근무 요일 (details.workWeekdays = "1,2,3,4,5", 월=1 … 일=7) ─────────────
+export const WEEKDAY_LABEL = ['월', '화', '수', '목', '금', '토', '일'] as const;
+
+/** 저장된 근무 요일 (형식이 틀리거나 비어 있으면 null — 주 근무일수만으로 요일을 정하지 않음) */
+export function workWeekdaysOf(details: ContractDetails | null | undefined): number[] | null {
+  const v = details?.workWeekdays;
+  if (typeof v !== 'string' || !/^[1-7](,[1-7])*$/.test(v.trim())) return null;
+  return [...new Set(v.trim().split(',').map(Number))].sort((a, b) => a - b);
+}
+export const weekdaysToText = (days: readonly number[]): string => [...new Set(days)].sort((a, b) => a - b).join(',');
+/** 저장된 주 근무일수와 고른 근무 요일 수가 다른지 (다르면 사용자 확인 — 계산은 근무 요일 기준) */
+export function weekdaysMismatch(details: ContractDetails | null | undefined): { weeklyDays: number; weekdays: number } | null {
+  const days = workWeekdaysOf(details);
+  const weekly = details?.weeklyWorkDays;
+  if (!days || typeof weekly !== 'number' || weekly <= 0 || weekly === days.length) return null;
+  return { weeklyDays: weekly, weekdays: days.length };
+}
+
+/** "월·화·수·목·금" */
+export const formatWeekdays = (days: readonly number[]): string => days.map((d) => WEEKDAY_LABEL[d - 1]).join('·');
 
 /** 급여 방식별 입력 칸 (월급제는 급여 금액 = 월급 하나) */
 export const PAY_BASIS_FIELDS: Record<PayBasis, readonly string[]> = {
@@ -81,7 +104,8 @@ export function weeklyPay(details: ContractDetails | null | undefined): WeeklyPa
   if (payBasisOf(details) !== 'hourly') return null;
   const wage = pos(details?.hourlyWage);
   const daily = pos(details?.dailyWorkHours);
-  const days = pos(details?.weeklyWorkDays);
+  // 근무 요일을 골랐으면 그 개수가 주 근무일수
+  const days = workWeekdaysOf(details)?.length ?? pos(details?.weeklyWorkDays);
   if (wage == null || daily == null || days == null) return null;
   const hours = Math.round(daily * days * 100) / 100;
   const base = Math.round(wage * hours);
@@ -125,7 +149,7 @@ export function monthlyPayEstimate(details: ContractDetails | null | undefined):
   const basis = payBasisOf(details);
   if (!basis || basis === 'monthly') return null;
   const fields = hourlyFields(basis, details);
-  const v = Object.fromEntries(fields.map((k) => [k, pos(details?.[k])]));
+  const v: Record<string, number | null> = Object.fromEntries(fields.map((k) => [k, pos(details?.[k])]));
   const missing = fields.filter((k) => v[k] == null).map((k) => LABEL[k]);
   if (missing.length > 0) return { basis, amount: null, formula: null, missing };
   switch (basis) {
@@ -144,7 +168,10 @@ export function monthlyPayEstimate(details: ContractDetails | null | undefined):
 
 /** 계산에 쓰는 칸 — 시급제는 주 근무일수, 주 근무일수 없이 월 예상 근무일수만 있는 예전 계약은 그 값 */
 function hourlyFields(basis: PayBasis, details: ContractDetails | null | undefined): readonly string[] {
-  if (basis === 'hourly' && pos(details?.weeklyWorkDays) == null && pos(details?.monthlyWorkDays) != null) return ['hourlyWage', 'dailyWorkHours', 'monthlyWorkDays'];
+  const hasWeekly = pos(details?.weeklyWorkDays) != null || workWeekdaysOf(details) != null;
+  if (basis === 'hourly' && !hasWeekly && pos(details?.monthlyWorkDays) != null) return ['hourlyWage', 'dailyWorkHours', 'monthlyWorkDays'];
+  // 근무 요일만 고른 경우 주 근무일수 칸은 비어 있어도 된다
+  if (basis === 'hourly' && workWeekdaysOf(details) != null) return ['hourlyWage', 'dailyWorkHours'];
   return PAY_BASIS_FIELDS[basis];
 }
 

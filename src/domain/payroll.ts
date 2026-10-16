@@ -9,8 +9,9 @@
  * 일할 계산(중도 입사·퇴사)은 계약서에 있거나 사용자가 확인한 규정(급여 산정기간·지급 시기·일할 기준)이 모두 있을 때만 한다.
  * 금액은 결제(contract_payments) 하나 — 구성항목은 그 금액의 세부 내역이라 따로 수입으로 더하지 않는다.
  */
-import { addDays, addMonths, dateInMonth, diffDays, parseISODate, toISODate } from './dates';
-import { isVariablePayBasis, payBasisOf } from './payBasis';
+import { addDays, addMonths, dateInMonth, daysInMonth, diffDays, parseISODate, toISODate, weekdayOf } from './dates';
+import { formatWon } from './money';
+import { payBasisOf, weeklyPay, workWeekdaysOf } from './payBasis';
 import { amountAt } from './paymentAmount';
 import type { ComponentPayType, Contract, ContractPayment, ContractRecord, ISODate, PaymentComponent } from './types';
 
@@ -126,6 +127,14 @@ export const PAYROLL_RULE_LABEL: Record<keyof PayrollRules, string> = {
   basis: '일할 계산 기준',
   rounding: '원 단위 처리',
 };
+/** 급여 지급 시기 — 당월: 근무한 달에 지급 · 익월: 근무한 다음 달에 지급 (저장값 same_month·next_month 그대로) */
+export const PAY_TIMING_LABEL: Record<PayTiming, { label: string; hint: string }> = {
+  same_month: { label: '당월 지급', hint: '근무한 달에 급여 지급' },
+  next_month: { label: '익월 지급', hint: '근무한 다음 달에 급여 지급' },
+};
+/** 산정기간 시작일 ↔ 마감일 (시작일 1 = 매월 말일 마감 · 시작일 26 = 매월 25일 마감) — 저장은 기존 시작일 칸 그대로 */
+export const periodEndDayOf = (startDay: number | null): number | null => (startDay == null ? null : startDay === 1 ? null : startDay - 1);
+export const periodStartDayOf = (endDay: number | null): number => (endDay == null ? 1 : endDay + 1);
 const DETAIL_KEY: Record<keyof PayrollRules, string> = { periodStartDay: 'payPeriodStartDay', timing: 'payTiming', basis: 'prorationBasis', rounding: 'payRounding' };
 
 /**
@@ -180,11 +189,13 @@ export function roundWon(numerator: number, denominator: number, rounding: PayRo
 
 export interface ProratedLine {
   label: string;
-  /** 월 금액 */
-  monthly: number;
-  /** daily 일할 · full 전액 */
-  method: 'daily' | 'full';
+  /** 월 금액 (근무일 계산 줄은 null) */
+  monthly: number | null;
+  /** daily 일할 · full 전액 · workdays 실제 소정근로일 계산(시급·일급) */
+  method: 'daily' | 'full' | 'workdays';
   amount: number;
+  /** 계산 근거 (예: "근무일 9일 × 4시간 × 시급 13,000원") */
+  detail?: string;
 }
 
 export interface ProratedPay {
@@ -193,22 +204,33 @@ export interface ProratedPay {
   period: { from: ISODate; to: ISODate };
   /** 근무(재직) 기간 — 산정기간 안 */
   worked: { from: ISODate; to: ISODate };
-  /** 적용 일수 / 기준 일수 (달력 일수) */
+  /** 적용 일수 / 기준 일수 — unit calendar: 달력 일수 · workdays: 근무 요일 기준 소정근로일 */
   days: number;
   periodDays: number;
+  unit: 'calendar' | 'workdays';
   /** 계약상 지급일 (휴일 조정 전) */
   payDate: ISODate;
   lines: ProratedLine[];
   /** 예상 세전 지급액 */
   total: number;
-  /** 원 단위 처리 규정이 없어 반올림한 예상액인지 */
+  /** 원 미만 반올림한 예상액 (원 단위 처리는 고르지 않음 — 공통 반올림) */
   roundingAssumed: boolean;
+  /** 이 기간 안내 (주휴수당 확인 필요 등) */
+  notes?: string[];
 }
 
 export type ProrationPlan =
   | { status: 'not_applicable' }
   /** 필요한 규정이 확인되지 않음 — 자동 확정하지 않음 (missing: 확인할 규정) */
-  | { status: 'needs_rules'; missing: (keyof PayrollRules)[]; reason?: string }
+  | {
+      status: 'needs_rules';
+      missing: (keyof PayrollRules)[];
+      reason?: string;
+      /** 첫 급여 금액은 계산했지만 지급 시기를 몰라 지급일이 확정되지 않음 (첫 회차에만 이 금액 + 확인 필요) */
+      firstEstimate?: ProratedPay | null;
+      /** 첫 회차 안내 (예: 근무 요일이 없어 월평균 추정) */
+      firstNote?: string;
+    }
   | { status: 'ready'; first: ProratedPay | null; last: ProratedPay | null; firstPayDate: ISODate; lastPayDate: ISODate | null; notes: string[] };
 
 /** 급여(정기 수입·지급) 결제 — 급여 엔진을 적용하는 대상 */
@@ -223,30 +245,33 @@ export const isSalaryPayment = (p: Pick<ContractPayment, 'kind' | 'frequency'>):
 export function prorationPlan(record: Pick<ContractRecord, 'contract' | 'dates'>, payment: ContractPayment): ProrationPlan {
   if (!isSalaryPayment(payment)) return { status: 'not_applicable' };
   const { contract } = record;
-  // 시급제·일급제: 급여 금액이 근무일수로 계산한 예상액이라 월급 일할 계산을 하지 않는다 (src/domain/payBasis.ts)
-  if (isVariablePayBasis(payBasisOf(contract.details))) return { status: 'not_applicable' };
+  const basisPay = payBasisOf(contract.details);
+  // 시급제·일급제: 근무 요일의 실제 소정근로일로 계산 (월평균 예상 월 수입을 첫·마지막 달에 그대로 쓰지 않음)
+  if (basisPay === 'hourly' || basisPay === 'daily') return workdayPlan(record, payment);
   const hire = record.dates.find((d) => d.kind === 'hire')?.date ?? contract.startDate;
   if (!hire) return { status: 'needs_rules', missing: [], reason: '입사일(근로 시작일)이 없어요' };
   const { rules, unconfirmed } = payrollRules(contract);
-  const missing = (['periodStartDay', 'timing', 'basis'] as const).filter((k) => rules[k] == null);
+  // 산정기간이 없으면 매월 1일~말일 (기본) · 원 단위 처리는 고르지 않음 (공통 반올림)
+  const missing = (['timing', 'basis'] as const).filter((k) => rules[k] == null);
   if (payment.dayOfMonth == null) return { status: 'needs_rules', missing, reason: '급여 지급일이 없어요' };
-  if (missing.length > 0) return { status: 'needs_rules', missing: [...new Set([...missing, ...unconfirmed.filter((k) => k !== 'rounding')])] };
-  if (rules.basis === 'scheduled_workdays') return { status: 'needs_rules', missing: [], reason: '소정근로일수 기준은 실제 근무일 수가 필요해 자동으로 계산하지 않아요' };
+  if (missing.length > 0) return { status: 'needs_rules', missing: [...new Set([...missing, ...unconfirmed.filter((k) => k !== 'rounding' && k !== 'periodStartDay')])] };
+  const weekdays = workWeekdaysOf(contract.details);
+  if (rules.basis === 'scheduled_workdays' && !weekdays) return { status: 'needs_rules', missing: [], reason: '소정근로일수 기준은 근무 요일이 필요해요 — 근무 요일을 골라주세요' };
 
   const timing = rules.timing!;
-  const startDay = rules.periodStartDay!;
+  const startDay = rules.periodStartDay ?? 1;
   const breakdown = salaryBreakdown(payment);
   const itemize = breakdown.check === 'match' && breakdown.fixed.length > 0;
   const notes: string[] = [];
   if (!itemize && (payment.components ?? []).length > 0) notes.push('구성항목 합계가 월 급여와 달라 월 급여 전체로 계산했어요');
-  if (rules.rounding == null) notes.push('원 단위 처리 규정이 없어 원 미만을 반올림한 예상액이에요');
   if ((payment.businessDayRule ?? 'none') === 'none') notes.push('지급일이 휴일일 때의 규정이 없어 계약상 지급일로 표시했어요');
 
   const partial = (kind: 'first' | 'last', date: ISODate): ProratedPay | null => {
     const period = payPeriodOf(date, startDay);
     const worked = kind === 'first' ? { from: date, to: period.to } : { from: period.from, to: date };
-    const periodDays = diffDays(period.from, period.to) + 1;
-    const days = diffDays(worked.from, worked.to) + 1;
+    const byWorkdays = rules.basis === 'scheduled_workdays';
+    const periodDays = byWorkdays ? workdaysIn(period.from, period.to, weekdays!).length : diffDays(period.from, period.to) + 1;
+    const days = byWorkdays ? workdaysIn(worked.from, worked.to, weekdays!).length : diffDays(worked.from, worked.to) + 1;
     if (days >= periodDays) return null; // 산정기간 전체 근무 — 일할 아님
     // 그 산정기간의 월 급여 (금액 변경 이력 반영) — 변경으로 구성항목 합계와 달라지면 월 급여 전체로
     const base = amountAt(payment, period.from);
@@ -255,9 +280,9 @@ export function prorationPlan(record: Pick<ContractRecord, 'contract' | 'dates'>
       : [{ label: payment.label, monthly: base, prorate: null }];
     const lines = items.map((it): ProratedLine => {
       const full = it.prorate === 'full' || (it.prorate == null && rules.basis === 'none');
-      return { label: it.label, monthly: it.monthly, method: full ? 'full' : 'daily', amount: full ? it.monthly : roundWon(it.monthly * days, periodDays, rules.rounding) };
+      return { label: it.label, monthly: it.monthly, method: full ? 'full' : 'daily', amount: full ? it.monthly : roundWon(it.monthly * days, periodDays, null) };
     });
-    return { kind, period, worked, days, periodDays, payDate: payDateOf(period, timing, payment.dayOfMonth!), lines, total: lines.reduce((s, l) => s + l.amount, 0), roundingAssumed: rules.rounding == null };
+    return { kind, period, worked, days, periodDays, unit: byWorkdays ? 'workdays' : 'calendar', payDate: payDateOf(period, timing, payment.dayOfMonth!), lines, total: lines.reduce((s, l) => s + l.amount, 0), roundingAssumed: true };
   };
 
   const first = partial('first', hire);
@@ -265,7 +290,108 @@ export function prorationPlan(record: Pick<ContractRecord, 'contract' | 'dates'>
   const end = payment.endsOn ?? contract.endDate;
   const last = end ? partial('last', end) : null;
   const lastPayDate = end ? payDateOf(payPeriodOf(end, startDay), timing, payment.dayOfMonth) : null;
+  if (rules.periodStartDay == null) notes.push('급여 산정기간을 정하지 않아 매월 1일~말일로 계산했어요');
   return { status: 'ready', first, last, firstPayDate, lastPayDate, notes };
+}
+
+// ─────────────────────── 시급제·일급제: 근무 요일 기준 실제 소정근로일 ───────────────────────
+
+/** ISO 요일 (월=1 … 일=7) */
+const isoWeekday = (d: ISODate): number => weekdayOf(d) || 7;
+
+/** 기간 안의 근무 요일 날짜 */
+export function workdaysIn(from: ISODate, to: ISODate, weekdays: readonly number[]): ISODate[] {
+  const out: ISODate[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) if (weekdays.includes(isoWeekday(d))) out.push(d);
+  return out;
+}
+
+/**
+ * 산정기간의 주휴수당 (주 = 월~일). 한 주의 주휴수당은 그 주의 마지막 근무 요일이 속한 산정기간에 넣는다
+ * (산정기간 경계에 걸친 주를 두 번 세지 않음). 그 주의 근무 요일을 모두 재직 중일 때만 더하고,
+ * 입사·퇴사로 일부만 근무한 주는 지급 여부를 정하지 않고 "확인 필요"로 센다. 주휴수당 조건은 weeklyPay와 같다 (15시간·예외)
+ */
+export function periodWeeklyHoliday(
+  details: Contract['details'],
+  period: { from: ISODate; to: ISODate },
+  employed: { from: ISODate; to: ISODate | null },
+): { status: 'added' | 'none'; weeks: number; uncertainWeeks: number; perWeek: number; amount: number; note: string | null } {
+  const w = weeklyPay(details);
+  const weekdays = workWeekdaysOf(details);
+  if (!w || !weekdays || w.holiday.status !== 'added') return { status: 'none', weeks: 0, uncertainWeeks: 0, perWeek: 0, amount: 0, note: w && w.holiday.status !== 'added' && w.holiday.status !== 'excluded' && w.holiday.status !== 'in_wage' ? w.holiday.note : null };
+  let weeks = 0;
+  let uncertainWeeks = 0;
+  for (let monday = addDays(period.from, 1 - isoWeekday(period.from)); monday <= period.to; monday = addDays(monday, 7)) {
+    const days = weekdays.map((wd) => addDays(monday, wd - 1));
+    const last = days[days.length - 1];
+    if (last < period.from || last > period.to) continue;
+    const inJob = days.filter((d) => d >= employed.from && (employed.to == null || d <= employed.to));
+    if (inJob.length === 0) continue;
+    if (inJob.length === days.length) weeks++;
+    else uncertainWeeks++;
+  }
+  const perWeek = w.holiday.amount;
+  return {
+    status: 'added',
+    weeks,
+    uncertainWeeks,
+    perWeek,
+    amount: weeks * perWeek,
+    note: uncertainWeeks > 0 ? `입사·퇴사로 일부만 근무한 주 ${uncertainWeeks}주는 주휴수당 지급 여부를 정할 수 없어 넣지 않았어요 (확인 필요)` : null,
+  };
+}
+
+/** 시급제·일급제 첫·마지막 급여 — 실제 소정근로일 × 하루 소정근로시간 × 시급 (일급제: 근무일 × 일급) + 주휴수당 */
+function workdayPlan(record: Pick<ContractRecord, 'contract' | 'dates'>, payment: ContractPayment): ProrationPlan {
+  const { contract } = record;
+  const d = contract.details as Record<string, unknown>;
+  const hourly = payBasisOf(contract.details) === 'hourly';
+  const hire = record.dates.find((x) => x.kind === 'hire')?.date ?? contract.startDate;
+  if (!hire) return { status: 'needs_rules', missing: [], reason: '입사일(근로 시작일)이 없어요' };
+  const weekdays = workWeekdaysOf(contract.details);
+  const avgNote = '월평균 추정 · 근무 요일을 고르면 첫 달 금액을 근무일로 계산해요';
+  if (!weekdays) return { status: 'needs_rules', missing: [], reason: '근무 요일이 없어 첫·마지막 달도 월평균 추정액으로 보여 드려요. 근무 요일을 골라주세요', firstNote: avgNote };
+  const num = (k: string) => (typeof d[k] === 'number' && (d[k] as number) > 0 ? (d[k] as number) : null);
+  const wage = hourly ? num('hourlyWage') : num('dailyWage');
+  const hours = hourly ? num('dailyWorkHours') : 1;
+  if (wage == null || hours == null) return { status: 'needs_rules', missing: [], reason: hourly ? '시급·하루 소정근로시간이 필요해요' : '일급이 필요해요', firstNote: avgNote };
+  if (payment.dayOfMonth == null) return { status: 'needs_rules', missing: [], reason: '급여 지급일이 없어요' };
+  const { rules } = payrollRules(contract);
+  const startDay = rules.periodStartDay ?? 1;
+  const end = payment.endsOn ?? contract.endDate;
+
+  const partial = (kind: 'first' | 'last', date: ISODate, timing: PayTiming | null): ProratedPay | null => {
+    const period = payPeriodOf(date, startDay);
+    const worked = kind === 'first' ? { from: date, to: end && end < period.to ? end : period.to } : { from: hire > period.from ? hire : period.from, to: date };
+    if (worked.from === period.from && worked.to === period.to) return null; // 산정기간 전체 근무 — 월평균 그대로
+    const workedDays = workdaysIn(worked.from, worked.to, weekdays).length;
+    const periodDays = workdaysIn(period.from, period.to, weekdays).length;
+    const base = Math.round(wage * hours * workedDays);
+    const lines: ProratedLine[] = [
+      { label: '기본급', monthly: null, method: 'workdays', amount: base, detail: hourly ? `근무일 ${workedDays}일 × ${hours}시간 × 시급 ${formatWon(wage)}` : `근무일 ${workedDays}일 × 일급 ${formatWon(wage)}` },
+    ];
+    const notes: string[] = [];
+    if (hourly) {
+      const h = periodWeeklyHoliday(contract.details, period, { from: hire, to: end });
+      if (h.status === 'added' && h.weeks > 0) lines.push({ label: '주휴수당', monthly: null, method: 'workdays', amount: h.amount, detail: `${h.weeks}주 × ${formatWon(h.perWeek)} (예상)` });
+      if (h.note) notes.push(h.note);
+    }
+    const payDate = timing ? payDateOf(period, timing, payment.dayOfMonth!) : '';
+    return { kind, period, worked, days: workedDays, periodDays, unit: 'workdays', payDate, lines, total: lines.reduce((s, l) => s + l.amount, 0), roundingAssumed: true, notes };
+  };
+
+  const timing = rules.timing;
+  if (!timing) return { status: 'needs_rules', missing: ['timing'], reason: '급여 지급 시기(당월·익월)를 고르면 첫 급여 지급일이 정해져요', firstEstimate: partial('first', hire, null) };
+  const notes: string[] = ['첫·마지막 달은 근무 요일의 실제 소정근로일로, 나머지 달은 월평균 추정액으로 보여 드려요'];
+  if (rules.periodStartDay == null) notes.push('급여 산정기간을 정하지 않아 매월 1일~말일로 계산했어요');
+  return {
+    status: 'ready',
+    first: partial('first', hire, timing),
+    last: end ? partial('last', end, timing) : null,
+    firstPayDate: payDateOf(payPeriodOf(hire, startDay), timing, payment.dayOfMonth),
+    lastPayDate: end ? payDateOf(payPeriodOf(end, startDay), timing, payment.dayOfMonth) : null,
+    notes,
+  };
 }
 
 /**
@@ -273,14 +399,16 @@ export function prorationPlan(record: Pick<ContractRecord, 'contract' | 'dates'>
  * title "첫 급여 · 10월 15일~31일 근무분" / detail "10월 총 31일 중 17일분 일할 계산 · 세전"
  * (산정기간이 달력 한 달이 아니면 "급여 산정기간 31일 중 …")
  */
-export function proratedText(p: Pick<ProratedPay, 'kind' | 'period' | 'worked' | 'days' | 'periodDays'>): { title: string; detail: string } {
+export function proratedText(p: Pick<ProratedPay, 'kind' | 'period' | 'worked' | 'days' | 'periodDays'> & { unit?: ProratedPay['unit'] }): { title: string; detail: string } {
   const md = (d: ISODate) => ({ m: Number(d.slice(5, 7)), d: Number(d.slice(8, 10)) });
   const a = md(p.worked.from);
   const b = md(p.worked.to);
   const range = a.m !== b.m ? `${a.m}월 ${a.d}일~${b.m}월 ${b.d}일` : a.d === b.d ? `${a.m}월 ${a.d}일` : `${a.m}월 ${a.d}일~${b.d}일`;
-  const wholeMonth = p.period.from.slice(8, 10) === '01' && p.period.from.slice(0, 7) === p.period.to.slice(0, 7) && Number(p.period.to.slice(8, 10)) === p.periodDays;
+  const wholeMonth = p.period.from.slice(8, 10) === '01' && p.period.from.slice(0, 7) === p.period.to.slice(0, 7) && Number(p.period.to.slice(8, 10)) === daysInMonth(Number(p.period.to.slice(0, 4)), Number(p.period.to.slice(5, 7)));
   const base = wholeMonth ? `${md(p.period.from).m}월 총 ${p.periodDays}일` : `급여 산정기간 ${p.periodDays}일`;
-  return { title: `${p.kind === 'first' ? '첫 급여' : '마지막 급여'} · ${range} 근무분`, detail: `${base} 중 ${p.days}일분 일할 계산 · 세전` };
+  const title = `${p.kind === 'first' ? '첫 급여' : '마지막 급여'} · ${range} 근무분`;
+  if (p.unit === 'workdays') return { title, detail: `${wholeMonth ? `${md(p.period.from).m}월` : '급여 산정기간'} 소정근로일 ${p.periodDays}일 중 ${p.days}일 근무 · 세전` };
+  return { title, detail: `${base} 중 ${p.days}일분 일할 계산 · 세전` };
 }
 
 /** 이 회차(계약상 지급일)의 금액이 일할 계산 대상이면 그 계산 */

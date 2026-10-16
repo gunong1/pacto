@@ -12,7 +12,7 @@ import { Pressable, View } from 'react-native';
 import { AppText } from '@/components/ui/AppText';
 import { ChipGroup } from '@/components/ui/controls';
 import { Section, SectionGap } from '@/components/ui/layout';
-import { PAY_BASIS_KEYS } from '@/domain/payBasis';
+import { PAY_BASIS_KEYS, PAYROLL_RULE_KEYS } from '@/domain/payBasis';
 import { contractTypeLabel, detailFields, splitDetailFields, type ContractType, type DetailFieldSpec, type SourceType } from '@/domain/contractTypes';
 import { hitSlop, spacing } from '@/theme';
 
@@ -24,7 +24,8 @@ export function DetailsSection({ kit, type, extra }: { kit: FormKit; type: Contr
   const split = splitDetailFields(type);
   const conditions = split.conditions;
   // 근로의 급여 방식 칸은 급여 방식 영역(PayBasisFields)에서 — 여기서 빼고 값은 지우지 않는다
-  const facts = type === 'employment' ? split.facts.filter((f) => !PAY_BASIS_KEYS.has(f.key)) : split.facts;
+  // 급여 산정·지급 규정도 급여 영역에서 (원 단위 처리는 보여주지 않음) — 직접 입력·수정·등록 확인이 같은 자리·같은 순서
+  const facts = type === 'employment' ? split.facts.filter((f) => !PAY_BASIS_KEYS.has(f.key) && !PAYROLL_RULE_KEYS.has(f.key)) : split.facts;
   const filled = (key: string) => {
     const v = (kit.values.details as Record<string, unknown> | undefined)?.[key];
     return v != null && String(v).trim() !== '';

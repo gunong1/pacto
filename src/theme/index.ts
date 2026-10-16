@@ -36,6 +36,10 @@ export const colors = {
   info: '#6B7684',
   infoSoft: '#F2F4F6',
   positive: '#1E8A5A',
+
+  /** 캘린더 날짜 — 일요일·공휴일 빨간색, 토요일 파란색 (한국 달력 관례) */
+  holiday: '#D6393A',
+  saturday: '#2F6BD8',
 } as const;
 
 export const spacing = {

@@ -68,7 +68,7 @@ describe('Step 10 — 확장 가능한 계약 레지스트리', () => {
         category: 'employment',
         contractType: 'employment',
         startDate: '2026-11-01',
-        details: { employmentKind: 'part_time', payBasis: 'hourly', hourlyWage: 10_030, dailyWorkHours: 7.5, monthlyWorkDays: 20, weeklyWorkDays: 4.5, weeklyHolidayPay: 'included' },
+        details: { employmentKind: 'part_time', payBasis: 'hourly', hourlyWage: 10_030, dailyWorkHours: 7.5, monthlyWorkDays: 20, weeklyWorkDays: 4.5, weeklyHolidayPay: 'included', workWeekdays: '1,2,3,4,5', payTiming: 'next_month', payPeriodStartDay: 26 },
         payments: [{ kind: 'salary', direction: 'income', label: '급여', amount: 1_504_500, frequency: 'monthly', dayOfMonth: 10, monthOfYear: null, startsOn: null, endsOn: null, installmentCount: null, isVariable: true, components: [], businessDayRule: 'none', obligation: 'confirmed', conditionNote: null }],
         dates: [],
       },
@@ -76,9 +76,11 @@ describe('Step 10 — 확장 가능한 계약 레지스트리', () => {
       documents: [],
       aiChecks: [],
     });
-    expect(saved.contract.details).toEqual({ employmentKind: 'part_time', payBasis: 'hourly', hourlyWage: 10_030, dailyWorkHours: 7.5, monthlyWorkDays: 20, weeklyWorkDays: 4.5, weeklyHolidayPay: 'included' });
+    expect(saved.contract.details).toEqual({ employmentKind: 'part_time', payBasis: 'hourly', hourlyWage: 10_030, dailyWorkHours: 7.5, monthlyWorkDays: 20, weeklyWorkDays: 4.5, weeklyHolidayPay: 'included', workWeekdays: '1,2,3,4,5', payTiming: 'next_month', payPeriodStartDay: 26 });
     expect(saved.payments[0]).toMatchObject({ kind: 'salary', amount: 1_504_500, isVariable: true });
-    expect(monthSpending([saved], { year: 2026, month: 12 }, '2026-10-15')).toMatchObject({ incomeTotal: 1_504_500, incomeEstimated: 1_504_500 });
+    // 익월 지급 · 26일~다음 달 25일 산정: 12월 = 첫 급여 (11/2~25 평일 18일 × 7.5시간 × 10,030 = 1,354,050 + 주휴 3주 225,675) · 1월부터 월평균
+    expect(monthSpending([saved], { year: 2026, month: 12 }, '2026-10-15')).toMatchObject({ incomeTotal: 1_579_725 });
+    expect(monthSpending([saved], { year: 2027, month: 1 }, '2026-10-15')).toMatchObject({ incomeTotal: 1_504_500, incomeEstimated: 1_504_500 });
     for (const details of [{ daily_work_hours: 101 }, { pay_basis: 'weekly' }, { hourly_wage: 10.5 }, { weekly_holiday_pay: 'yes' }, { weekly_work_days: -1 }]) {
       const r = await a.client.rpc('save_contract', { p_contract: { title: 'x', contract_type: 'employment', contract_details: details } });
       expect(r.error?.code).toBe('23514');

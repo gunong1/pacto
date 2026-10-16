@@ -10,6 +10,7 @@ import { AppText } from '@/components/ui/AppText';
 import { Screen, Section, SectionGap } from '@/components/ui/layout';
 import { ChipGroup } from '@/components/ui/controls';
 import { dayMarkers, groupCalendarItems, itemsForView, type CalendarViewMode } from '@/domain/calendarGroups';
+import { holidayNames } from '@/domain/holidays';
 import { formatDateKo, isValidISODate, monthRange, shiftYearMonth, yearMonthOf, type YearMonth } from '@/domain/dates';
 import { scheduleForRange } from '@/domain/schedule';
 import { monthSpending } from '@/domain/spending';
@@ -128,6 +129,12 @@ export default function CalendarScreen() {
 
       {selected ? (
         <Section title={formatDateKo(selected, true)} testID="calendar-day-list">
+          {/* 공휴일 이름 (계약 일정은 아래에 그대로 — 공휴일이라고 결제일을 바꾸지 않음) */}
+          {holidayNames(selected) ? (
+            <AppText variant="captionStrong" color="holiday" style={{ marginBottom: spacing.sm }} testID="calendar-holiday-name">
+              공휴일 · {holidayNames(selected)!.join(' · ')}
+            </AppText>
+          ) : null}
           {dayGroups.length === 0 ? (
             <AppText variant="body2" color="textTertiary">
               이 날은 계약 일정이 없어요.

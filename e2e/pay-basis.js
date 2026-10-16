@@ -118,7 +118,7 @@ const kstDate = (n) => new Date(Date.now() + 9 * 3600_000 + n * 86_400_000).toIS
   await page.waitForTimeout(500);
   const salary = page.locator('[data-testid^="salary-"]').first();
   const e = (await salary.innerText()).replace(/\s+/g, ' ');
-  check('E', '상세 급여: 시급제 · 예상 월 수입 (세전 · 월평균 추정) 1,673,577 · 주 기본급·주휴수당·주 예상 급여 따로', e.includes('시급제') && e.includes('예상 월 수입 (세전 · 월평균 추정)') && e.includes('1,673,577') && e.includes('주 기본급 (주 32시간) 320,960원') && e.includes('주휴수당 (6.4시간분) +64,192원') && e.includes('주 예상 급여 385,152원') && e.includes('실제 지급액과 달라요') && !e.includes('첫 급여 자동 계산'), e);
+  check('E', '상세 급여: 시급제 · 예상 월 수입 (세전 · 월평균 추정) 1,673,577 · 주 기본급·주휴수당·주 예상 급여 따로', e.includes('시급제') && e.includes('예상 월 수입 (세전 · 월평균 추정)') && e.includes('1,673,577') && e.includes('주 기본급 (주 32시간) 320,960원') && e.includes('주휴수당 (6.4시간분) +64,192원') && e.includes('주 예상 급여 385,152원') && e.includes('실제 지급액과 달라요') && e.includes('입사일') && e.includes('월평균 추정액으로 표시해요'), e);
   await shot('03-detail');
 
   // F 캘린더

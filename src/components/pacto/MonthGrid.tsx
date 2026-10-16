@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { daysInMonth, toISODate, weekdayOf, type YearMonth } from '@/domain/dates';
+import { dayColorOf, holidayNames } from '@/domain/holidays';
 import type { ISODate, ScheduleItemType } from '@/domain/types';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
@@ -38,7 +39,11 @@ export interface MonthGridProps {
   subtitle?: ReactNode;
 }
 
-/** 계약 전용 월 캘린더. 날짜 아래 점 색 = 일정 유형. */
+/**
+ * 계약 전용 월 캘린더. 날짜 아래 점 색 = 일정 유형.
+ * 날짜 글자색: 일요일·공휴일(대체·임시공휴일 포함) 빨강 · 토요일 파랑 · 평일 기본 (src/domain/holidays.ts — 색상만, 일정 계산과 무관)
+ * 선택한 날은 흰 글자(선택 강조 유지), 오늘은 연한 배경 + 그날 색.
+ */
 export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onChangeMonth, onPressTitle, onToday, subtitle }: MonthGridProps) {
   const { year, month } = yearMonth;
   const first = toISODate(year, month, 1);
@@ -85,7 +90,7 @@ export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onCha
       {subtitle ? <View style={styles.subtitle}>{subtitle}</View> : null}
       <View style={styles.week}>
         {WEEKDAYS.map((w, i) => (
-          <AppText key={w} variant="small" color={i === 0 ? 'caution' : 'textTertiary'} align="center" style={styles.cellText}>
+          <AppText key={w} variant="small" color={i === 0 ? 'holiday' : i === 6 ? 'saturday' : 'textTertiary'} align="center" style={styles.cellText}>
             {w}
           </AppText>
         ))}
@@ -97,6 +102,8 @@ export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onCha
           const isToday = date === today;
           const types = markers.get(date);
           const dots = types ? dotColors(types) : [];
+          const tone = dayColorOf(date);
+          const holiday = holidayNames(date);
           return (
             <Pressable
               key={date}
@@ -104,9 +111,9 @@ export function MonthGrid({ yearMonth, today, selected, markers, onSelect, onCha
               onPress={() => onSelect(date)}
               style={styles.cell}
               accessibilityRole="button"
-              accessibilityLabel={`${date}${types ? ` 일정 ${types.size}종` : ''}`}>
+              accessibilityLabel={`${date}${holiday ? ` ${holiday.join(', ')}` : ''}${types ? ` 일정 ${types.size}종` : ''}`}>
               <View style={[styles.dayCircle, isToday && styles.today, isSelected && styles.selected]}>
-                <AppText variant="body2Strong" tabular color={isSelected ? 'textInverse' : idx % 7 === 0 ? 'caution' : 'text'}>
+                <AppText variant="body2Strong" tabular color={isSelected ? 'textInverse' : tone === 'default' ? 'text' : tone} testID={`day-${date}-num`}>
                   {Number(date.slice(8))}
                 </AppText>
               </View>

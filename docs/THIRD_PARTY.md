@@ -31,3 +31,12 @@ Supabase Edge Function은 배포할 때 import한 파일만 올라가고, 이 �
 
 - 라이선스 원문: `third_party/viewer/` (pdfjs-dist LICENSE, openjpeg·jbig2 LICENSE). 번들 끝에 법적 고지 주석 포함.
 - pdfjs-dist는 npm에서 고정 버전을 내려받아 묶기만 한다(의존성에 넣지 않음). 앱 크기 약 2.1MB 증가.
+
+## 앱에 포함한 데이터 — 대한민국 공휴일 (캘린더 날짜 색상)
+
+| 위치 | 데이터 · 버전 | 원본 저장소 | 라이선스 | 용도 | 다시 만들기 |
+|---|---|---|---|---|---|
+| `src/domain/holidaysKr.data.ts` | @hyunbinseo/holidays-kr 5.2027.2 (2018~2027, 191일 — 대체공휴일·임시공휴일 포함) | https://github.com/hyunbinseo/holidays-kr | MIT | 캘린더 일요일·공휴일 빨간색, 공휴일 이름 표시 (결제일·지급일 계산에는 쓰지 않음) | `npm pack @hyunbinseo/holidays-kr@<버전>` → 압축 풀기 → `node scripts/vendor-holidays.mjs <package 폴더> <버전>` |
+
+- 원본 데이터는 우주항공청이 발표하는 월력요항(관보) 기준이라고 패키지가 밝히고 있다. 앱은 음력 명절·대체공휴일을 계산하지 않고 이 목록만 쓴다.
+- 패키지 코드는 실행하지 않고 날짜·이름 줄만 텍스트로 옮긴다 (의존성에 넣지 않음). 다음 해 월력요항이 발표되거나 임시공휴일이 지정되면 패키지 새 버전으로 다시 만든다.

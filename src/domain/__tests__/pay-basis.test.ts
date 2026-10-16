@@ -135,11 +135,11 @@ describe('계약 상세 · 월 수입 합계 · 캘린더', () => {
     expect(items[0]).toMatchObject({ date: '2026-11-10', amount: 1_765_280, estimated: true, direction: 'income', detail: '시급제 · 세전 기본급 추정 (실제 수령액과 달라요)' });
   });
 
-  test('시급·일급제는 월급 일할 계산(첫·마지막 급여)을 하지 않는다 — 근무일수로 이미 계산한 예상액', () => {
+  test('시급·일급제는 월급(달력 일수) 일할이 아니라 근무 요일로 첫 달을 계산 — 근무 요일이 없으면 월평균 추정으로 구분 (first-month-payroll.test)', () => {
     const rules = { payPeriodStartDay: 1, payTiming: 'next_month', prorationBasis: 'calendar_days' };
     const r = hourly();
     const withRules = { ...r, contract: { ...r.contract, details: { ...r.contract.details, ...rules } } };
-    expect(prorationPlan(withRules, withRules.payments[0]).status).toBe('not_applicable');
+    expect(prorationPlan(withRules, withRules.payments[0])).toMatchObject({ status: 'needs_rules', firstNote: expect.stringContaining('월평균 추정') });
     const monthly = { ...withRules, contract: { ...withRules.contract, details: { ...withRules.contract.details, payBasis: 'monthly' } } };
     expect(prorationPlan(monthly, monthly.payments[0]).status).not.toBe('not_applicable');
   });

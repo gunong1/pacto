@@ -18,7 +18,7 @@ import { DateField } from '@/components/ui/DateField';
 import { Section } from '@/components/ui/layout';
 import { formatDateKo, normalizeDateInput } from '@/domain/dates';
 import { formatWon, parseAmount } from '@/domain/money';
-import { isVariablePayBasis, monthlyPayEstimate, PAY_BASIS_LABEL, PAY_ESTIMATE_EXCLUDES, PAY_ESTIMATE_EXCLUDES_WITH_HOLIDAY, payBasisOf, payEstimateEdited, weeklyPay } from '@/domain/payBasis';
+import { weekdaysMismatch, isVariablePayBasis, monthlyPayEstimate, PAY_BASIS_LABEL, PAY_ESTIMATE_EXCLUDES, PAY_ESTIMATE_EXCLUDES_WITH_HOLIDAY, payBasisOf, payEstimateEdited, weeklyPay } from '@/domain/payBasis';
 import { COMPONENT_STATUS_LABEL, PAY_TYPE_LABEL, PAYROLL_RULE_LABEL, prorationPlan, proratedText, salaryBreakdown, variableAmount, type ProratedPay } from '@/domain/payroll';
 import type { ContractPayment, ContractRecord, PaymentComponent } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
@@ -65,6 +65,11 @@ export function SalaryCard({ record, payment, actions }: { record: ContractRecor
             {estimate.formula}
             {estimate.amount != null && payEstimateEdited(details, payment.amount) ? ` = ${formatWon(estimate.amount)} (계산값) · 직접 고친 금액으로 관리해요` : ''}
           </AppText>
+          {weekdaysMismatch(details) ? (
+            <AppText variant="caption" color="check" testID={`${tid}-weekdays-mismatch`}>
+              주 근무일수 {weekdaysMismatch(details)!.weeklyDays}일과 근무 요일 {weekdaysMismatch(details)!.weekdays}개가 달라요. 근무 요일로 계산했어요 — 정보 수정에서 확인해주세요.
+            </AppText>
+          ) : null}
           {weekly ? (
             <View style={{ marginTop: spacing.xs, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.bgSubtle }}>
               <WeeklyPayRows w={weekly} testID={`${tid}-weekly`} />
@@ -130,11 +135,15 @@ export function SalaryCard({ record, payment, actions }: { record: ContractRecor
             ))}
           </>
         ) : plan.status === 'needs_rules' ? (
-          <AppText variant="caption" color="textSecondary" testID={`${tid}-needs-rules`}>
-            첫 급여 자동 계산 전 확인 필요
-            {plan.reason ? ` — ${plan.reason}` : ''}
-            {plan.missing.length > 0 ? ` — ${plan.missing.map((k) => PAYROLL_RULE_LABEL[k]).join(' · ')}` : ''}. 계약서에 있으면 정보 수정에서 입력해주세요. 그전에는 월 급여 전액으로 표시해요.
-          </AppText>
+          <>
+            {plan.firstEstimate ? <Prorated p={plan.firstEstimate} tid={`${tid}-first`} /> : null}
+            <AppText variant="caption" color="textSecondary" testID={`${tid}-needs-rules`}>
+              {plan.firstEstimate ? '첫 급여 지급일 확인 필요' : '첫 급여 자동 계산 전 확인 필요'}
+              {plan.reason ? ` — ${plan.reason}` : ''}
+              {plan.missing.length > 0 && !plan.firstEstimate ? ` — ${plan.missing.map((k) => PAYROLL_RULE_LABEL[k]).join(' · ')}` : ''}.
+              {plan.firstEstimate || plan.firstNote ? '' : ` 계약서에 있으면 정보 수정에서 입력해주세요. 그전에는 ${variable ? '월평균 추정액' : '월 급여 전액'}으로 표시해요.`}
+            </AppText>
+          </>
         ) : null}
       </View>
     </Section>
@@ -209,13 +218,13 @@ function Prorated({ p, tid }: { p: ProratedPay; tid: string }) {
   return (
     <View style={{ marginBottom: spacing.sm }} testID={tid}>
       <Pressable onPress={() => setOpen(!open)} accessibilityRole="button" style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <AppText variant="body2Strong">{p.kind === 'first' ? '첫 급여 (일할 계산)' : '마지막 급여 (일할 계산)'}</AppText>
+        <AppText variant="body2Strong">{p.unit === 'workdays' ? (p.kind === 'first' ? '첫 급여 (근무일 계산)' : '마지막 급여 (근무일 계산)') : p.kind === 'first' ? '첫 급여 (일할 계산)' : '마지막 급여 (일할 계산)'}</AppText>
         <AppText variant="body2Strong" tabular>
           {formatWon(p.total)}
         </AppText>
       </Pressable>
       <AppText variant="caption" color="textTertiary">
-        예상 세전 지급액 · {formatDateKo(p.payDate)} 지급 예정
+        예상 세전 지급액{p.payDate ? ` · ${formatDateKo(p.payDate)} 지급 예정` : ' · 지급일은 지급 시기를 고르면 정해져요'}
       </AppText>
       {open ? (
         <View style={{ marginTop: 4, paddingLeft: spacing.md, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 2 }}>
@@ -225,7 +234,12 @@ function Prorated({ p, tid }: { p: ProratedPay; tid: string }) {
             {text.detail}
           </AppText>
           {p.lines.map((l) => (
-            <Row key={l.label} label={`${l.label} ${formatWon(l.monthly)} ${l.method === 'full' ? '전액' : `중 ${p.days}일분`}`} value={formatWon(l.amount)} />
+            <Row key={l.label} label={l.detail ? `${l.label} (${l.detail})` : `${l.label} ${formatWon(l.monthly ?? 0)} ${l.method === 'full' ? '전액' : `중 ${p.days}일분`}`} value={formatWon(l.amount)} />
+          ))}
+          {(p.notes ?? []).map((n) => (
+            <AppText key={n} variant="small" color="check">
+              · {n}
+            </AppText>
           ))}
         </View>
       ) : null}

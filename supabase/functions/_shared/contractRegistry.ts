@@ -140,6 +140,8 @@ export const DETAIL_FIELD_DEFS: readonly {
   { type: 'employment', key: 'dailyWorkHours', db: 'daily_work_hours', label: '하루 소정근로시간', input: 'decimal', suffix: '시간', max: 24, ai: false },
   // 시급제 주휴수당 예상 (src/domain/payBasis.ts weeklyPay) — 주 근무일수 · 주휴수당 포함 여부(사용자가 지급 대상이라고 확인 = included)
   { type: 'employment', key: 'weeklyWorkDays', db: 'weekly_work_days', label: '주 근무일수', input: 'decimal', suffix: '일', max: 7, ai: false },
+  // 근무 요일 — "1,2,3,4,5" (월=1 … 일=7). 중도 입사·퇴사 달의 실제 소정근로일 계산용 (src/domain/payroll.ts). 사용자가 고른 값만 (주 5일이라고 월~금으로 정하지 않음)
+  { type: 'employment', key: 'workWeekdays', db: 'work_weekdays', label: '근무 요일', input: 'text', ai: false },
   {
     type: 'employment', key: 'weeklyHolidayPay', db: 'weekly_holiday_pay', label: '주휴수당', input: 'enum', ai: false,
     options: [{ value: 'included', label: '포함' }, { value: 'excluded', label: '제외' }, { value: 'in_wage', label: '시급에 이미 포함' }],
@@ -153,7 +155,7 @@ export const DETAIL_FIELD_DEFS: readonly {
   { type: 'employment', key: 'payPeriodStartDay', db: 'pay_period_start_day', label: '급여 산정기간 시작일', input: 'integer', suffix: '일' },
   {
     type: 'employment', key: 'payTiming', db: 'pay_timing', label: '급여 지급 시기', input: 'enum',
-    options: [{ value: 'same_month', label: '산정기간이 끝나는 달' }, { value: 'next_month', label: '산정기간 다음 달' }],
+    options: [{ value: 'same_month', label: '당월 지급' }, { value: 'next_month', label: '익월 지급' }],
   },
   {
     type: 'employment', key: 'prorationBasis', db: 'proration_basis', label: '중도 입사·퇴사 일할 계산', input: 'enum',

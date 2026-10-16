@@ -278,7 +278,7 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
         <SectionGap />
         <Section title={type === 'employment' ? '급여' : '금액'} caption={type === 'employment' ? '비워두면 급여 없이 저장돼요' : '비워두면 결제 없이 저장돼요'} testID="quick-payment">
           {/* 근로: 급여 방식(월급·시급·일급·연봉)에 따라 입력 칸이 바뀌고 급여 금액(월급·예상 월 수입)을 채운다 */}
-          {type === 'employment' ? <PayBasisFields kit={kit} mode="quick" /> : field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
+          {type === 'employment' ? <PayBasisFields kit={kit} mode="quick" today={today} /> : field('quick.amount', '금액', { keyboardType: 'number-pad', suffix: '원', placeholder: '0', amount: true, testID: 'quick-amount' })}
           {q?.amount?.trim() ? (
             <ComponentsEditor components={q.components ?? []} total={parseAmount(q.amount)} onChange={(next) => setValue('quick.components', next)} testID="quick-components" />
           ) : null}
@@ -333,8 +333,8 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
         <SectionGap />
         <Section title="선택" testID="quick-optional">
           <View style={styles.row2}>
-            <View style={styles.col}>{date('startDate', '시작일')}</View>
-            <View style={styles.col}>{date('endDate', '종료일')}</View>
+            <View style={styles.col}>{date('startDate', type === 'employment' ? profile.startLabel : '시작일')}</View>
+            <View style={styles.col}>{date('endDate', type === 'employment' ? profile.endLabel : '종료일')}</View>
           </View>
           {profile.hasRenewal ? <AutoRenewalFields kit={kit} quick={quick} /> : null}
           {field('memo', '메모', { multiline: true, placeholder: '자유롭게 적어두세요' })}
@@ -427,7 +427,7 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
         {date('contractDate', '계약 체결일 (선택)', { hint: '기록용이에요. 캘린더와 알림에는 쓰지 않아요.' })}
       </Section>
 
-      <DetailsSection kit={kit} type={type} extra={type === 'employment' ? <PayBasisFields kit={kit} mode="full" /> : null} />
+      <DetailsSection kit={kit} type={type} extra={type === 'employment' ? <PayBasisFields kit={kit} mode="full" today={today} /> : null} />
       {/* 대출: 원금·금리·계산 기준으로 만든 상환 계획 (회차별 금액 카드 대신) */}
       {type === 'loan' ? (
         <>

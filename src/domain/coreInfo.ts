@@ -5,6 +5,7 @@ import { BUSINESS_DAY_RULE_LABEL } from './businessDays';
 import { detailFields, isConfirmedPayment, OBLIGATION_LABEL, profileOf, type PaymentKind, type PaymentObligation, type SourceType } from './contractTypes';
 import { addDays, formatDateKo } from './dates';
 import { FREQUENCY_LABEL } from './labels';
+import { formatWeekdays, workWeekdaysOf } from './payBasis';
 import { formatWon, formatWonCompact } from './money';
 import { withAmountAt } from './paymentAmount';
 import { paymentPlan, planSummary } from './paymentPlan';
@@ -59,6 +60,10 @@ function detailText(record: ContractRecord, key: string): string | null {
   const spec = detailFieldsFor(record.contract).find((f) => f.key === key);
   const v = record.contract.details[key];
   if (!spec || v == null) return null;
+  // 근로 급여 규정 표시 — 근무 요일 "월·화·수·목·금" · 산정기간은 마감일로 · 원 단위 처리는 보여주지 않음 (공통 반올림)
+  if (key === 'workWeekdays') return workWeekdaysOf(record.contract.details) ? formatWeekdays(workWeekdaysOf(record.contract.details)!) : null;
+  if (key === 'payPeriodStartDay' && typeof v === 'number') return v === 1 ? '매월 1일~말일' : `매월 ${v}일~다음 달 ${v - 1}일 (${v - 1}일 마감)`;
+  if (key === 'payRounding') return null;
   if (spec.input === 'amount') return formatWon(v as number);
   // 금리는 연 이율, 그 밖의 비율(예: 수습기간 임금 90%)은 그대로
   if (spec.input === 'percent') return /Rate$/.test(spec.key) && /금리|이율/.test(spec.label) ? `연 ${v}%` : `${v}%`;
