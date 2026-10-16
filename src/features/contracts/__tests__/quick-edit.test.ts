@@ -113,3 +113,19 @@ test('구성항목: 불러오기 → 추가·삭제 → 저장 (금액·일정�
   expect(out.payments[0]).toMatchObject({ label: '급여', amount: 1_270_000, components: [{ label: '기본급', amount: 1_200_000 }, { label: '식대·수당', amount: 70_000 }] });
   expect(save(d, (v) => (v.quick!.components = [])).payments[0].components).toEqual([]);
 });
+
+test('지급일·결제일이 휴일이면: 수정 화면에 저장된 값 그대로 · 바꿔 저장하면 그 값만 바뀜', () => {
+  const d: ContractDraft = { ...EMPTY_DRAFT, title: '카페 아르바이트', contractType: 'employment', contractKind: 'employment', payments: [pay({ kind: 'salary', direction: 'income', label: '급여', dayOfMonth: 25, businessDayRule: 'previous' })] };
+  expect(draftToQuickForm(d).quick?.businessDayRule).toBe('previous');
+  expect(save(d).payments).toEqual(d.payments);
+  const changed = save(d, (v) => (v.quick!.businessDayRule = 'next'));
+  expect(changed.payments).toEqual([{ ...d.payments[0], businessDayRule: 'next' }]);
+});
+
+test('새로 입력: 휴일 규칙을 고르면 저장 · 고르지 않으면 그날 그대로', () => {
+  const base = draftToQuickForm({ ...EMPTY_DRAFT, title: '급여', contractType: 'employment', contractKind: 'employment' });
+  const withRule = { ...base, quick: { ...base.quick!, amount: '1,000,000', direction: 'income' as const, day: '25', businessDayRule: 'previous' as const } };
+  expect(formToDraft(contractFormSchema.parse(withRule), TODAY).payments[0].businessDayRule).toBe('previous');
+  const without = { ...base, quick: { ...base.quick!, amount: '1,000,000', direction: 'income' as const, day: '25' } };
+  expect(formToDraft(contractFormSchema.parse(without), TODAY).payments[0].businessDayRule).toBe('none');
+});

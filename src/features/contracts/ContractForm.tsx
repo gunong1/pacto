@@ -39,7 +39,7 @@ import { formKit, FormLabel } from './formSections/kit';
 import { PartiesSection } from './formSections/PartiesSection';
 import { partyKindOf } from '@/domain/parties';
 import { AiKindJudgment, KindChooser } from './formSections/KindSection';
-import { ComponentsEditor, CustomFirstDate, FREQUENCY_OPTIONS, PaymentsList, PlanLine } from './formSections/PaymentsSection';
+import { BUSINESS_DAY_OPTIONS, ComponentsEditor, CustomFirstDate, FREQUENCY_OPTIONS, PaymentsList, PlanLine } from './formSections/PaymentsSection';
 import { AutoRenewalFields, RenewalSection } from './formSections/RenewalSection';
 import { SchedulePreview, usePaymentPlans } from './formSections/SchedulePreview';
 import { styles } from './formSections/styles';
@@ -323,6 +323,16 @@ function ContractFormBody({ defaultValues: initialValues, aiValues, flagged, evi
               </View>
               <AppText variant="caption" color="textTertiary" testID="quick-auto-note">
                 첫 {income ? '지급' : '결제'} 시점은 시작일과 {income ? '지급일' : '결제일'}을 기준으로 자동 계산해요.
+              </AppText>
+              <View style={{ height: spacing.lg }} />
+              <FormLabel label={income ? '지급일이 휴일이면' : '결제일이 휴일이면'} />
+              <Controller
+                control={control}
+                name="quick.businessDayRule"
+                render={({ field: f }) => <ChipGroup options={BUSINESS_DAY_OPTIONS} value={f.value ?? 'none'} onChange={f.onChange} testIDPrefix="quick-businessDay" />}
+              />
+              <AppText variant="caption" color="textTertiary" style={{ marginTop: spacing.xs }}>
+                주말과 공휴일(설·추석·대체공휴일 포함)을 휴일로 봐요. 계약서에 정한 방식이 없으면 ‘그날 그대로’로 두세요.
               </AppText>
             </>
           )}

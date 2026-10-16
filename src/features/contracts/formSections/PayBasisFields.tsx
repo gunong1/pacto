@@ -259,6 +259,15 @@ function PayrollRulesFields({ kit, basis, mode }: { kit: FormKit; basis: PayBasi
     kit.setValue('details.payPeriodStartDay', n != null && n >= 1 && n <= 27 ? String(periodStartDayOf(n)) : '', { shouldDirty: true });
   };
   const timing = String(d.payTiming ?? '') as PayTiming | '';
+  // 당월 지급인데 지급일이 산정기간 마감일보다 빠르면 → 아직 일하지 않은 날까지 받는 셈이 되어 확인 요청 (자동으로 바꾸지 않음)
+  const payDayRaw = mode === 'quick' ? kit.values.quick?.day : kit.values.payments.find((p) => p.kind === 'salary' && p.frequency === 'monthly')?.dayOfMonth;
+  const payDay = /^\d+$/.test(String(payDayRaw ?? '').trim()) ? Number(payDayRaw) : null;
+  const periodEnd = start != null && start > 1 ? periodEndDayOf(start)! : 31;
+  const earlyPay = timing === 'same_month' && payDay != null && payDay >= 1 && payDay < periodEnd;
+  const pickEnd = (n: number) => {
+    setCustom(true);
+    setEnd(String(n));
+  };
   const basisSpec = detailFields('employment').find((f) => f.key === 'prorationBasis');
   const periodText = start == null ? '정하지 않으면 매월 1일~말일로 계산해요' : start === 1 ? '매월 1일~말일' : `매월 ${start}일~다음 달 ${start - 1}일`;
   return (
@@ -298,6 +307,17 @@ function PayrollRulesFields({ kit, basis, mode }: { kit: FormKit; basis: PayBasi
           onChange={(v) => kit.setValue('details.payTiming', timing === v ? '' : v, { shouldDirty: true })}
           testIDPrefix="pay-timing"
         />
+        {earlyPay ? (
+          <View style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.bgSubtle, gap: spacing.sm }} testID="pay-early-warning">
+            <AppText variant="caption" color="text">
+              지급일({payDay}일)이 급여 산정기간 마감일({periodEnd === 31 ? '말일' : `${periodEnd}일`})보다 빨라요. {payDay}일까지 근무한 분만 받나요?
+              {'\n'}계약서에 &apos;말일까지 근무분을 {payDay}일에 지급&apos;처럼 정해져 있다면 그대로 두세요.
+            </AppText>
+            {payDay <= 27 ? (
+              <Chip label={`마감일을 ${payDay}일로`} selected={false} onPress={() => pickEnd(payDay)} testID="pay-early-fix" />
+            ) : null}
+          </View>
+        ) : null}
         <AppText variant="caption" color="textTertiary" style={{ marginTop: 6 }}>
           당월 지급: 근무한 달에 급여 지급 · 익월 지급: 근무한 다음 달에 급여 지급{mode === 'quick' ? '\n받는 날(일)은 아래 "지급일"에서 정해요.' : ''}
         </AppText>

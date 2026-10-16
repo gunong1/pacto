@@ -8,6 +8,8 @@
  * E 수정 화면: 같은 영역·순서, 저장된 값 그대로 (시급·요일·주휴·지급 시기·지급일·금액)
  * F 당월 지급으로 바꿔 저장 → 첫 급여가 10월로 이동 (같은 금액, 한 번만)
  * G 산정기간 마감일 25일 → 첫 급여 520,000 (평일 9일 468,000 + 주휴 1주 52,000)
+ * H 당월 지급 · 지급일 25일 · 말일 마감 → "지급일이 마감일보다 빨라요" 안내 → [마감일을 25일로] → 520,000
+ * I 지급일 아래 "지급일이 휴일이면" 선택 → 저장 후 다시 열면 그대로
  * 사용: `npm run web`(mock 모드) 실행 후 `node e2e/first-month-pay.js`
  */
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -148,6 +150,31 @@ const check = (id, name, ok, detail = '') => {
   const g = await text('first-pay-preview');
   check('G', '마감일 25일 → 9/26~10/25 산정 · 10/13~25 평일 9일 468,000 + 주휴 1주 52,000 = 520,000', g.includes('520,000원') && (await text('pay-period-text')).includes('매월 26일~다음 달 25일'), g);
   await shot('04-period25');
+
+  // H 지급일이 마감일보다 빠를 때 안내
+  await page.click('[role="button"][data-testid="pay-period-end"]');
+  await input('quick-day').fill('25');
+  await page.waitForTimeout(500);
+  const warn = (await has('pay-early-warning')) ? await text('pay-early-warning') : '';
+  const before = await text('first-pay-preview');
+  await page.click(tid('pay-early-fix'));
+  await page.waitForTimeout(500);
+  const after = await text('first-pay-preview');
+  check('H', '당월 지급 · 지급일 25일 · 말일 마감 → 안내 (832,000) → [마감일을 25일로] → 26일~25일 · 520,000 · 안내 사라짐', warn.includes('지급일(25일)이 급여 산정기간 마감일(말일)보다 빨라요') && before.includes('832,000원') && after.includes('520,000원') && (await text('pay-period-text')).includes('매월 26일~다음 달 25일') && !(await has('pay-early-warning')), `${warn} / ${before} / ${after}`);
+  await shot('05-early-pay');
+
+  // I 휴일 규칙
+  const bizLabel = (await page.content()).includes('지급일이 휴일이면');
+  await page.click(tid('quick-businessDay-previous'));
+  await page.click(tid('submit-contract'));
+  await page.waitForTimeout(800);
+  if (await page.locator(tid('amount-change-sheet')).count()) await page.click(tid('amount-change-confirm')).catch(() => undefined);
+  await page.waitForSelector(tid('detail-core'), { timeout: 15000 });
+  await openContract();
+  await page.click(tid('edit-contract'));
+  await page.waitForSelector(tid('pay-basis'));
+  await page.waitForTimeout(400);
+  check('I', '"지급일이 휴일이면" 칸 · 휴일이면 직전 영업일 저장 → 다시 열면 그대로 · 마감일 25일 유지', bizLabel && (await sel('quick-businessDay-previous')) && (await text('pay-period-text')).includes('매월 26일~다음 달 25일'));
 
   check('Z', '화면 오류 없음', errors.length === 0, errors.join(' | '));
   await browser.close();

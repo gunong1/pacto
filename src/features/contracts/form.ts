@@ -96,6 +96,8 @@ const quickFormSchema = z.object({
   day: optionalInt(1, 31, '1~31 사이로 입력해주세요').optional(),
   /** 2개월마다·분기·6개월·매년: 첫 결제일 / 일회성: 결제 예정일 */
   nextDate: optionalDate,
+  /** 결제일(지급일)이 휴일이면 — 정기 결제만 (없으면 수정 화면은 기존 값, 새 결제는 그날 그대로) */
+  businessDayRule: z.enum(BUSINESS_DAY_RULES).optional(),
   /**
    * 수정 화면: 이 금액이 원래 어떤 결제였는지 (이름·종류·종료일·회차 등은 그대로 두고 화면에서 바꾼 값만 덮어쓴다).
    * 등록 화면에서는 없음
@@ -417,6 +419,7 @@ export function draftToQuickForm(d: ContractDraft): ContractFormValues {
       // 정기 결제: 계약 시작일과 다른 첫 결제일을 따로 정해 둔 경우만 (상세 정보의 "첫 결제일 직접 지정")
       // 시작일이 없는 계약은 저장 당시 날짜가 기준일로 들어가 있어 직접 지정한 값으로 보지 않는다
       nextDate: oneTime ? str(p.startsOn) : p.startsOn && d.startDate ? p.startsOn : '',
+      businessDayRule: p.businessDayRule,
       base: v.payments[pick],
       components: p.components.map((c) => ({ ...c })),
     },
@@ -470,7 +473,7 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
       endsOn: oneTime ? null : base.endsOn,
       installmentCount: oneTime ? null : base.installmentCount,
       isVariable: oneTime ? false : base.isVariable,
-      businessDayRule: oneTime ? 'none' : base.businessDayRule,
+      businessDayRule: oneTime ? 'none' : (q.businessDayRule ?? base.businessDayRule),
       components: q.components ?? base.components,
     };
   }
@@ -495,7 +498,7 @@ export function quickToPayment(type: ContractType, q: NonNullable<ParsedContract
     installmentCount: null,
     isVariable: false,
     components: q.components ?? [],
-    businessDayRule: 'none',
+    businessDayRule: oneTime ? 'none' : (q.businessDayRule ?? 'none'),
     obligation: 'confirmed',
     conditionNote: null,
   };

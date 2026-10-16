@@ -58,7 +58,7 @@ const NATURE_OPTIONS: { value: 'ordinary' | 'refundable_deposit'; label: string 
   { value: 'refundable_deposit', label: '보증금·예치금 (돌려받을 돈)' },
 ];
 
-const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
+export const BUSINESS_DAY_OPTIONS = (['none', 'previous', 'next'] as const).map((v) => ({ value: v, label: v === 'none' ? '그날 그대로' : BUSINESS_DAY_RULE_LABEL[v] }));
 
 function newPayment(kind: PaymentKind): PaymentFormValues {
   return {
