@@ -10,7 +10,7 @@ import type { ContractDraft, PaymentDraft } from '@/data/repository';
 
 import { groupCalendarItems, itemsForView } from '../calendarGroups';
 import { addDays } from '../dates';
-import { flowCard, upcomingSchedule } from '../homeView';
+import { flowCard, upcomingSchedule, upcomingTone } from '../homeView';
 import { scheduleForRange } from '../schedule';
 import { contractFlowLines, monthSpending } from '../spending';
 
@@ -85,5 +85,21 @@ describe('다가오는 일정 — 캘린더와 같은 일정', () => {
       ['계약 b', '2026-10-21'],
       ['계약 c', '2026-10-22'],
     ]);
+  });
+});
+
+describe('다가오는 일정 D-day 색 — 확인할 시점이 가까운 계약 관리 일정만 강조', () => {
+  test('색 규칙: 관리 일정 7일 이내 빨강(soon) · 8~30일 남색(near) · 31일 이상 기본 · 금융 일정은 날짜와 관계없이 기본', () => {
+    expect([0, 7, 8, 30, 31].map((days) => upcomingTone({ management: true, days }))).toEqual(['soon', 'soon', 'near', 'near', 'plain']);
+    expect([0, 3, 20].map((days) => upcomingTone({ management: false, days }))).toEqual(['plain', 'plain', 'plain']);
+  });
+
+  test('계약 종료(만료) = 관리 일정 · 월 결제·급여 = 금융 일정', () => {
+    const end = rec('e', '시설 이용 계약', [], { startDate: '2026-01-01', endDate: '2026-10-25', autoRenewal: false });
+    const phone = rec('p', '휴대폰', [pay({ dayOfMonth: 20 })]);
+    const salary = rec('s', '급여', [pay({ kind: 'salary', direction: 'income', label: '급여', dayOfMonth: 23 })], { contractType: 'employment', contractKind: 'employment' });
+    const up = upcomingSchedule([end, phone, salary], TODAY);
+    const by = Object.fromEntries(up.map((u) => [u.contractId, [u.management, upcomingTone(u)]]));
+    expect(by).toEqual({ p: [false, 'plain'], s: [false, 'plain'], e: [true, 'near'] }); // 10/25 = D-9
   });
 });

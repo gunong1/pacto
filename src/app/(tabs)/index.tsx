@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { LogoHorizontal } from "@/components/brand/Logo";
-import { DDay } from "@/components/pacto";
 import { AppText } from "@/components/ui/AppText";
 import { Button } from "@/components/ui/Button";
 import {
@@ -16,7 +15,8 @@ import {
 import { statusSummary } from "@/domain/actions";
 import { formatDateKo, formatMonthDayKo, yearMonthOf } from "@/domain/dates";
 import { formatKRW, formatWonCompact } from "@/domain/money";
-import { flowCard, upcomingSchedule, type FlowCard } from "@/domain/homeView";
+import { flowCard, upcomingSchedule, upcomingTone, type FlowCard, type UpcomingTone } from "@/domain/homeView";
+import { formatDDay } from "@/domain/dday";
 import { likelyDuplicateGroups } from "@/domain/duplicates";
 import { monthSpending, type ContractFlowLine } from "@/domain/spending";
 import { useContracts, useToday } from "@/features/contracts/queries";
@@ -176,7 +176,16 @@ export default function HomeScreen() {
                   {u.label} · {u.date.slice(0, 4) === today.slice(0, 4) ? formatMonthDayKo(u.date) : formatDateKo(u.date)}
                 </AppText>
               </View>
-              <DDay days={u.days} variant="body2Strong" />
+              {/* 빨강 = 7일 안에 확인할 계약 관리 일정 · 남색 = 30일 안 · 결제·입금 등 금융 일정은 기본 글자색 */}
+              <AppText
+                variant="body2Strong"
+                tabular
+                color={UPCOMING_TONE_COLOR[upcomingTone(u)]}
+                accessibilityLabel={`${formatDDay(u.days)}${upcomingTone(u) === 'soon' ? ', 확인할 시점이 가까워요' : ''}`}
+                testID={`home-upcoming-${i}-dday`}
+              >
+                {formatDDay(u.days)}
+              </AppText>
             </Pressable>
           ))
         )}
@@ -271,6 +280,8 @@ export default function HomeScreen() {
     </Screen>
   );
 }
+
+const UPCOMING_TONE_COLOR: Record<UpcomingTone, "caution" | "primary" | "text"> = { soon: "caution", near: "primary", plain: "text" };
 
 const NATURE_NOTE: Record<ContractFlowLine["nature"], string | null> = { ordinary: null, deposit: "보증금", principal: "원금 상환" };
 
