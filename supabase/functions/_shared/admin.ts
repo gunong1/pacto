@@ -87,6 +87,18 @@ export async function downloadObject(bucket: string, path: string): Promise<Uint
   return new Uint8Array(await res.arrayBuffer());
 }
 
+/** 소유자 폴더 안의 파일인지 ({user_id}/{파일 이름}, 하위 폴더·".." 없음) — DB 제약과 같은 규칙 (서버 권한으로 남의 파일을 읽지 않게) */
+export function isOwnPath(userId: string, path: string): boolean {
+  const [folder, name, ...rest] = path.split('/');
+  return folder === userId && !!name && rest.length === 0 && !path.includes('..');
+}
+
+/** 소유자 폴더 안의 파일만 내려받는다 (아니면 storage_path_not_owned 오류) */
+export async function downloadOwnObject(bucket: string, userId: string, path: string): Promise<Uint8Array> {
+  if (!isOwnPath(userId, path)) throw new Error('storage_path_not_owned');
+  return downloadObject(bucket, path);
+}
+
 export async function insertJob(row: Record<string, unknown>): Promise<string> {
   const res = await rest('analysis_jobs', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(row) });
   if (!res.ok) throw new Error(`job_insert_${res.status}`);

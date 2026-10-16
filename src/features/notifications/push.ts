@@ -14,6 +14,7 @@ import { useEffect } from 'react';
 import { Linking, Platform } from 'react-native';
 
 import { notificationStore } from '@/data';
+import { withoutAppLock } from '@/features/security/externalActivity';
 
 export type PushPermission = 'unavailable' | 'granted' | 'undetermined' | 'denied' | 'blocked';
 export type PushUnavailableReason = 'web' | 'expo_go' | 'simulator' | 'no_project_id' | null;
@@ -87,7 +88,7 @@ export async function enablePush(): Promise<PushPermission> {
   if (pushUnavailableReason()) return 'unavailable';
   const N = await load();
   const current = await N.getPermissionsAsync();
-  const p = current.granted ? current : await N.requestPermissionsAsync();
+  const p = current.granted ? current : await withoutAppLock(() => N.requestPermissionsAsync());
   if (!p.granted) return p.canAskAgain ? 'denied' : 'blocked';
   await registerThisDevice();
   return 'granted';

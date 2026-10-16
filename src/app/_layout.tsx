@@ -3,13 +3,15 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, View } from 'react-native';
+import { Animated, AppState, View } from 'react-native';
 
 import { APP_STARTED_AT, BrandSplash, splashRemainingMs } from '@/components/brand/BrandSplash';
 
 import { authService } from '@/features/auth/authService';
 import { contractsQuery } from '@/features/contracts/queries';
 import { usePushNavigation } from '@/features/notifications/push';
+import { loadAppLock, onAppStateChange, resetAppLock, useAppLock } from '@/features/security/appLock';
+import { AppLockScreen } from '@/features/security/AppLockScreen';
 import { useSession } from '@/features/session/store';
 import { colors, typography } from '@/theme';
 
@@ -27,12 +29,22 @@ export default function RootLayout() {
     const apply = (user: Awaited<ReturnType<typeof authService.getUser>>) => {
       const next = user?.id ?? null;
       if (userId.current !== undefined && userId.current !== next) queryClient.clear();
+      // 로그아웃·탈퇴: 이 기기의 앱 잠금 설정도 지운다 (다음 계정은 기본값 꺼짐)
+      if (userId.current && !next) resetAppLock();
       userId.current = next;
       setUser(user);
     };
     authService.getUser().then(apply);
     return authService.onChange(apply);
   }, [queryClient, setUser]);
+
+  // 앱 잠금: 설정을 읽고(사용 중이면 잠금) 앱 전환을 지켜본다
+  const lock = useAppLock();
+  useEffect(() => {
+    loadAppLock();
+    const sub = AppState.addEventListener('change', (s) => onAppStateChange(s));
+    return () => sub.remove();
+  }, []);
 
   // 앱 실행 화면: 로그인 확인 + (로그인 상태면) 첫 계약 목록을 불러올 때까지 브랜드 화면으로 덮어 둔다.
   // 홈이 탭바와 빈 내용으로 먼저 보이지 않게 한다. 느리거나 실패해도 BOOT_MAX_MS 뒤에는 넘어간다 (홈이 다시 시도·오류 표시).
@@ -74,50 +86,62 @@ export default function RootLayout() {
     );
   }
   const signedIn = status === 'signedIn';
+  // 잠금 중(또는 잠금 설정을 아직 못 읽음)에는 계약 화면을 그리지 않는다 — 위에 덮는 방식이 아니라 숨김(display: none, 접근성에서도 제외).
+  // 화면 상태(입력 중인 내용·푸시로 연 계약)는 유지되어 잠금을 풀면 그대로 이어진다.
+  const hidden = signedIn && (!lock.ready || lock.locked);
 
   return (
     <QueryClientProvider client={queryClient}>
       <StatusBar style="dark" />
       <View style={{ flex: 1 }} onLayout={hideNative}>
-        <Stack
-          screenOptions={{
-            headerShadowVisible: false,
-            headerStyle: { backgroundColor: colors.bg },
-            headerTintColor: colors.text,
-            headerTitleStyle: { ...typography.title3, color: colors.text },
-            headerBackButtonDisplayMode: 'minimal',
-            contentStyle: { backgroundColor: colors.bg },
-          }}>
-          <Stack.Protected guard={signedIn}>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="contract/[id]/index" options={{ title: '' }} />
-            <Stack.Screen name="contract/[id]/edit" options={{ title: '계약 정보 수정' }} />
-            <Stack.Screen name="contract/[id]/event" options={{ title: '일정 추가', presentation: 'modal' }} />
-            <Stack.Screen name="contract/[id]/ask" options={{ title: '이 계약에 질문하기' }} />
-            <Stack.Screen name="contract/[id]/notifications" options={{ title: '이 계약의 알림' }} />
-            <Stack.Screen name="notifications" options={{ title: '알림' }} />
-            <Stack.Screen name="viewer" options={{ title: '계약서' }} />
-            <Stack.Screen name="register" options={{ headerShown: false, presentation: 'modal' }} />
-            <Stack.Screen name="settings/profile" options={{ title: '프로필 편집' }} />
-            <Stack.Screen name="settings/contract-names" options={{ title: '내 계약자 정보' }} />
-            <Stack.Screen name="documents" options={{ title: '보관 문서' }} />
-            <Stack.Screen name="settings/delete-account" options={{ title: '회원 탈퇴' }} />
-            <Stack.Screen name="settings/notifications" options={{ title: '알림 설정' }} />
-            <Stack.Screen name="settings/notification-type" options={{ title: '알림 종류 설정' }} />
-            <Stack.Screen name="settings/notification-group" options={{ title: '알림 세부 설정' }} />
-            <Stack.Screen name="settings/notification-advanced" options={{ title: '고급 설정' }} />
-          </Stack.Protected>
-          <Stack.Protected guard={!signedIn}>
-            <Stack.Screen name="welcome" options={{ headerShown: false }} />
-            <Stack.Screen name="sign-in" options={{ title: '' }} />
-            <Stack.Screen name="sign-up" options={{ title: '' }} />
-            <Stack.Screen name="forgot-password" options={{ title: '' }} />
-          </Stack.Protected>
-          {/* 메일 링크/OAuth 콜백 — 로그인 여부와 관계없이 열려야 한다 */}
-          <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
-          <Stack.Screen name="reset-password" options={{ title: '새 비밀번호' }} />
-        </Stack>
-        <SplashOverlay visible={!booted} />
+        <View
+          style={{ flex: 1, display: hidden ? 'none' : 'flex' }}
+          aria-hidden={hidden}
+          accessibilityElementsHidden={hidden}
+          importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}
+          testID="app-content">
+          <Stack
+            screenOptions={{
+              headerShadowVisible: false,
+              headerStyle: { backgroundColor: colors.bg },
+              headerTintColor: colors.text,
+              headerTitleStyle: { ...typography.title3, color: colors.text },
+              headerBackButtonDisplayMode: 'minimal',
+              contentStyle: { backgroundColor: colors.bg },
+            }}>
+            <Stack.Protected guard={signedIn}>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="contract/[id]/index" options={{ title: '' }} />
+              <Stack.Screen name="contract/[id]/edit" options={{ title: '계약 정보 수정' }} />
+              <Stack.Screen name="contract/[id]/event" options={{ title: '일정 추가', presentation: 'modal' }} />
+              <Stack.Screen name="contract/[id]/ask" options={{ title: '이 계약에 질문하기' }} />
+              <Stack.Screen name="contract/[id]/notifications" options={{ title: '이 계약의 알림' }} />
+              <Stack.Screen name="notifications" options={{ title: '알림' }} />
+              <Stack.Screen name="viewer" options={{ title: '계약서' }} />
+              <Stack.Screen name="register" options={{ headerShown: false, presentation: 'modal' }} />
+              <Stack.Screen name="settings/profile" options={{ title: '프로필 편집' }} />
+              <Stack.Screen name="settings/contract-names" options={{ title: '내 계약자 정보' }} />
+              <Stack.Screen name="documents" options={{ title: '보관 문서' }} />
+              <Stack.Screen name="settings/delete-account" options={{ title: '회원 탈퇴' }} />
+              <Stack.Screen name="settings/notifications" options={{ title: '알림 설정' }} />
+              <Stack.Screen name="settings/notification-type" options={{ title: '알림 종류 설정' }} />
+              <Stack.Screen name="settings/notification-group" options={{ title: '알림 세부 설정' }} />
+              <Stack.Screen name="settings/notification-advanced" options={{ title: '고급 설정' }} />
+              <Stack.Screen name="settings/security" options={{ title: '보안' }} />
+            </Stack.Protected>
+            <Stack.Protected guard={!signedIn}>
+              <Stack.Screen name="welcome" options={{ headerShown: false }} />
+              <Stack.Screen name="sign-in" options={{ title: '' }} />
+              <Stack.Screen name="sign-up" options={{ title: '' }} />
+              <Stack.Screen name="forgot-password" options={{ title: '' }} />
+            </Stack.Protected>
+            {/* 메일 링크/OAuth 콜백 — 로그인 여부와 관계없이 열려야 한다 */}
+            <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
+            <Stack.Screen name="reset-password" options={{ title: '새 비밀번호' }} />
+          </Stack>
+        </View>
+        {hidden && lock.ready ? <AppLockScreen /> : null}
+        <SplashOverlay visible={!booted || (signedIn && !lock.ready)} />
       </View>
     </QueryClientProvider>
   );

@@ -17,7 +17,7 @@ import type { DocumentRole, DocumentValidation, FileKind } from '../_shared/docu
 import { selectProvider } from '../_shared/ai/index.ts';
 import { ProviderError, type ContractFile, type ExtractionProvider } from '../_shared/ai/types.ts';
 import {
-  downloadObject,
+  downloadOwnObject,
   getUserId,
   selectDerivatives,
   hasAiConsent,
@@ -106,7 +106,7 @@ async function filesFor(userId: string, docs: DocumentRow[], passwords: Password
     const fileName = d.original_filename ?? `contract.${d.mime_type === 'application/pdf' ? 'pdf' : 'jpg'}`;
     // 보호 완료면 보호본만 본다 (원본은 읽지 않음). 민감정보 없음이면 원본(암호 PDF면 메모리에서 연 사본)
     const view = d.protection_status === 'protected' ? (await selectDerivatives(userId, d.id)).find((x) => x.kind === 'protected_view') : undefined;
-    const original = d.protection_status === 'no_sensitive_data' ? await downloadObject(BUCKET, d.storage_path) : null;
+    const original = d.protection_status === 'no_sensitive_data' ? await downloadOwnObject(BUCKET, userId, d.storage_path) : null;
     const enc = original && d.mime_type === 'application/pdf' ? await inspectEncryption(original) : { encrypted: false as const };
     const pages = selection[i]?.pages ?? null;
     const plan = aiInputPlan({
@@ -118,7 +118,7 @@ async function filesFor(userId: string, docs: DocumentRow[], passwords: Password
     if (plan.kind === 'protected_view' && view) {
       // 보호본 형식: PDF는 PDF, 사진·스캔은 가린 JPEG
       const mimeType: ContractFile['mimeType'] = view.storage_path.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
-      files.push({ mimeType, fileName, base64: toBase64(await downloadObject(BUCKET, view.storage_path)) });
+      files.push({ mimeType, fileName, base64: toBase64(await downloadOwnObject(BUCKET, userId, view.storage_path)) });
     } else if (plan.kind === 'original' && original) {
       files.push({ mimeType: d.mime_type as ContractFile['mimeType'], fileName, base64: toBase64(original) });
     } else if (plan.kind === 'original_subset' && original) {

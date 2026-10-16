@@ -11,12 +11,14 @@ import { authErrorMessage, authService } from '@/features/auth/authService';
 import { disablePushForThisDevice } from '@/features/notifications/push';
 import { Avatar } from '@/features/profile/Avatar';
 import { useProfile } from '@/features/profile/queries';
+import { useAppLock } from '@/features/security/appLock';
 import { useSession } from '@/features/session/store';
 import { notify as notice } from '@/lib/dialog';
 import { colors, spacing } from '@/theme';
 
 export default function MyScreen() {
   const user = useSession((s) => s.user);
+  const lockEnabled = useAppLock((s) => s.enabled);
   // 로그아웃: 이 기기로 더 이상 알림을 보내지 않도록 토큰부터 끈다
   const signOut = () =>
     disablePushForThisDevice()
@@ -76,7 +78,7 @@ export default function MyScreen() {
         <Divider />
         <ListRow title="알림 설정" subtitle="알림 받을 시점·시간, 잠금화면 표시" chevron onPress={() => router.push('/settings/notifications')} testID="open-notification-settings" />
         <Divider />
-        <ListRow title="보안" subtitle="앱 잠금(Face ID·지문)" right={<Badge label="준비중" />} />
+        <ListRow title="보안" subtitle={lockEnabled ? '앱 잠금 사용 중' : '앱 잠금 — 지문·얼굴인식·기기 잠금'} chevron onPress={() => router.push('/settings/security')} testID="open-security" />
         <Divider />
         <ListRow title="데이터 내보내기" right={<Badge label="준비중" />} />
       </Section>

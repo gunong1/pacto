@@ -2,6 +2,7 @@ import { File } from "expo-file-system";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Platform } from "react-native";
+import { withoutAppLock } from "@/features/security/externalActivity";
 
 /** 프로필 사진 크기 (정사각형) */
 export const AVATAR_SIZE = 512;
@@ -37,14 +38,16 @@ async function readBytes(uri: string): Promise<ArrayBuffer> {
  * 기기 편집 화면이 있으면(Android·iOS) 1:1로 직접 고르게 하고, 그 결과도 한 번 더 가운데 정사각형으로 맞춘다.
  */
 export async function pickAvatar(): Promise<PickedAvatar | null> {
-  const res = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ["images"],
-    allowsEditing: Platform.OS !== "web",
-    aspect: [1, 1],
-    quality: 1,
-    preferredAssetRepresentationMode:
-      ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-  });
+  const res = await withoutAppLock(() =>
+    ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: Platform.OS !== "web",
+      aspect: [1, 1],
+      quality: 1,
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+    }),
+  );
   if (res.canceled || !res.assets[0]) return null;
   const a = res.assets[0];
   const ctx = ImageManipulator.manipulate(a.uri);

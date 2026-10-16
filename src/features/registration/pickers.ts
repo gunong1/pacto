@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import type { PickedFile } from '@/data/ai/provider';
 import { MAX_DOCUMENT_BYTES } from '@/data/documents';
 import { notify } from '@/lib/dialog';
+import { withoutAppLock } from '@/features/security/externalActivity';
 
 export const MAX_PHOTOS = 10;
 
@@ -13,7 +14,7 @@ function tooLarge(files: PickedFile[]) {
 
 /** PDF 1개 선택. 취소/용량 초과면 null */
 export async function pickPdf(): Promise<PickedFile[] | null> {
-  const res = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', multiple: false, copyToCacheDirectory: true });
+  const res = await withoutAppLock(() => DocumentPicker.getDocumentAsync({ type: 'application/pdf', multiple: false, copyToCacheDirectory: true }));
   if (res.canceled) return null;
   const files = res.assets.map((a) => ({ name: a.name, uri: a.uri, mimeType: a.mimeType ?? 'application/pdf', size: a.size ?? null }));
   if (tooLarge(files)) {
@@ -25,13 +26,15 @@ export async function pickPdf(): Promise<PickedFile[] | null> {
 
 /** 사진 여러 장 선택. iOS의 HEIC는 호환 형식(JPEG)으로 받고, 업로드 전에 한 번 더 JPEG로 변환한다. */
 export async function pickPhotos(limit = MAX_PHOTOS): Promise<PickedFile[] | null> {
-  const res = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsMultipleSelection: limit > 1,
-    selectionLimit: limit,
-    quality: 0.9,
-    preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-  });
+  const res = await withoutAppLock(() =>
+    ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: limit > 1,
+      selectionLimit: limit,
+      quality: 0.9,
+      preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+    }),
+  );
   if (res.canceled) return null;
   const files = res.assets.map((a, i) => ({
     name: a.fileName ?? `계약서_${i + 1}.jpg`,

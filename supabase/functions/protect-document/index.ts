@@ -19,7 +19,7 @@
 //   (사진만 보고는 다른 사진이 있는지 모르므로, 남는 사진이 없으면 분석 단계가 no_pages_selected로 멈춘다)
 import {
   deleteDerivative,
-  downloadObject,
+  downloadOwnObject,
   getUserId,
   removeObjects,
   replaceRegions,
@@ -176,7 +176,7 @@ Deno.serve(async (req) => {
     }
     if (isImage) {
       stage = 'download';
-      const bytes = await downloadObject(BUCKET, doc.storage_path);
+      const bytes = await downloadOwnObject(BUCKET, userId, doc.storage_path);
       stage = 'protect';
       // 가림만 바꾼 경우: 이미 보호된 사진이면 저장된 위치로 다시 그린다 (OCR 다시 안 함)
       const stored: ProtectedRegion[] = prev.map(toRegion);
@@ -198,7 +198,7 @@ Deno.serve(async (req) => {
       result = { status: 'unsupported_scan', detail: 'image_file', imagesUnchecked: false, regions: [], protectedPdf: null, pageCount: 1, diagnostics: undefined as never, pages: [], scanMetrics: [] };
     } else {
       stage = 'download';
-      const original = await downloadObject(BUCKET, doc.storage_path);
+      const original = await downloadOwnObject(BUCKET, userId, doc.storage_path);
       // 암호 PDF: 메모리에서만 연 사본으로 처리 (원본은 그대로). 비밀번호가 필요하면 여기서 멈추고 앱에 알린다
       stage = 'decrypt';
       let bytes: Uint8Array | null = original;

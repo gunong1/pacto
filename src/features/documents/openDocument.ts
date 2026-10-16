@@ -8,6 +8,7 @@ import type { ContractDocument } from '@/domain/types';
 import { putViewerSession } from '@/features/viewer/session';
 import { isUsableDocumentUrl, type ViewerConfig } from '@/features/viewer/viewerHtml';
 import { confirm, notify } from '@/lib/dialog';
+import { withoutAppLock } from '@/features/security/externalActivity';
 
 type Doc = Pick<ContractDocument, 'storagePath' | 'localUri' | 'mimeType' | 'protection'>;
 
@@ -75,7 +76,7 @@ async function openUrl(doc: Doc, variant: DocumentVariant, page?: number | null)
       } else window.location.href = url;
     } else {
       // 미리보기(기기 안 파일)만 — 실제 저장소 문서는 위의 앱 안 뷰어
-      await WebBrowser.openBrowserAsync(url);
+      await withoutAppLock(() => WebBrowser.openBrowserAsync(url));
     }
   } catch (e) {
     tab?.close();

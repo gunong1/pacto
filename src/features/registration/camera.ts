@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Linking, Platform } from 'react-native';
 
 import type { PickedFile } from '@/data/ai/provider';
+import { withoutAppLock } from '@/features/security/externalActivity';
 
 /**
  * 계약서 촬영 (V1: 시스템 카메라 — expo-image-picker launchCameraAsync, Expo Go에서 동작).
@@ -18,7 +19,7 @@ export async function ensureCameraPermission(): Promise<CameraPermission> {
   const current = await ImagePicker.getCameraPermissionsAsync();
   if (current.granted) return 'granted';
   if (!current.canAskAgain) return 'blocked';
-  const asked = await ImagePicker.requestCameraPermissionsAsync();
+  const asked = await withoutAppLock(() => ImagePicker.requestCameraPermissionsAsync());
   if (asked.granted) return 'granted';
   return asked.canAskAgain ? 'denied' : 'blocked';
 }
@@ -29,7 +30,7 @@ export function openAppSettings() {
 
 /** 한 장 촬영. 취소하면 null */
 export async function capturePage(pageNo: number): Promise<PickedFile | null> {
-  const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.9, exif: false });
+  const res = await withoutAppLock(() => ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.9, exif: false }));
   if (res.canceled || !res.assets[0]) return null;
   const a = res.assets[0];
   return {
