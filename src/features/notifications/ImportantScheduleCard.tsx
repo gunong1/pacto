@@ -8,18 +8,42 @@ import { Badge } from '@/components/ui/controls';
 import { formatDateKo } from '@/domain/dates';
 import type { ImportantScheduleItem } from '@/domain/importantSchedule';
 import { maskSensitiveTextForDisplay } from '@/domain/sensitive';
+import { useContracts } from '@/features/contracts/queries';
+import { notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
 /**
  * 중요한 계약 일정 카드 — 색만으로 구분하지 않는다: 아이콘 + 제목 + 라벨(중요·기한 임박·확인 필요) + 테두리/배경 + 문구.
  * 날짜의 출처("계약서 기준 · 2029. 9. 11.")와 PACTO 알림 정책("30·7·1일 전과 당일에 미리 알려드려요")을 다른 줄로 보여준다.
+ * 카드 전체를 누르면 계약 상세로 (예전 "계약 확인"과 같은 경로) — "관련 조항 보기"는 따로 동작하고 카드 이동을 일으키지 않는다.
+ * 오른쪽 위 라벨(확인·중요·기한 임박·확인 필요)은 상태 표시일 뿐 버튼이 아니다.
+ * 계약이 삭제됐거나 볼 수 없으면(내 계약 목록에 없음) 이동하지 않고 안내한다.
  */
 export function ImportantScheduleCard({ entry }: { entry: ImportantScheduleItem }) {
   const [showEvidence, setShowEvidence] = useState(false);
   const critical = entry.priority === 'critical';
   const { item, evidence } = entry;
+  const { refetch } = useContracts();
+  const [opening, setOpening] = useState(false);
+  // 누르는 순간 목록을 다시 확인 — 다른 기기·탭에서 삭제됐거나 권한이 없어진 계약은 이동하지 않음 (확인 실패 시 상세 화면이 "찾을 수 없어요"로 막는다)
+  const open = async () => {
+    if (opening) return;
+    setOpening(true);
+    const { data: records } = await refetch().finally(() => setOpening(false));
+    if (records && !records.some((r) => r.contract.id === item.contractId)) {
+      notify('계약을 찾을 수 없어요', '삭제되었거나 볼 수 없는 계약이에요. 알림 목록을 새로 불러와 주세요.');
+      return;
+    }
+    router.push(`/contract/${item.contractId}`);
+  };
   return (
-    <View style={[styles.card, critical ? styles.critical : styles.important]} testID={`important-${item.key}`} accessibilityLabel={`${entry.badge}. ${entry.title}. ${item.contractTitle}`}>
+    <Pressable
+      onPress={open}
+      accessibilityRole="button"
+      accessibilityHint="계약 상세로 이동해요"
+      style={({ pressed }) => [styles.card, critical ? styles.critical : styles.important, pressed && { opacity: 0.85 }]}
+      testID={`important-${item.key}`}
+      accessibilityLabel={`${entry.badge}. ${entry.title}. ${item.contractTitle}`}>
       <View style={styles.head}>
         <Ionicons name={critical ? 'alert-circle' : 'calendar-outline'} size={20} color={critical ? colors.caution : colors.amber} />
         <AppText variant="body2Strong" style={{ flex: 1 }}>
@@ -69,7 +93,7 @@ export function ImportantScheduleCard({ entry }: { entry: ImportantScheduleItem 
         </View>
       ) : null}
       <View style={styles.actions}>
-        <Pressable onPress={() => router.push(`/contract/${item.contractId}`)} hitSlop={hitSlop} accessibilityRole="button" testID={`important-open-${item.key}`}>
+        <Pressable onPress={open} hitSlop={hitSlop} accessibilityRole="button" testID={`important-open-${item.key}`}>
           <AppText variant="captionStrong" color="primary">
             계약 확인
           </AppText>
@@ -82,7 +106,7 @@ export function ImportantScheduleCard({ entry }: { entry: ImportantScheduleItem 
           </Pressable>
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
