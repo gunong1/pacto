@@ -140,7 +140,14 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.waitForSelector(tid('notif-enabled'));
     const st = await body();
     check('I', '웹: 이 기기에서는 푸시를 받을 수 없다는 안내 (앱은 정상 동작)', st.includes('이 기기에서는 푸시 알림을 받을 수 없어요') && st.includes('웹에서는 푸시 알림을 받을 수 없어요'));
-    check('S0', '기본값: 기본 알림 시간 오전 9:00 · 종류별 요약(통보기한 30·7·1일 전·당일 · 기본 시간) / 기본값 사용 중', st.includes('PACTO 기본 알림 설정을 쓰고 있어요') && st.includes('기본 알림 시간') && st.includes('해지·갱신 통보기한') && st.includes('30·7·1일 전·당일 · 기본 시간 (오전 9:00)') && st.includes('한국 시간 기준'), st.slice(0, 400));
+    check('S0a', '첫 화면: 3묶음(입출금·계약 만료·갱신·중요 확인) 모두 켜짐 + 고급 설정', ['입출금 알림', '계약 만료·갱신 알림', '중요 확인 알림', '고급 설정'].every((x) => st.includes(x)) && (await page.locator(tid('notif-group-money-state')).innerText()).includes('켜짐') && (await page.locator(tid('notif-default-times')).count()) === 0, st.slice(0, 400).replace(/\n/g, ' '));
+    await page.click(tid('notif-advanced'));
+    await page.waitForSelector(tid('notif-default-times'));
+    const adv = await body();
+    await page.goto(BASE + '/settings/notification-group?group=term', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-type-termination_notice'));
+    const termSt = await body();
+    check('S0', '기본값: 고급 설정에 기본 알림 시간 오전 9:00 · 한국 시간 기준 · 기본값 사용 중 / 만료·갱신 상세에 통보기한 30·7·1일 전·당일', adv.includes('PACTO 기본 알림 설정을 쓰고 있어요') && adv.includes('기본 알림 시간') && adv.includes('한국 시간 기준') && termSt.includes('해지·갱신 통보기한') && termSt.includes('30·7·1일 전·당일 · 기본 시간 (오전 9:00)'), adv.slice(0, 300));
     check('N1', '첫 화면은 요약만 (며칠 전 칩·종류별 스위치 없음)', (await page.locator('[data-testid^="type-offset-"]').count()) === 0 && (await page.locator('[data-testid$="-switch"]').count()) === 0);
     await shot('04-settings');
 
@@ -158,10 +165,12 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.waitForTimeout(1200);
     check('K2', '확인 후 끄기 → 꺼짐 (강제로 다시 켜지 않음)', (await page.locator(tid('type-offset-30')).count()) === 0);
     await page.goBack();
-    await page.waitForSelector(tid('notif-type-payment'));
-    check('K2b', '첫 화면 요약에 "꺼짐"', (await page.locator(tid('notif-type-termination_notice')).innerText()).includes('꺼짐'));
+    await page.waitForSelector(tid('notif-type-termination_notice'));
+    check('K2b', '상세 요약에 "꺼짐" · 묶음은 "일부 켜짐"', (await page.locator(tid('notif-type-termination_notice')).innerText()).includes('꺼짐') && (await page.locator(tid('notif-group-term-state')).innerText()).includes('일부 켜짐'));
 
     // 결제·입금: 확인 없이 끄기/켜기 + 이 알림만 다른 시간 (오전 9:00 + 오후 6:00)
+    await page.goto(BASE + '/settings/notification-group?group=money', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-type-payment'));
     await page.click(tid('notif-type-payment'));
     await page.waitForSelector(tid('type-enabled'));
     dialogs.length = 0;
@@ -182,7 +191,9 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     const paySum = await page.locator(tid('notif-type-payment')).innerText();
     check('O1', '결제·입금만 다른 시간 → 요약 "1일 전 · 오전 9:00, 오후 6:00"', paySum.includes('1일 전 · 오전 9:00, 오후 6:00'), paySum);
 
-    // 기본 알림 시간: 오전 9:00 → 오전 8:00 변경 + 오후 6:30 추가
+    // 기본 알림 시간 (고급 설정): 오전 9:00 → 오전 8:00 변경 + 오후 6:30 추가
+    await page.goto(BASE + '/settings/notification-advanced', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-default-change-09:00'));
     await page.click(tid('notif-default-change-09:00'));
     await page.locator(tid('time-picker-input')).fill('08:00');
     await page.click(tid('time-picker-ok'));
@@ -191,7 +202,15 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await page.locator(tid('time-picker-input')).fill('18:30');
     await page.click(tid('time-picker-ok'));
     await page.waitForSelector(tid('notif-default-time-18:30'));
-    const sum = await page.locator(tid('notif-types')).innerText();
+    await page.goto(BASE + '/settings/notification-group?group=term', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-type-contract_end'));
+    const sum = (await page.locator(tid('notif-group-rows')).innerText()) + (await (async () => {
+      await page.goto(BASE + '/settings/notification-group?group=money', { waitUntil: 'networkidle' });
+      await page.waitForSelector(tid('notif-type-payment'));
+      return page.locator(tid('notif-group-rows')).innerText();
+    })());
+    await page.goto(BASE + '/settings/notification-advanced', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-show-details'));
     check('S1t', '기본 알림 시간 오전 8:00 · 오후 6:30 → 기본 시간을 쓰는 종류 요약에 반영, 결제는 자기 시간 유지', sum.includes('기본 시간 (오전 8:00, 오후 6:30)') && sum.includes('1일 전 · 오전 9:00, 오후 6:00'), sum);
     await page.click(tid('notif-show-details'));
     await page.waitForTimeout(800);
@@ -226,12 +245,18 @@ const yymmdd = (x) => `${String(x.y).slice(2)}${String(x.m).padStart(2, '0')}${S
     await shot('06-notifications-after');
 
     // 기본값으로 되돌리기
-    await page.goto(BASE + '/settings/notifications', { waitUntil: 'networkidle' });
+    await page.goto(BASE + '/settings/notification-advanced', { waitUntil: 'networkidle' });
     await page.waitForSelector(tid('notif-reset'));
     await page.click(tid('notif-reset'));
     await page.waitForSelector(tid('notif-is-default'), { timeout: 10000 });
-    const reset = await page.locator(tid('notif-types')).innerText();
-    check('S2', 'PACTO 기본값으로 되돌리기 (기본 시간 오전 9:00 하나, 종류별 시간 없음)', reset.includes('30·7·1일 전·당일 · 기본 시간 (오전 9:00)') && reset.includes('1일 전 · 기본 시간 (오전 9:00)') && (await page.locator(tid('notif-default-time-09:00')).count()) === 1 && (await page.locator(tid('notif-default-time-18:30')).count()) === 0, reset);
+    const defaultTimeOk = (await page.locator(tid('notif-default-time-09:00')).count()) === 1 && (await page.locator(tid('notif-default-time-18:30')).count()) === 0;
+    await page.goto(BASE + '/settings/notification-group?group=term', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-type-termination_notice'));
+    let reset = await page.locator(tid('notif-group-rows')).innerText();
+    await page.goto(BASE + '/settings/notification-group?group=money', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-type-payment'));
+    reset += await page.locator(tid('notif-group-rows')).innerText();
+    check('S2', 'PACTO 기본값으로 되돌리기 (기본 시간 오전 9:00 하나, 종류별 시간 없음)', reset.includes('30·7·1일 전·당일 · 기본 시간 (오전 9:00)') && reset.includes('1일 전 · 기본 시간 (오전 9:00)') && defaultTimeOk, reset);
   } catch (e) {
     check('X', '예외 없음', false, e.message);
   }

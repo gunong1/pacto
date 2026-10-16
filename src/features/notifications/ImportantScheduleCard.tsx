@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/AppText';
 import { Badge } from '@/components/ui/controls';
@@ -12,6 +12,9 @@ import { useContracts } from '@/features/contracts/queries';
 import { notify } from '@/lib/dialog';
 import { colors, hitSlop, radius, spacing } from '@/theme';
 
+
+/** 웹은 버튼 안에 버튼을 둘 수 없어(<button> 중첩) 카드 바깥은 역할 없이 — 앱(iOS·Android)에서는 카드 전체가 버튼 */
+const CARD_ROLE = Platform.OS === 'web' ? undefined : ('button' as const);
 /**
  * 중요한 계약 일정 카드 — 색만으로 구분하지 않는다: 아이콘 + 제목 + 라벨(중요·기한 임박·확인 필요) + 테두리/배경 + 문구.
  * 날짜의 출처("계약서 기준 · 2029. 9. 11.")와 PACTO 알림 정책("30·7·1일 전과 당일에 미리 알려드려요")을 다른 줄로 보여준다.
@@ -39,7 +42,7 @@ export function ImportantScheduleCard({ entry }: { entry: ImportantScheduleItem 
   return (
     <Pressable
       onPress={open}
-      accessibilityRole="button"
+      accessibilityRole={CARD_ROLE}
       accessibilityHint="계약 상세로 이동해요"
       style={({ pressed }) => [styles.card, critical ? styles.critical : styles.important, pressed && { opacity: 0.85 }]}
       testID={`important-${item.key}`}

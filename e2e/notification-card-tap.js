@@ -27,13 +27,14 @@ const yymmdd = (n) => {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => /cannot contain a nested|cannot be a descendant/.test(m.text()) && errors.push(m.text().slice(0, 150))); // 웹 버튼 중첩
   const dialogs = [];
   page.on('dialog', (d) => {
     dialogs.push(d.message());
     d.accept().catch(() => undefined);
   });
   const input = (id) => page.locator(`input${tid(id)}, textarea${tid(id)}`);
-  const card = (p = page) => p.locator('[role="button"][aria-label*="오피스텔 임대차"]').first();
+  const card = (p = page) => p.locator('[data-testid^="important-"][aria-label*="오피스텔 임대차"]').first();
   const toNotifications = async (p = page) => {
     await p.goto(BASE + '/notifications', { waitUntil: 'networkidle' });
     await p.waitForSelector(tid('important-list'), { timeout: 15000 });

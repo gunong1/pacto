@@ -104,6 +104,8 @@ export default function RootLayout() {
             <Stack.Screen name="settings/delete-account" options={{ title: '회원 탈퇴' }} />
             <Stack.Screen name="settings/notifications" options={{ title: '알림 설정' }} />
             <Stack.Screen name="settings/notification-type" options={{ title: '알림 종류 설정' }} />
+            <Stack.Screen name="settings/notification-group" options={{ title: '알림 세부 설정' }} />
+            <Stack.Screen name="settings/notification-advanced" options={{ title: '고급 설정' }} />
           </Stack.Protected>
           <Stack.Protected guard={!signedIn}>
             <Stack.Screen name="welcome" options={{ headerShown: false }} />

@@ -66,6 +66,11 @@ export interface CategoryPrefs {
   offsets: number[];
   /** 이 종류만 다른 알림 시간 ('HH:MM', 1~4개). 없으면 기본 알림 시간 사용 */
   times?: string[];
+  /**
+   * 알림 그룹(설정 화면 3묶음)을 끄면서 꺼진 종류 표시 — 그룹을 다시 켜면 이 표시가 있는 종류만 되살린다
+   * (사용자가 따로 꺼 둔 종류는 그대로). enabled=false일 때만 의미 있음. 알림 계산은 enabled만 본다.
+   */
+  groupOff?: true;
 }
 export type CategoryPrefsMap = Record<NotificationCategory, CategoryPrefs>;
 
@@ -121,11 +126,11 @@ export function normalizeCategoryPrefs(raw: unknown): Partial<CategoryPrefsMap> 
   for (const c of NOTIFICATION_CATEGORIES) {
     const v = (raw as Record<string, unknown>)[c];
     if (!v || typeof v !== 'object') continue;
-    const o = v as { enabled?: unknown; offsets?: unknown; times?: unknown };
+    const o = v as { enabled?: unknown; offsets?: unknown; times?: unknown; groupOff?: unknown };
     const offsets = Array.isArray(o.offsets) ? sortOffsets(o.offsets.filter((x): x is number => Number.isInteger(x))) : null;
     if (typeof o.enabled !== 'boolean' || !offsets) continue;
     const times = normalizeTimes(o.times);
-    out[c] = times ? { enabled: o.enabled, offsets, times } : { enabled: o.enabled, offsets };
+    out[c] = { ...(times ? { enabled: o.enabled, offsets, times } : { enabled: o.enabled, offsets }), ...(o.groupOff === true && o.enabled === false ? { groupOff: true as const } : {}) };
   }
   return out;
 }
@@ -160,7 +165,7 @@ export function getEffectiveNotificationPreferences(user: Partial<NotificationPr
     const pick = contractPick ?? userPick ?? PACTO_DEFAULT_CATEGORIES[c];
     // 종류별 시간: 계약별 설정에 없으면 사용자 설정의 그 종류 시간 (없으면 기본 알림 시간)
     const times = contractPick?.times ?? userPick?.times;
-    categories[c] = times ? { enabled: pick.enabled, offsets: [...pick.offsets], times: [...times] } : { enabled: pick.enabled, offsets: [...pick.offsets] };
+    categories[c] = { ...(times ? { enabled: pick.enabled, offsets: [...pick.offsets], times: [...times] } : { enabled: pick.enabled, offsets: [...pick.offsets] }), ...(pick.groupOff ? { groupOff: true as const } : {}) };
     origin[c] = contractPick ? 'contract' : userPick ? 'user' : 'pacto';
   }
   return {

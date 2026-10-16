@@ -94,9 +94,15 @@ function daysToDeadline() {
 
     // 4) 알림 설정 — 묶음 표시
     await page.goto(BASE + '/settings/notifications', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('notif-group-check'));
+    const st = (await page.locator('body').innerText()) + (await (async () => {
+      await page.goto(BASE + '/settings/notification-group?group=term', { waitUntil: 'networkidle' });
+      await page.waitForSelector(tid('notif-type-termination_notice'));
+      return page.locator('body').innerText();
+    })());
+    assert(st.includes('중요 확인 알림') && st.includes('해지·갱신 통보기한'), '알림 설정 묶음 없음');
+    await page.goto(BASE + '/settings/notification-group?group=check', { waitUntil: 'networkidle' });
     await page.waitForSelector(tid('notif-type-renewal_decision'));
-    const st = await page.locator('body').innerText();
-    assert(st.includes('해지·갱신 통보기한') && st.includes('갱신 여부 확인'), '알림 설정 묶음 없음');
     const rd = await page.locator(tid('notif-type-renewal_decision')).innerText();
     assert(rd.includes('30·7일 전'), '갱신 여부 확인 기본 시점 없음: ' + rd);
     await shot('05-settings');

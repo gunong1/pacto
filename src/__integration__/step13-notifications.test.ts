@@ -13,6 +13,8 @@ import { SupabaseNotificationStore } from '@/data/notifications';
 import type { ContractDraft, PaymentDraft } from '@/data/repository';
 import { SupabaseContractRepository } from '@/data/supabase/SupabaseContractRepository';
 import { addDays, parseISODate, todayInSeoul } from '@/domain/dates';
+import { applyGroupAction, settingGroup } from '@/domain/notificationGroups';
+import { getEffectiveNotificationPreferences } from '@/domain/notifications';
 
 import { adminClient, localEnv, newUser, testFetch } from './helpers';
 
@@ -148,6 +150,30 @@ describe('알림 계획 (계약 저장·수정·삭제·설정 변경 → 예정
     expect(near((await rows(a.user.id)).filter((r) => r.status === 'scheduled' && r.event_type === 'payment')).map((r) => r.fire_on)).toEqual([PAY_DAY]);
     await store.saveOverride(contractId, null);
     expect(near((await rows(a.user.id)).filter((r) => r.status === 'scheduled' && r.event_type === 'payment')).map((r) => r.fire_on)).toEqual([addDays(PAY_DAY, -1)]);
+  });
+
+  test('K. 알림 설정 묶음: 입출금 알림 끄기 → 결제 예정 취소(저장값에 시점 보존) · 다시 켜기 → 같은 알림 복원(중복 없음)', async () => {
+    const { a, store } = await setup('group');
+    await store.requestPlan();
+    const before = near((await rows(a.user.id)).filter((r) => r.status === 'scheduled' && r.event_type === 'payment'));
+    expect(before).toHaveLength(1);
+    const money = settingGroup('money')!;
+    const cats = getEffectiveNotificationPreferences(null).categories;
+    const off = { ...cats, ...applyGroupAction(cats, money, 'off') };
+    await store.savePreferences({ categories: off });
+    const saved = (await a.client.from('notification_preferences').select('categories').single()).data!.categories as Record<string, unknown>;
+    expect(saved.payment).toEqual({ enabled: false, offsets: [1], groupOff: true });
+    expect(near((await rows(a.user.id)).filter((r) => r.status === 'scheduled' && r.event_type === 'payment'))).toHaveLength(0);
+    expect((await rows(a.user.id)).find((r) => r.dedupe_key === before[0].dedupe_key)!.status).toBe('cancelled');
+    const effOff = getEffectiveNotificationPreferences({ categories: saved as never }).categories;
+    await store.savePreferences({ categories: { ...effOff, ...applyGroupAction(effOff, money, 'on') } });
+    const after = await rows(a.user.id);
+    const same = after.filter((r) => r.dedupe_key === before[0].dedupe_key);
+    expect(same).toHaveLength(1);
+    expect(same[0].status).toBe('scheduled');
+    expect(near(after.filter((r) => r.status === 'scheduled' && r.event_type === 'payment')).map((r) => r.fire_on)).toEqual([addDays(PAY_DAY, -1)]);
+    // 다른 묶음(만료·갱신)의 알림은 그대로
+    expect(after.filter((r) => r.event_type !== 'payment' && r.status === 'cancelled')).toHaveLength(0);
   });
 
   test('E. 지급일 변경 → 기존 예정 취소, 새 날짜 기준 생성 (DB 트리거 대기열 + 서버 계산)', async () => {
