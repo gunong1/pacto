@@ -140,7 +140,7 @@ const kstDate = (n) => new Date(Date.now() + 9 * 3600_000 + n * 86_400_000).toIS
   await page.waitForSelector(tid('home-spending-total'));
   if (day.slice(0, 7) === kstDate(0).slice(0, 7)) {
     const g = await text('home-income');
-    check('G', '홈 총 입금 예정: 예상 수입 포함 · 실제 수령액과 다름 안내 (주휴수당 한 번만)', g.includes('1,673,577') && g.includes('예상 수입') && g.includes('실제 수령액과 달라요'), g);
+    check('G', '홈 총 입금 예정: 예상 수입 포함 · 실제 수령액과 다름 안내 (주휴수당 한 번만)', g.includes('1,673,577') && g.includes('세전 추정 근로소득이 포함되어 있어요') && g.includes('실제 수령액과 다를 수 있습니다') && (g.match(/1,673,577/g) ?? []).length === 2, g);
   } else console.log('- G. 지급일이 다음 달이라 홈(이번 달) 확인 생략');
 
   // H 수정 화면

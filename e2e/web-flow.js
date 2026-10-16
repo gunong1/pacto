@@ -34,9 +34,9 @@ const log = (...a) => console.log('✔', ...a);
   await page.waitForSelector(tid('home-spending-total'));
   const before = await total();
   await shot('02-home');
-  const attention = await page.locator(tid('home-actions')).innerText();
-  if (!attention.includes('지금 확인이 필요한 계약')) throw new Error('홈 확인 필요 영역 없음');
-  log('2 홈 확인, 이번 달 지출 =', before, '/', attention.split('\n').find((l) => l.includes('확인이 필요한')));
+  const upcoming = await page.locator(tid('home-upcoming')).innerText();
+  if (!upcoming.includes('다가오는 일정') || !/D-\d+/.test(upcoming)) throw new Error('홈 다가오는 일정 없음');
+  log('2 홈 확인, 이번 달 지출 =', before, '/ 다가오는 일정', (upcoming.match(/D-\d+/g) ?? []).length, '개');
 
   // 3. 계약 목록
   await page.click(tid('tab-contracts'));
@@ -117,8 +117,12 @@ const log = (...a) => console.log('✔', ...a);
   const sameMonth = start.getUTCMonth() === kst.getUTCMonth();
   const expected = sameMonth ? 20000 + (start.getUTCDate() <= 12 ? 29900 : 0) : 0;
   if (n(after) - n(before) !== expected) throw new Error(`지출 반영 실패 ${before} → ${after} (기대 +${expected})`);
-  if (!(await page.locator(tid('home-recent')).innerText()).includes('공기청정기 렌탈')) throw new Error('최근 등록 미반영');
-  log('8 홈 반영: 지출', before, '→', after, '/ 최근 등록에 표시');
+  if (expected > 0) {
+    // 계약별 금액: 3줄 밖이면 "외 N건"을 펼쳐서 확인
+    if (await page.locator(tid('home-spending-more')).count()) await page.click(tid('home-spending-more'));
+    if (!(await page.locator(tid('home-spending')).innerText()).includes('공기청정기 렌탈')) throw new Error('계약별 금액 미반영');
+  }
+  log('8 홈 반영: 지출', before, '→', after, expected > 0 ? '/ 계약별 금액에 표시' : '');
   await page.click(tid('tab-contracts'));
   await page.waitForTimeout(400);
   if (!(await page.locator(tid('contracts-list')).innerText()).includes('공기청정기 렌탈')) throw new Error('목록 미반영');

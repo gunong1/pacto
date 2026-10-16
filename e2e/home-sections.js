@@ -1,7 +1,9 @@
 /**
- * 홈 — 데이터가 없는 섹션은 그리지 않는다 ("없어요" 카드 없음, 빈 여백 없음)
- * F 계약 0건 → 첫 등록 안내 유지 / A·C·E 확인 필요 0건 · 곧 종료 0건 → 두 섹션 모두 없음, 지출 → 내 계약으로 바로 이어짐
- * D 곧 종료(180일 이내) 1건 → 섹션 표시 / B 30일 안 일정 1건 → "지금 확인이 필요한 계약 1건" 표시
+ * 홈 대시보드 순서·빈 상태 (실제 데이터 모드) — 계약 현황 → 다가오는 일정 → 이번 달 계약 금액
+ * F 계약 0건 → 첫 등록 안내 유지
+ * A 계약 1건(결제 없음·2년 뒤 만료) → "1개의 계약을 관리 중이에요" · 상태 1/0/0 · 순서 · 일정 없음 문구 · 출금·입금 0원 · 반복 안내 문구 없음 · 가로 스크롤 없음
+ * D 100일 뒤 만료 계약 → 다가오는 일정에 계약명·D-day
+ * B 20일 뒤 만료 계약 → 가장 가까운 일정이 맨 위 · 종료 예정 1 · [종료 예정] → 계약 목록 · [전체 보기] → 캘린더
  * 사용: BASE_URL=http://localhost:8082 node e2e/home-sections.js
  */
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -57,29 +59,36 @@ const kst = (n) => {
     await page.waitForSelector(tid('home-first-run'), { timeout: 15000 });
     check('F', '계약 0건 → 첫 계약 등록 안내 유지', (await count('home-first-run')) === 1);
 
-    // A·C·E: 2년 뒤 끝나는 계약 1건 (결제 없음)
+    // A: 2년 뒤 끝나는 계약 1건 (결제 없음)
     await lease('먼 임대차', kst(-30), kst(700));
     const t = await body();
-    check('A', '확인 필요 0건 → "지금 확인이 필요한 계약" 섹션 없음', (await count('home-actions')) === 0 && !t.includes('지금 확인이 필요한 계약') && !t.includes('30일 안에 챙길'));
-    check('C', '곧 종료 0건 → "곧 종료·갱신되는 계약" 섹션 없음', (await count('home-ends')) === 0 && !t.includes('곧 종료·갱신되는 계약') && !t.includes('곧 끝나는 계약이 없어요'));
-    const managed = await page.locator(tid('home-managed')).boundingBox();
-    const spending = await page.locator(tid('home-spending')).boundingBox();
-    const summary = await page.locator(tid('home-summary')).boundingBox();
-    const gap1 = spending.y - (managed.y + managed.height);
-    const gap2 = summary.y - (spending.y + spending.height);
-    check('E', `두 섹션 모두 없음 → 관리 중 문구 → 지출 → 내 계약이 바로 이어짐 (간격 ${Math.round(gap1)}px · ${Math.round(gap2)}px)`, t.includes('내 계약 1개를 PACTO가 관리하고 있어요') && gap1 < 40 && gap2 < 40);
+    const y = async (id) => (await page.locator(tid(id)).boundingBox()).y;
+    check('A1', '"1개의 계약을 관리 중이에요" · 진행 중 1 · 종료 예정 0 · 갱신 예정 0', (await page.locator(tid('home-managed')).innerText()).includes('1개의 계약을 관리 중이에요') && (await page.locator(tid('home-status-live')).innerText()).startsWith('1') && (await page.locator(tid('home-status-ending_soon')).innerText()).startsWith('0') && (await page.locator(tid('home-status-renewal_due')).innerText()).startsWith('0'), t);
+    check('A2', '순서: 계약 현황 → 다가오는 일정 → 이번 달 계약 금액', (await y('home-summary')) < (await y('home-upcoming')) && (await y('home-upcoming')) < (await y('home-money')));
+    check('A3', '일정 없음 → "다가오는 계약 일정이 없어요." · 출금·입금 0원', (await count('home-upcoming-empty')) === 1 && (await page.locator(tid('home-spending-total')).innerText()).includes('₩0') && (await page.locator(tid('home-income-total')).innerText()).includes('₩0'));
+    check('A4', '반복 안내 문구 없음 ("모두 총 출금 예정에 포함" · "출금과 별도예요") · 예전 섹션 없음', !t.includes('모두 총 출금 예정에 포함') && !t.includes('출금과 별도예요') && (await count('home-actions')) === 0 && (await count('home-ends')) === 0 && (await count('home-recent')) === 0);
+    check('A5', '가로 스크롤 없음 (390px)', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     await page.screenshot({ path: path.join(SHOTS, 'home-01-empty-sections.png'), fullPage: true });
 
-    // D: 100일 뒤 끝나는 계약 → 곧 종료 섹션
+    // D: 100일 뒤 끝나는 계약 → 다가오는 일정
     await lease('곧 끝나는 임대차', kst(-300), kst(100));
-    const d = await body();
-    check('D', '곧 종료 1건 → "곧 종료·갱신되는 계약" 섹션 + 카드', (await count('home-ends')) === 1 && (await page.locator(tid('home-ends')).innerText()).includes('곧 끝나는 임대차') && (await count('home-actions')) === 0, d);
+    const d = await page.locator(tid('home-upcoming')).innerText();
+    check('D', '100일 뒤 만료 → 다가오는 일정에 "곧 끝나는 임대차" · D-day', d.includes('곧 끝나는 임대차') && /D-\d+/.test(d), d);
 
-    // B: 20일 뒤 끝나는 계약 → 지금 확인이 필요한 계약
+    // B: 20일 뒤 끝나는 계약 → 가장 가까운 일정이 맨 위
     await lease('이번 달 끝나는 임대차', kst(-300), kst(20));
-    const b = await page.locator(tid('home-actions')).innerText().catch(() => '');
-    check('B', '30일 안 일정 1건 → "지금 확인이 필요한 계약 1건" + 카드', b.includes('지금 확인이 필요한 계약 1건') && b.includes('이번 달 끝나는 임대차'), b);
+    const first = await page.locator(tid('home-upcoming-0')).innerText();
+    const ending = await page.locator(tid('home-status-ending_soon')).innerText();
+    check('B1', '가장 가까운 일정 맨 위 ("이번 달 끝나는 임대차") · 종료 예정 1 이상', first.includes('이번 달 끝나는 임대차') && Number(ending.trim().split(/\s/)[0]) >= 1, `${first} / ${ending}`);
     await page.screenshot({ path: path.join(SHOTS, 'home-02-with-sections.png'), fullPage: true });
+    await page.click(tid('home-status-ending_soon'));
+    await page.waitForTimeout(800);
+    check('B2', '[종료 예정] → 계약 목록', page.url().includes('/contracts'), page.url());
+    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await page.waitForSelector(tid('home-upcoming'));
+    await page.click(`${tid('home-upcoming')} >> text=전체 보기`);
+    await page.waitForSelector(tid('calendar-title'), { timeout: 10000 }).catch(() => undefined);
+    check('B3', '[전체 보기] → 캘린더', (await count('calendar-title')) === 1);
   } catch (e) {
     check('X', '예외 없음', false, e.message);
   }

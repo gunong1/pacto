@@ -79,9 +79,9 @@ const PDF = require('./cleanPdf')();
   await page.goto(`${BASE}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
   await page.waitForSelector(tid('home-spending-total'));
   const total = await text('home-spending-total');
-  const split = await text('home-outflow-split');
+  const split = await text('home-spending-lines');
   check('C1', '맞아요 → 홈 10월 총 출금 ₩5,769,000 (금액 재입력 없음)', total.includes('5,769,000'), total);
-  check('C2', '일반 지출 769,000 + 보증금 지급 5,000,000', split.includes('769,000') && split.includes('5,000,000'), split);
+  check('C2', '계약별 줄: 769,000 + 보증금 5,000,000', split.includes('769,000') && split.includes('5,000,000'), split);
   check('C3', '방향 확인 필요 안내 사라짐', (await page.locator(tid('home-undetermined')).count()) === 0);
   await shot('02-home');
 

@@ -1,12 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { partySummary } from '@/domain/parties';
 import { router } from "expo-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { LogoHorizontal } from "@/components/brand/Logo";
-import { ContractLine, DDay } from "@/components/pacto";
-import { FlowBreakdown } from "@/components/pacto/FlowBreakdown";
+import { DDay } from "@/components/pacto";
 import { AppText } from "@/components/ui/AppText";
 import { Button } from "@/components/ui/Button";
 import {
@@ -15,58 +13,51 @@ import {
   Section,
   SectionGap,
 } from "@/components/ui/layout";
-import { statusSummary, upcomingEnds } from "@/domain/actions";
-import { formatDateKo, yearMonthOf } from "@/domain/dates";
-import { kindDisplay } from "@/domain/contractKinds";
+import { statusSummary } from "@/domain/actions";
+import { formatDateKo, formatMonthDayKo, yearMonthOf } from "@/domain/dates";
 import { formatKRW, formatWonCompact } from "@/domain/money";
-import { attentionItems } from "@/domain/nextAction";
+import { flowCard, upcomingSchedule, type FlowCard } from "@/domain/homeView";
 import { likelyDuplicateGroups } from "@/domain/duplicates";
-import { monthSpending } from "@/domain/spending";
+import { monthSpending, type ContractFlowLine } from "@/domain/spending";
 import { useContracts, useToday } from "@/features/contracts/queries";
 import { DuplicateNotice } from "@/features/contracts/DuplicateNotice";
 import { RoleConfirmCard } from "@/features/contracts/RoleConfirmCard";
 import { colors, hitSlop, radius, spacing } from "@/theme";
 
 /**
- * 홈 — "내가 지금 확인하거나 처리해야 할 계약이 무엇인지 바로 알 수 있다."
- * 순서: 관리 중인 계약 수 → 지금 확인이 필요한 계약(강조) → 이번 달 실제 지출 → 곧 종료/갱신
- *       → 상태 요약 → 최근 등록 → (보조) 확인이 필요한 조항
+ * 홈 — 계약 관리 중심 대시보드.
+ * 순서: 내 계약 현황(상태 3칸) → 다가오는 일정(최대 3개) → 이번 달 계약 금액(출금·입금 카드, 계약별 금액) → (보조) 확인이 필요한 조항
+ * 계산은 모두 기존 함수 그대로 — statusSummary · scheduleForRange(캘린더와 같은 일정) · monthSpending (domain/homeView.ts는 고르고 묶기만)
  */
 export default function HomeScreen() {
   const today = useToday();
-  const { data: records, isLoading } = useContracts();
+  const { data: records, isLoading, isError, refetch } = useContracts();
 
   const view = useMemo(() => {
     if (!records) return null;
     const ym = yearMonthOf(today);
     const spending = monthSpending(records, ym, today);
-    const attention = attentionItems(records, today);
-    const ends = upcomingEnds(
-      records,
-      today,
-      new Set(attention.map((a) => a.contractId)),
-    ).slice(0, 4);
-    const recent = [...records]
-      .sort((a, b) => b.contract.createdAt.localeCompare(a.contract.createdAt))
-      .slice(0, 3);
     const openChecks = records.flatMap((r) =>
       r.aiChecks
         .filter((c) => c.status === "new" && c.severity !== "info")
         .map((c) => ({ c, r })),
     );
+    // 입금 중 예상 금액이 모두 근로계약에서 나온 경우만 "근로소득" 안내 (그 외 변동 입금은 일반 예상 안내)
+    const estimatedIncome = spending.incomeItems.filter((i) => i.estimated);
     return {
       ym,
       spending,
+      outCard: flowCard(spending.items),
+      inCard: flowCard(spending.incomeItems),
+      estimatedFromWork: estimatedIncome.length > 0 && estimatedIncome.every((i) => i.category === "employment"),
+      upcoming: upcomingSchedule(records, today, 3),
       duplicates: likelyDuplicateGroups(records),
-      attention,
-      ends,
       summary: statusSummary(records, today),
-      recent,
       openChecks,
     };
   }, [records, today]);
 
-  if (isLoading || !view) {
+  if (isLoading) {
     return (
       <Screen scroll={false}>
         <ActivityIndicator style={{ marginTop: 120 }} color={colors.primary} />
@@ -74,8 +65,27 @@ export default function HomeScreen() {
     );
   }
 
+  // 불러오지 못함 — 계약·일정이 없는 것처럼 보이지 않게
+  if (isError || !view) {
+    return (
+      <Screen>
+        <View style={styles.topBar}>
+          <LogoHorizontal height={24} />
+        </View>
+        <View style={{ padding: spacing.gutter }} testID="home-error">
+          <EmptyState
+            title="계약 정보를 불러오지 못했어요"
+            description="네트워크 연결을 확인한 뒤 다시 시도해주세요."
+            action={<Button label="다시 시도" size="md" onPress={() => refetch()} />}
+          />
+        </View>
+      </Screen>
+    );
+  }
+
   if (records && records.length === 0) return <FirstRunHome />;
 
+  const { summary, spending } = view;
   return (
     <Screen>
       <View style={styles.topBar}>
@@ -94,197 +104,31 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      {/* 0. 계약 지갑 정체성 */}
-      <Pressable
-        style={styles.wallet}
-        onPress={() => router.push("/contracts")}
-        accessibilityRole="button"
-        testID="home-managed"
-      >
-        <AppText variant="body2" color="textSecondary">
-          내 계약{" "}
-          <AppText variant="body2Strong" color="primary" tabular>
-            {view.summary.live}개
-          </AppText>
-          를 PACTO가 관리하고 있어요
+      {/* 1. 내 계약 현황 — 상태 계산은 기존 statusSummary 그대로 */}
+      <View style={styles.block} testID="home-summary">
+        <AppText variant="caption" color="textSecondary">
+          내 계약 현황
         </AppText>
-        <Ionicons
-          name="chevron-forward"
-          size={14}
-          color={colors.textTertiary}
-        />
-      </Pressable>
-
-      {/* 1. 지금 확인이 필요한 계약 — 홈의 최우선 영역. 없으면 섹션 자체를 그리지 않는다 (홈은 "없어요"를 설명하지 않음) */}
-      {view.attention.length > 0 ? (
-        <View style={styles.attention} testID="home-actions">
-          <View style={styles.attentionHead}>
-            <Ionicons name="alarm-outline" size={18} color={colors.primary} />
-            <AppText variant="title3" color="primary" style={{ flex: 1 }}>
-              지금 확인이 필요한 계약 {view.attention.length}건
-            </AppText>
-          </View>
-          <View style={styles.attentionList}>
-            {view.attention.slice(0, 4).map((a, i) => (
-              <Pressable
-                key={`${a.contractId}:${a.key}`}
-                onPress={() => router.push(`/contract/${a.contractId}`)}
-                accessibilityRole="button"
-                testID={`attention-${a.contractId}`}
-                style={({ pressed }) => [
-                  styles.attentionRow,
-                  i > 0 && styles.attentionDivider,
-                  pressed && { opacity: 0.6 },
-                ]}
-              >
-                <View style={{ flex: 1 }}>
-                  <AppText variant="bodyStrong" numberOfLines={1}>
-                    {a.contractTitle}
-                  </AppText>
-                  <AppText
-                    variant="caption"
-                    color="textSecondary"
-                    numberOfLines={1}
-                    style={{ marginTop: 2 }}
-                  >
-                    {a.label} · {formatDateKo(a.date)}
-                  </AppText>
-                </View>
-                <DDay days={a.days} variant="title2" />
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      ) : null}
-
-      {/* 2. 이번 달 현금흐름 — 홈·캘린더·상세가 같은 monthSpending (총 출금 = 일반 지출 + 보증금 지급) */}
-      <View style={styles.hero} testID="home-spending">
-        <AppText variant="body2" color="textSecondary">
-          {view.ym.month}월 총 출금 예정
+        <AppText variant="title2" style={{ marginTop: 2 }} testID="home-managed">
+          {summary.live > 0 ? `${summary.live}개의 계약을 관리 중이에요` : "진행 중인 계약이 없어요"}
         </AppText>
-        <AppText
-          variant="display"
-          tabular
-          style={{ marginTop: 4 }}
-          testID="home-spending-total"
-        >
-          {formatKRW(view.spending.total)}
-        </AppText>
-        {view.spending.hasEstimated ? (
-          <AppText
-            variant="caption"
-            color="textTertiary"
-            style={{ marginTop: 2 }}
-          >
-            통신비 등 변동 금액은 예상치예요
+        {summary.live === 0 && summary.closed > 0 ? (
+          <AppText variant="caption" color="textTertiary" style={{ marginTop: 2 }}>
+            종료된 계약 {summary.closed}개는 계약 목록에서 볼 수 있어요
           </AppText>
         ) : null}
-        {/* 총 출금 > 일반 지출·보증금 지급 > 계약 종류별 (하위는 상위에 포함 — monthSpending.outflow 그대로) */}
-        <FlowBreakdown summary={view.spending.outflow} testID="home-outflow-split" />
-        {/* 중복 등록 의심 — 합계에서 빼지 않고 확인만 요청 */}
-        <DuplicateNotice groups={view.duplicates} records={records!} />
-        {view.spending.autoExpense + view.spending.autoIncome > 0 ? (
-          // 과거 분석이 자동으로 정한 방향 — 합계에는 그대로 두고(갑자기 사라지지 않게) 확인을 권한다
-          <View style={{ marginTop: 6 }} testID="home-auto">
-            <AppText variant="caption" color="textSecondary">
-              {view.spending.autoExpense > 0 ? `출금 중 ${formatWonCompact(view.spending.autoExpense)}` : ''}
-              {view.spending.autoExpense > 0 && view.spending.autoIncome > 0 ? ' · ' : ''}
-              {view.spending.autoIncome > 0 ? `입금 중 ${formatWonCompact(view.spending.autoIncome)}` : ''}은 이전 분석이 자동으로 정한 금액이에요. 내 역할을 확인하면 확정돼요.
-            </AppText>
-            {[...new Set([...view.spending.items, ...view.spending.incomeItems].filter((i) => i.auto).map((i) => i.contractId))].slice(0, 3).map((cid) => {
-              const record = records!.find((r) => r.contract.id === cid);
-              const amount = [...view.spending.items, ...view.spending.incomeItems].filter((i) => i.auto && i.contractId === cid).reduce((s, i) => s + i.amount, 0);
-              return record ? <RoleConfirmCard key={cid} record={record} amount={amount} mode="auto" /> : null;
-            })}
-          </View>
-        ) : null}
-        {view.spending.undeterminedTotal > 0 ? (
-          // 방향을 모르는 금액은 합계에서 빼지만, 금액이 없는 것처럼 보이지 않게 — 역할을 한 번 확인하면 관련 금액이 모두 정리된다
-          <View style={{ marginTop: 6 }} testID="home-undetermined">
-            <AppText variant="caption" color="caution">
-              계약 금액 {formatWonCompact(view.spending.undeterminedTotal)}의 입출금 방향을 확인해주세요. 확인 전에는 합계에 넣지 않았어요.
-            </AppText>
-            {/* 계약마다 추천 역할 확인 (최대 3개) — 확인하면 관련 금액이 모두 정리된다 */}
-            {[...new Set(view.spending.undetermined.map((i) => i.contractId))].slice(0, 3).map((cid) => {
-              const record = records!.find((r) => r.contract.id === cid);
-              const amount = view.spending.undetermined.filter((i) => i.contractId === cid).reduce((s, i) => s + i.amount, 0);
-              return record ? <RoleConfirmCard key={cid} record={record} amount={amount} /> : null;
-            })}
-          </View>
-        ) : null}
-
-        {/* 이번 달 계약 수입 — 지출과 같은 monthSpending(실제 입금 예정월 기준) */}
-        {view.spending.incomeTotal > 0 ? (
-          <View style={styles.income} testID="home-income">
-            <AppText variant="body2" color="textSecondary">
-              {view.ym.month}월 총 입금 예정
-            </AppText>
-            <AppText
-              variant="title2"
-              tabular
-              style={{ marginTop: 2 }}
-              testID="home-income-total"
-            >
-              +{formatKRW(view.spending.incomeTotal)}
-            </AppText>
-            <AppText variant="caption" color="textTertiary">
-              출금과 별도예요
-            </AppText>
-            {view.spending.incomeEstimated > 0 ? (
-              <AppText variant="caption" color="textTertiary" testID="home-income-estimated">
-                시급·일급 등 예상 수입 {formatKRW(view.spending.incomeEstimated)} 포함 — 세전 기본급 추정이라 실제 수령액과 달라요
-              </AppText>
-            ) : null}
-            <FlowBreakdown summary={view.spending.inflow} testID="home-income-split" />
-          </View>
-        ) : null}
-      </View>
-
-      {/* 3. 곧 종료/갱신되는 계약 — 없으면 섹션과 위 구분선까지 그리지 않는다 */}
-      {view.ends.length > 0 ? (
-        <>
-          <SectionGap />
-          <Section
-            title="곧 종료·갱신되는 계약"
-            caption="180일 이내 · 해지 통보기한 포함"
-            testID="home-ends"
-          >
-            {view.ends.map((e) => (
-              <ContractLine
-                key={e.contractId}
-                category={e.category}
-                title={e.contractTitle}
-                subtitle={`${e.autoRenewal ? "자동갱신" : "만료"} ${formatDateKo(e.date)}${e.noticeDate ? ` · 해지 통보 ${formatDateKo(e.noticeDate)}까지` : ""}`}
-                right={<DDay days={e.days} variant="body2Strong" />}
-                onPress={() => router.push(`/contract/${e.contractId}`)}
-              />
-            ))}
-          </Section>
-        </>
-      ) : null}
-
-      <SectionGap />
-
-      {/* 4. 계약 상태 요약 */}
-      <Section title="내 계약" testID="home-summary">
-        <View style={styles.summary}>
+        <View style={styles.statusRow}>
           {[
-            { label: "진행중", value: view.summary.live, status: "live" },
-            {
-              label: "종료 예정",
-              value: view.summary.endingSoon,
-              status: "ending_soon",
-            },
-            {
-              label: "갱신 예정",
-              value: view.summary.renewalDue,
-              status: "renewal_due",
-            },
+            { label: "진행 중", value: summary.live, status: "live" },
+            { label: "종료 예정", value: summary.endingSoon, status: "ending_soon" },
+            { label: "갱신 예정", value: summary.renewalDue, status: "renewal_due" },
           ].map((s) => (
             <Pressable
               key={s.status}
-              style={styles.summaryItem}
+              style={({ pressed }) => [styles.statusCard, pressed && { backgroundColor: colors.bgPressed }]}
               accessibilityRole="button"
+              accessibilityLabel={`${s.label} ${s.value}개`}
+              testID={`home-status-${s.status}`}
               onPress={() =>
                 router.push({
                   pathname: "/contracts",
@@ -295,57 +139,108 @@ export default function HomeScreen() {
               <AppText variant="title2" tabular>
                 {s.value}
               </AppText>
-              <AppText variant="caption" color="textTertiary">
+              <AppText variant="caption" color="textTertiary" numberOfLines={1}>
                 {s.label}
               </AppText>
             </Pressable>
           ))}
         </View>
-      </Section>
+      </View>
 
       <SectionGap />
 
-      {/* 5. 최근 등록 계약 */}
+      {/* 2. 다가오는 일정 — 캘린더와 같은 일정·묶음 (지급일 휴일 규칙 반영된 날짜 그대로) */}
       <Section
-        title="최근 등록"
-        action={{
-          label: "전체 보기",
-          onPress: () => router.push("/contracts"),
-        }}
-        testID="home-recent"
+        title="다가오는 일정"
+        action={{ label: "전체 보기 ›", onPress: () => router.push("/calendar") }}
+        testID="home-upcoming"
       >
-        {view.recent.length === 0 ? (
-          <EmptyState
-            title="아직 등록한 계약이 없어요"
-            description="계약서를 넣어두면 결제일과 만료일을 대신 기억해드려요."
-            action={
-              <Button
-                label="계약 등록하기"
-                size="md"
-                onPress={() => router.push("/register")}
-              />
-            }
-          />
+        {view.upcoming.length === 0 ? (
+          <AppText variant="body2" color="textTertiary" style={{ paddingVertical: spacing.sm }} testID="home-upcoming-empty">
+            다가오는 계약 일정이 없어요.
+          </AppText>
         ) : (
-          view.recent.map(({ contract }) => (
-            <ContractLine
-              key={contract.id}
-              category={contract.category}
-              title={contract.title}
-              subtitle={[
-                partySummary(contract),
-                kindDisplay(contract).label,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-              onPress={() => router.push(`/contract/${contract.id}`)}
-              testID={`recent-${contract.id}`}
-            />
+          view.upcoming.map((u, i) => (
+            <Pressable
+              key={u.key}
+              onPress={() => router.push(`/contract/${u.contractId}`)}
+              accessibilityRole="button"
+              testID={`home-upcoming-${i}`}
+              style={({ pressed }) => [styles.upRow, i > 0 && styles.divider, pressed && { opacity: 0.6 }]}
+            >
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <AppText variant="bodyStrong" numberOfLines={1}>
+                  {u.contractTitle}
+                </AppText>
+                <AppText variant="caption" color="textSecondary" numberOfLines={1} style={{ marginTop: 2 }}>
+                  {u.label} · {u.date.slice(0, 4) === today.slice(0, 4) ? formatMonthDayKo(u.date) : formatDateKo(u.date)}
+                </AppText>
+              </View>
+              <DDay days={u.days} variant="body2Strong" />
+            </Pressable>
           ))
         )}
       </Section>
 
-      {/* 6. (보조) 확인이 필요한 조항 */}
+      <SectionGap />
+
+      {/* 3. 이번 달 계약 금액 — 총액·계약별 줄 모두 monthSpending 같은 항목에서 (줄의 합 = 총액) */}
+      <Section
+        title={`${view.ym.month}월 계약 금액`}
+        action={{ label: "상세 보기 ›", onPress: () => router.push("/calendar") }}
+        testID="home-money"
+      >
+        <FlowCardView
+          kind="out"
+          card={view.outCard}
+          note={spending.hasEstimated ? "변동 금액은 예상치예요" : null}
+          testID="home-spending"
+        />
+        <View style={{ height: spacing.md }} />
+        <FlowCardView
+          kind="in"
+          card={view.inCard}
+          note={
+            spending.incomeEstimated > 0
+              ? view.estimatedFromWork
+                ? "세전 추정 근로소득이 포함되어 있어요. 실제 수령액과 다를 수 있습니다."
+                : "예상 금액이 포함되어 있어요. 실제 금액과 다를 수 있습니다."
+              : null
+          }
+          testID="home-income"
+        />
+
+        {/* 확인이 필요한 금액 — 합계에 넣지 않았거나 자동 판단인 금액은 짧게 알리고 바로 확인 */}
+        <DuplicateNotice groups={view.duplicates} records={records!} />
+        {spending.autoExpense + spending.autoIncome > 0 ? (
+          <View style={{ marginTop: spacing.md }} testID="home-auto">
+            <AppText variant="caption" color="textSecondary">
+              {spending.autoExpense > 0 ? `출금 중 ${formatWonCompact(spending.autoExpense)}` : ''}
+              {spending.autoExpense > 0 && spending.autoIncome > 0 ? ' · ' : ''}
+              {spending.autoIncome > 0 ? `입금 중 ${formatWonCompact(spending.autoIncome)}` : ''}은 이전 분석이 자동으로 정한 금액이에요. 내 역할을 확인하면 확정돼요.
+            </AppText>
+            {[...new Set([...spending.items, ...spending.incomeItems].filter((i) => i.auto).map((i) => i.contractId))].slice(0, 3).map((cid) => {
+              const record = records!.find((r) => r.contract.id === cid);
+              const amount = [...spending.items, ...spending.incomeItems].filter((i) => i.auto && i.contractId === cid).reduce((s, i) => s + i.amount, 0);
+              return record ? <RoleConfirmCard key={cid} record={record} amount={amount} mode="auto" /> : null;
+            })}
+          </View>
+        ) : null}
+        {spending.undeterminedTotal > 0 ? (
+          <View style={{ marginTop: spacing.md }} testID="home-undetermined">
+            <AppText variant="caption" color="caution">
+              계약 금액 {formatWonCompact(spending.undeterminedTotal)}의 입출금 방향을 확인해주세요. 확인 전에는 합계에 넣지 않았어요.
+            </AppText>
+            {[...new Set(spending.undetermined.map((i) => i.contractId))].slice(0, 3).map((cid) => {
+              const record = records!.find((r) => r.contract.id === cid);
+              const amount = spending.undetermined.filter((i) => i.contractId === cid).reduce((s, i) => s + i.amount, 0);
+              return record ? <RoleConfirmCard key={cid} record={record} amount={amount} /> : null;
+            })}
+          </View>
+        ) : null}
+      </Section>
+
+      {/* (보조) 확인이 필요한 조항 */}
       {view.openChecks.length > 0 ? (
         <Pressable
           style={({ pressed }) => [
@@ -362,7 +257,7 @@ export default function HomeScreen() {
             size={18}
             color={colors.textSecondary}
           />
-          <AppText variant="body2" color="textSecondary" style={{ flex: 1 }}>
+          <AppText variant="body2" color="textSecondary" style={{ flex: 1 }} numberOfLines={1}>
             확인이 필요한 조항 {view.openChecks.length}건 ·{" "}
             {view.openChecks[0].r.contract.title}
           </AppText>
@@ -374,6 +269,82 @@ export default function HomeScreen() {
         </Pressable>
       ) : null}
     </Screen>
+  );
+}
+
+const NATURE_NOTE: Record<ContractFlowLine["nature"], string | null> = { ordinary: null, deposit: "보증금", principal: "원금 상환" };
+
+/** 출금·입금 카드 — 총액 + 계약별 금액 (최대 3줄, 나머지는 "외 N건"으로 펼치기) */
+function FlowCardView({ kind, card, note, testID }: { kind: "out" | "in"; card: FlowCard; note: string | null; testID: string }) {
+  const [open, setOpen] = useState(false);
+  const income = kind === "in";
+  const lines = open ? card.lines : card.shown;
+  return (
+    <View style={styles.moneyCard} testID={testID}>
+      <View style={styles.moneyHead}>
+        <Ionicons name={income ? "arrow-down-circle" : "arrow-up-circle"} size={16} color={income ? colors.positive : colors.primary} />
+        <AppText variant="captionStrong" color="textSecondary">
+          {income ? "입금 예정" : "출금 예정"}
+        </AppText>
+      </View>
+      <AppText
+        variant="title1"
+        tabular
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        color={income && card.total > 0 ? "positive" : "text"}
+        style={{ marginTop: 4 }}
+        testID={`${testID === "home-spending" ? "home-spending" : "home-income"}-total`}
+      >
+        {income && card.total > 0 ? "+" : ""}
+        {formatKRW(card.total)}
+      </AppText>
+      {card.lines.length === 0 ? (
+        <AppText variant="caption" color="textTertiary" style={{ marginTop: 4 }}>
+          이번 달 {income ? "입금" : "출금"} 예정이 없어요
+        </AppText>
+      ) : (
+        <View style={styles.moneyLines} testID={`${testID}-lines`}>
+          {lines.map((l, i) => {
+            const sub = [l.kindLabel, NATURE_NOTE[l.nature], l.estimated ? "예상" : null].filter(Boolean).join(" · ");
+            return (
+              <View key={l.key} style={styles.moneyLine} testID={`${testID}-line-${i}`}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <AppText variant="body2Strong" numberOfLines={1}>
+                    {l.contractTitle}
+                  </AppText>
+                  <AppText variant="small" color="textTertiary" numberOfLines={1}>
+                    {sub}
+                  </AppText>
+                </View>
+                <AppText variant="body2Strong" tabular numberOfLines={1} style={{ flexShrink: 0 }}>
+                  {formatKRW(l.amount)}
+                </AppText>
+              </View>
+            );
+          })}
+          {card.rest.count > 0 ? (
+            <Pressable
+              onPress={() => setOpen((o) => !o)}
+              accessibilityRole="button"
+              hitSlop={hitSlop}
+              style={styles.more}
+              testID={`${testID}-more`}
+            >
+              <AppText variant="caption" color="textSecondary">
+                {open ? "접기" : `외 ${card.rest.count}건 · ${formatKRW(card.rest.amount)} 더 보기`}
+              </AppText>
+              <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color={colors.textTertiary} />
+            </Pressable>
+          ) : null}
+        </View>
+      )}
+      {note ? (
+        <AppText variant="small" color="textTertiary" style={{ marginTop: spacing.sm }} testID={`${testID}-note`}>
+          {note}
+        </AppText>
+      ) : null}
+    </View>
   );
 }
 
@@ -449,56 +420,47 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xs,
     height: 48,
   },
-  wallet: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+  block: {
     paddingHorizontal: spacing.gutter,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
   },
-  attention: {
-    marginHorizontal: spacing.gutter,
-    marginTop: spacing.lg,
-    padding: spacing.lg,
-    borderRadius: radius.xl,
-    backgroundColor: colors.primarySoft,
-  },
-  attentionHead: {
-    flexDirection: "row",
+  statusRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+  statusCard: {
+    flex: 1,
     alignItems: "center",
-    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgSubtle,
+    gap: 2,
   },
-  attentionList: { marginTop: spacing.sm },
-  attentionRow: {
+  upRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
     paddingVertical: spacing.md,
   },
-  attentionDivider: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#D5DDEA",
-  },
-  hero: {
-    paddingHorizontal: spacing.gutter,
-    paddingTop: spacing.xxl,
-    paddingBottom: spacing.xxl,
-  },
-  income: {
-    marginTop: spacing.lg,
-    paddingTop: spacing.lg,
+  divider: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
-  breakdown: { marginTop: spacing.xl, gap: 6 },
-  breakdownRow: { flexDirection: "row", justifyContent: "space-between" },
-  summary: { flexDirection: "row" },
-  summaryItem: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: spacing.sm,
-    gap: 2,
+  moneyCard: {
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
   },
+  moneyHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  moneyLines: {
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    gap: spacing.sm,
+  },
+  moneyLine: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  more: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingVertical: 2 },
   checkLink: {
     flexDirection: "row",
     alignItems: "center",

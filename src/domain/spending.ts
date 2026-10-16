@@ -127,6 +127,35 @@ export function flowSummary(items: readonly SpendingItem[], direction: FlowSumma
   return { direction, total: sum(mine), groups };
 }
 
+/** 계약별 금액 한 줄 (홈 카드) — 같은 계약이라도 돈의 성격(일반·보증금·원금 상환)이 다르면 줄을 나눈다 */
+export interface ContractFlowLine {
+  key: string;
+  contractId: string;
+  contractTitle: string;
+  kindLabel: string;
+  category: ContractCategory;
+  nature: FlowGroup['nature'];
+  amount: number;
+  /** 이 줄에 예상(변동) 금액이 들어 있음 */
+  estimated: boolean;
+}
+/**
+ * 방향 하나의 항목(monthSpending.items / incomeItems)을 계약별로 묶는다 — 금액은 다시 계산하지 않고 그대로 더하기만.
+ * Σ amount = 같은 목록의 합계 (총액과 항상 같다). 큰 금액 순.
+ */
+export function contractFlowLines(items: readonly SpendingItem[]): ContractFlowLine[] {
+  const map = new Map<string, ContractFlowLine>();
+  for (const i of items) {
+    const nature = natureOfItem(i);
+    const key = `${i.contractId}|${nature}`;
+    const line = map.get(key) ?? { key, contractId: i.contractId, contractTitle: i.contractTitle, kindLabel: i.kindLabel, category: i.category, nature, amount: 0, estimated: false };
+    line.amount += i.amount;
+    line.estimated ||= i.estimated;
+    map.set(key, line);
+  }
+  return [...map.values()].sort((a, b) => b.amount - a.amount || a.contractTitle.localeCompare(b.contractTitle));
+}
+
 /** 기간 안의 돈이 오가는 일정 (결제·보증금 지급·반환) — 캘린더와 같은 목록 */
 export function cashItems(records: ContractRecord[], start: ISODate, end: ISODate, today: ISODate = start): SpendingItem[] {
   return records.flatMap((record) => {

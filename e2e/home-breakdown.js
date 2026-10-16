@@ -1,7 +1,7 @@
 /**
  * 홈 월별 출금 요약 계층 + 중복 등록 안내 (실제 데이터 모드 + 서버 mock 임대차, 모든 값은 가짜)
- * A 임대차(임차인) 등록 → 홈 10월: 총 출금 ₩20,950,000 > 일반 지출 950,000 (종류별 들여쓰기) · 보증금 지급 20,000,000
- *   하위 줄은 상위 줄보다 들여써짐 · "모두 총 출금 예정에 포함" 안내 · 캘린더와 같은 총액
+ * A 임대차(임차인) 등록 → 홈 10월: 총 출금 ₩20,950,000 > 계약별 줄: 보증금 20,000,000 · 월세 등 950,000 (같은 계약도 보증금 줄은 따로)
+ *   줄의 합 = 총액 · 반복 안내 문구 없음 · 캘린더와 같은 총액
  * B 같은 계약서를 한 번 더 등록 → "같은 계약이 2번 등록된 것 같아요" · 합계는 둘 다 포함(₩41,900,000) · 두 계약 링크
  * C "중복 아니에요" → 안내 숨김 → 앱 다시 열어도 숨김 · 합계 그대로
  * 사용: BASE_URL=http://localhost:8082 node e2e/home-breakdown.js
@@ -67,13 +67,11 @@ const PDF = require('./cleanPdf')();
   await register();
   await home();
   const total = await text('home-spending-total');
-  const split = await text('home-outflow-split');
+  const split = await text('home-spending-lines');
+  const won = (t) => [...t.matchAll(/₩([\d,]+)/g)].map((m) => Number(m[1].replace(/,/g, '')));
   check('A1', '총 출금 ₩20,950,000', total.includes('20,950,000'), total);
-  check('A2', '"아래 금액은 모두 총 출금 예정에 포함돼요" · 일반 지출 950,000 · 보증금 지급 20,000,000', split.includes('모두 총 출금 예정에 포함') && (await text('home-outflow-split-ordinary')).includes('일반 지출') && (await text('home-outflow-split-ordinary')).includes('950,000') && (await text('home-outflow-split-deposit')).includes('보증금 지급') && (await text('home-outflow-split-deposit')).includes('20,000,000'), split);
-  const groupBox = await page.locator(`${tid('home-outflow-split-ordinary')} >> text=일반 지출`).boundingBox();
-  const lineBox = await page.locator(tid('home-outflow-split-ordinary-line-0')).boundingBox();
-  check('A3', '종류별 줄은 들여쓰기 (상위 항목보다 오른쪽에서 시작)', !!groupBox && !!lineBox && lineBox.x > groupBox.x + 8, `${JSON.stringify(groupBox)} ${JSON.stringify(lineBox)}`);
-  check('A4', '보증금 아래에도 종류별 줄 (20,000,000)', (await text('home-outflow-split-deposit-line-0')).includes('20,000,000'));
+  check('A2', '계약별 줄: 보증금 20,000,000 (보증금 표시) · 950,000 · 반복 안내 없음', (await text('home-spending-line-0')).includes('20,000,000') && (await text('home-spending-line-0')).includes('보증금') && split.includes('950,000') && !(await text('home-spending')).includes('모두 총 출금 예정에 포함'), split);
+  check('A3', '줄의 합 = 총액 (20,950,000)', won(split).reduce((a, b) => a + b, 0) === 20_950_000, split);
   check('A5', '중복 안내 없음 (계약 하나)', (await count('home-duplicates')) === 0);
   await shot('01-one');
   await page.goto(`${BASE}/calendar?date=2026-10-20&t=${Date.now()}`, { waitUntil: 'networkidle' });
@@ -87,7 +85,8 @@ const PDF = require('./cleanPdf')();
   check('B1', '같은 계약서를 다시 등록해도 합계에서 빼지 않음: ₩41,900,000', t2.includes('41,900,000'), t2);
   const dup = (await count('home-duplicate')) ? await text('home-duplicate') : '';
   check('B2', '"같은 계약이 2번 등록된 것 같아요" + 두 계약 링크 + 중복 아니에요', dup.includes('같은 계약이 2번 등록된 것 같아요') && (await count('home-duplicate-open-0')) === 1 && (await count('home-duplicate-open-1')) === 1 && dup.includes('중복 아니에요'), dup);
-  check('B3', '보증금 줄: 계약 2개', (await text('home-outflow-split-deposit-line-0')).includes('계약 2개'));
+  const lines2 = await text('home-spending-lines');
+  check('B3', '같은 이름 계약 2개도 따로 줄 (3줄 + 외 1건)', (await count('home-spending-line-2')) === 1 && (await text('home-spending-more')).includes('외 1건'), lines2);
   await shot('02-duplicate');
 
   // C
