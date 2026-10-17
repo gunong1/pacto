@@ -136,6 +136,7 @@ const TITLE = '잠금확인용 임대차';
   // 잠금 화면이 띄우는 자동 인증을 취소한 상태로 확인 (성공이면 바로 풀린다)
   await fakeAuth({ next: { ok: false, reason: 'cancel' }, calls: 0 });
   await away();
+  await page.waitForTimeout(800); // 화면이 올라온 뒤 0.5초 기다렸다가 자동 인증
   const autoPrompted = (await calls()) === 1;
   const lockedC = await isLocked();
   const textC = await visibleText();

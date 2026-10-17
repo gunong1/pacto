@@ -6,7 +6,7 @@ import { create } from 'zustand';
 
 import { DEFAULT_LOCK_GRACE, parseLockGrace, shouldLockOnReturn, type DeviceAuthResult, type LockGrace } from '@/domain/appLock';
 
-import { authenticateDevice } from './deviceAuth';
+import { authenticateDevice, cancelDeviceAuth } from './deviceAuth';
 import { __resetExternalActivityForTest, externalActivityInProgress } from './externalActivity';
 
 export { withoutAppLock } from './externalActivity';
@@ -109,16 +109,38 @@ export function onAppStateChange(next: string, now = Date.now()) {
   if (lock) set({ locked: true });
 }
 
+/** 인증 창이 이 시간 안에 답하지 않으면 멈춘 것으로 보고 취소한다 (다시 시도할 수 있게) */
+export const AUTH_TIMEOUT_MS = 60_000;
+/** 진행 중인 인증 요청 번호 — 새 요청이 오면 이전 요청은 결과를 버린다 */
+let authSeq = 0;
+
+/**
+ * 기기 인증. 이미 진행 중이면 이전 요청을 취소하고 새로 띄운다
+ * (잠금화면 알림으로 들어올 때처럼 앱이 화면에 오르기 전에 띄운 창은 OS가 답하지 않을 수 있어, 멈춘 채로 두지 않는다).
+ */
 async function authenticate(prompt: string): Promise<DeviceAuthResult> {
-  if (get().authenticating) return { ok: false, reason: 'cancel' };
+  const seq = ++authSeq;
+  if (get().authenticating) await cancelDeviceAuth();
   set({ authenticating: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await authenticateDevice(prompt);
+    const timeout = new Promise<DeviceAuthResult>((resolve) => {
+      timer = setTimeout(() => {
+        cancelDeviceAuth();
+        resolve({ ok: false, reason: 'cancel' });
+      }, AUTH_TIMEOUT_MS);
+    });
+    const r = await Promise.race([authenticateDevice(prompt), timeout]);
+    // 더 새 요청이 있으면 이 결과는 쓰지 않는다 (성공도 무시 — 새 요청 결과로 판단)
+    return seq === authSeq ? r : { ok: false, reason: 'cancel' };
   } finally {
-    // 인증 창이 닫히며 오는 active 이벤트를 무시한 뒤 풀어 준다
-    leftAt = null;
-    leftForExternal = false;
-    set({ authenticating: false });
+    clearTimeout(timer);
+    if (seq === authSeq) {
+      // 인증 창이 닫히며 오는 active 이벤트를 무시한 뒤 풀어 준다
+      leftAt = null;
+      leftForExternal = false;
+      set({ authenticating: false });
+    }
   }
 }
 
@@ -165,5 +187,6 @@ export function __resetAppLockForTest() {
   leftForExternal = false;
   __resetExternalActivityForTest();
   loading = null;
+  authSeq = 0;
   set({ ready: false, enabled: false, grace: DEFAULT_LOCK_GRACE, locked: false, authenticating: false });
 }

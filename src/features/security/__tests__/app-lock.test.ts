@@ -20,16 +20,18 @@ jest.mock('expo-screen-capture', () => ({
   disableAppSwitcherProtectionAsync: jest.fn(async () => undefined),
 }));
 const mockAuth: { next: DeviceAuthResult; calls: number; during?: () => void } = { next: { ok: true }, calls: 0 };
+const mockCancel = { calls: 0 };
 jest.mock('../deviceAuth', () => ({
   authenticateDevice: jest.fn(async () => {
     mockAuth.calls++;
     mockAuth.during?.();
     return mockAuth.next;
   }),
+  cancelDeviceAuth: jest.fn(async () => void mockCancel.calls++),
 }));
 
 // eslint-disable-next-line import/first
-import { __resetAppLockForTest, loadAppLock, onAppStateChange, resetAppLock, setAppLockEnabled, setAppLockGrace, unlockApp, useAppLock, withoutAppLock } from '../appLock';
+import { __resetAppLockForTest, AUTH_TIMEOUT_MS, loadAppLock, onAppStateChange, resetAppLock, setAppLockEnabled, setAppLockGrace, unlockApp, useAppLock, withoutAppLock } from '../appLock';
 
 const base = { enabled: true, grace: 'immediate' as const, leftAt: 1_000, now: 1_000, external: false };
 
@@ -213,16 +215,48 @@ describe('상태 흐름', () => {
     expect(mockStore.size).toBe(0);
   });
 
-  test('인증 창이 이미 떠 있으면 두 번째 요청은 띄우지 않음', async () => {
+  test('인증 창이 응답 없이 멈춰도 [잠금 해제]를 다시 누르면 이전 요청을 취소하고 새로 띄운다 (잠금화면 알림 진입)', async () => {
     mockStore.set('pacto.appLock.enabled', '1');
     await loadAppLock();
-    let release!: () => void;
+    mockCancel.calls = 0;
     const auth = jest.requireMock('../deviceAuth') as { authenticateDevice: jest.Mock };
-    auth.authenticateDevice.mockImplementationOnce(() => new Promise((r) => (release = () => r({ ok: true }))));
-    const first = unlockApp();
-    expect(await unlockApp()).toEqual({ ok: false, reason: 'cancel' });
-    release();
-    await first;
-    expect(useAppLock.getState().locked).toBe(false);
+    auth.authenticateDevice.mockImplementationOnce(() => new Promise(() => undefined)); // OS가 답하지 않음
+    const stuck = unlockApp();
+    expect(useAppLock.getState().authenticating).toBe(true);
+    // 다시 누름 → 이전 요청 취소 + 새 인증 성공 → 풀림
+    expect(await unlockApp()).toEqual({ ok: true });
+    expect(mockCancel.calls).toBe(1);
+    expect(useAppLock.getState()).toMatchObject({ locked: false, authenticating: false });
+    void stuck;
+  });
+
+  test('응답 없는 인증은 시간이 지나면 취소되어 다시 시도할 수 있다 (계속 잠김 유지)', async () => {
+    mockStore.set('pacto.appLock.enabled', '1');
+    await loadAppLock();
+    jest.useFakeTimers();
+    try {
+      const auth = jest.requireMock('../deviceAuth') as { authenticateDevice: jest.Mock };
+      auth.authenticateDevice.mockImplementationOnce(() => new Promise(() => undefined));
+      const p = unlockApp();
+      jest.advanceTimersByTime(AUTH_TIMEOUT_MS);
+      expect(await p).toEqual({ ok: false, reason: 'cancel' });
+      expect(useAppLock.getState()).toMatchObject({ locked: true, authenticating: false });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('이전 요청이 나중에 성공으로 끝나도 새 요청 결과로만 판단한다', async () => {
+    mockStore.set('pacto.appLock.enabled', '1');
+    await loadAppLock();
+    let releaseOld!: () => void;
+    const auth = jest.requireMock('../deviceAuth') as { authenticateDevice: jest.Mock };
+    auth.authenticateDevice.mockImplementationOnce(() => new Promise((r) => (releaseOld = () => r({ ok: true }))));
+    const old = unlockApp();
+    mockAuth.next = { ok: false, reason: 'cancel' };
+    await unlockApp();
+    releaseOld();
+    expect(await old).toEqual({ ok: false, reason: 'cancel' });
+    expect(useAppLock.getState().locked).toBe(true);
   });
 });

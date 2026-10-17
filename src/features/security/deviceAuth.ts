@@ -73,6 +73,12 @@ export async function authenticateDevice(promptMessage: string): Promise<DeviceA
   }
 }
 
+/** 떠 있는(또는 응답 없이 멈춘) 기기 인증 요청을 취소 — Android에서만 지원, 그 밖은 아무 일도 하지 않음 */
+export async function cancelDeviceAuth(): Promise<void> {
+  if (fake() || Platform.OS !== 'android') return;
+  await LocalAuthentication.cancelAuthenticate().catch(() => undefined);
+}
+
 /** 기기 화면 잠금 설정으로 이동 (Android: 보안 설정, iOS: 앱 설정 — iOS는 암호 설정 화면을 직접 열 수 없다) */
 export function openDeviceLockSettings() {
   if (Platform.OS === 'android') {
